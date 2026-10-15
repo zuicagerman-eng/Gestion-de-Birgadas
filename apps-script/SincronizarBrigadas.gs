@@ -5,6 +5,14 @@
  * Las hojas de HOJAS_A_COPIAR quedan IDÉNTICAS a las del origen: datos, colores,
  * desplegables, casillas, anchos de columna y filas. Sin IMPORTRANGE ni enlaces.
  * En la actualización automática solo se reemplaza una hoja si cambió algo en el origen.
+ *
+ * SEGUROS:
+ *  - Si el archivo origen se borra, está en la papelera o no se puede abrir: no se toca nada.
+ *  - Si una hoja del origen pierde de golpe más de MAXIMA_REDUCCION de su información
+ *    (borrado masivo), esa hoja NO se copia y se avisa.
+ *  - Antes del primer cambio de cada día se guarda una copia completa del 2.0 en la carpeta
+ *    CARPETA_RESPALDOS de Drive (se guardan los últimos DIAS_RESPALDO). Se restaura desde
+ *    el menú: 🔄 Sincronización → Restaurar desde un respaldo.
  */
 
 // ID del archivo ORIGEN (el de la info actualizada). Es la parte de la URL entre /d/ y /edit
@@ -12,6 +20,13 @@ const ID_ORIGEN = 'PEGA_AQUI_EL_ID_DEL_ARCHIVO_ORIGEN';
 
 // Cada cuántas horas se actualiza solo (1, 2, 4, 6, 8 o 12)
 const CADA_HORAS = 1;
+
+// Si una hoja del origen queda con menos del 70 % de los datos que tiene hoy el 2.0, no se copia
+const MAXIMA_REDUCCION = 0.3;
+
+// Respaldos diarios del 2.0
+const CARPETA_RESPALDOS = 'Respaldos Gestion de Brigadas 2.0';
+const DIAS_RESPALDO = 30;
 
 // Hojas que se traen completas del origen (mismo nombre en ambos archivos)
 const HOJAS_A_COPIAR = [
@@ -30,6 +45,9 @@ function onOpen() {
     .addItem('Activar actualización automática', 'activarAutomatico')
     .addItem('Desactivar actualización automática', 'desactivarAutomatico')
     .addItem('Ver resultado de la última sincronización', 'verUltimoResultado')
+    .addSeparator()
+    .addItem('Sincronizar aceptando un borrado grande', 'sincronizarAceptandoBorrado')
+    .addItem('Restaurar desde un respaldo', 'restaurarRespaldo')
     .addToUi();
 }
 
@@ -51,7 +69,14 @@ function desactivarAutomatico_() {
 }
 
 function sincronizarAhora() {
-  SpreadsheetApp.getUi().alert('Sincronización terminada\n\n' + sincronizar_(true).resumen);
+  SpreadsheetApp.getUi().alert('Sincronización terminada\n\n' + sincronizar_(true, false).resumen);
+}
+
+function sincronizarAceptandoBorrado() {
+  const ui = SpreadsheetApp.getUi();
+  const ok = ui.alert('¿Seguro?', 'Se copiarán las hojas aunque en el origen se haya borrado mucha información ' +
+    '(antes se guarda un respaldo).', ui.ButtonSet.YES_NO);
+  if (ok === ui.Button.YES) ui.alert('Sincronización terminada\n\n' + sincronizar_(true, true).resumen);
 }
 
 function verUltimoResultado() {
@@ -63,18 +88,21 @@ function verUltimoResultado() {
 
 /** La llama el activador automático: si hay un error, Google le envía un correo al dueño. */
 function sincronizar() {
-  const r = sincronizar_(false);
+  const r = sincronizar_(false, false);
   if (r.error) throw new Error(r.resumen);
 }
 
-/** forzar = true copia todas las hojas aunque no hayan cambiado. */
-function sincronizar_(forzar) {
+/**
+ * forzar = true copia todas las hojas aunque no hayan cambiado.
+ * aceptarBorrado = true desactiva el seguro contra borrados masivos.
+ */
+function sincronizar_(forzar, aceptarBorrado) {
   const lock = LockService.getDocumentLock();
   if (!lock.tryLock(30000)) return { resumen: 'Ya había una sincronización en curso.', error: false };
   const log = [];
   try {
     const destino = SpreadsheetApp.getActiveSpreadsheet();
-    const origen = SpreadsheetApp.openById(ID_ORIGEN);
+    const origen = abrirOrigen_();
     const props = PropertiesService.getDocumentProperties();
     HOJAS_A_COPIAR.forEach(nombre => {
       try {
@@ -85,6 +113,17 @@ function sincronizar_(forzar) {
           log.push('= ' + nombre + ': sin cambios.');
           return;
         }
+        const hd = destino.getSheetByName(nombre);
+        if (hd && !aceptarBorrado) {
+          const antes = celdasConDatos_(hd);
+          const ahora = celdasConDatos_(ho);
+          if (ahora < antes * (1 - MAXIMA_REDUCCION)) {
+            log.push('⚠ ' + nombre + ': NO se copió. En el origen quedan ' + ahora + ' celdas con datos y en el 2.0 hay ' +
+              antes + ' (posible borrado masivo). Si el cambio es correcto usa "Sincronizar aceptando un borrado grande".');
+            return;
+          }
+        }
+        respaldoDelDia_(destino, log);
         copiarHoja_(ho, destino);
         props.setProperty('HUELLA_' + nombre, huella);
         log.push('✔ ' + nombre + ': actualizada.');
@@ -101,7 +140,88 @@ function sincronizar_(forzar) {
     '\n' + log.join('\n');
   PropertiesService.getDocumentProperties().setProperty('ULTIMO_RESULTADO', resumen);
   console.log(resumen);
-  return { resumen: resumen, error: log.some(l => l.startsWith('✖')) };
+  return { resumen: resumen, error: log.some(l => l.startsWith('✖') || l.startsWith('⚠')) };
+}
+
+function abrirOrigen_() {
+  let archivo;
+  try {
+    archivo = DriveApp.getFileById(ID_ORIGEN);
+  } catch (e) {
+    throw new Error('no se pudo abrir el archivo origen (¿se borró o ya no hay acceso?). No se tocó nada. ' +
+      'Si ya no se usa, desactiva la actualización automática.');
+  }
+  if (archivo.isTrashed()) {
+    throw new Error('el archivo origen está en la papelera. No se tocó nada. ' +
+      'Si ya no se usa, desactiva la actualización automática.');
+  }
+  return SpreadsheetApp.openById(ID_ORIGEN);
+}
+
+function celdasConDatos_(h) {
+  if (h.getLastRow() === 0) return 0;
+  return h.getRange(1, 1, h.getLastRow(), h.getLastColumn()).getValues()
+    .reduce((n, fila) => n + fila.filter(v => v !== '' && v !== false).length, 0);
+}
+
+// ───────────────────────────── RESPALDOS ─────────────────────────────
+
+function carpetaRespaldos_() {
+  const it = DriveApp.getFoldersByName(CARPETA_RESPALDOS);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(CARPETA_RESPALDOS);
+}
+
+/** Una copia completa del 2.0 por día, antes del primer cambio. Borra (a la papelera) las más viejas. */
+function respaldoDelDia_(destino, log) {
+  const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  const nombre = 'Respaldo 2.0 ' + hoy;
+  const carpeta = carpetaRespaldos_();
+  if (carpeta.getFilesByName(nombre).hasNext()) return;
+  DriveApp.getFileById(destino.getId()).makeCopy(nombre, carpeta);
+  log.push('💾 Respaldo guardado: ' + nombre);
+  const respaldos = [];
+  const it = carpeta.getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getName().indexOf('Respaldo 2.0 ') === 0) respaldos.push(f);
+  }
+  respaldos.sort((a, b) => b.getName().localeCompare(a.getName()));
+  respaldos.slice(DIAS_RESPALDO).forEach(f => f.setTrashed(true));
+}
+
+/** Menú: vuelve a poner en el 2.0 las hojas sincronizadas tal como estaban en un respaldo. */
+function restaurarRespaldo() {
+  const ui = SpreadsheetApp.getUi();
+  const carpeta = carpetaRespaldos_();
+  const nombres = [];
+  const archivos = {};
+  const it = carpeta.getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getName().indexOf('Respaldo 2.0 ') === 0) { nombres.push(f.getName()); archivos[f.getName()] = f; }
+  }
+  if (!nombres.length) { ui.alert('Todavía no hay respaldos en la carpeta "' + CARPETA_RESPALDOS + '".'); return; }
+  nombres.sort().reverse();
+  const r = ui.prompt('Restaurar desde un respaldo',
+    'Respaldos disponibles:\n' + nombres.map(n => n.replace('Respaldo 2.0 ', '')).join('\n') +
+    '\n\nEscribe la fecha (AAAA-MM-DD) o deja vacío para el más reciente:', ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  const fecha = r.getResponseText().trim();
+  const elegido = fecha ? archivos['Respaldo 2.0 ' + fecha] : archivos[nombres[0]];
+  if (!elegido) { ui.alert('No hay respaldo con la fecha ' + fecha + '.'); return; }
+
+  const destino = SpreadsheetApp.getActiveSpreadsheet();
+  const respaldo = SpreadsheetApp.openById(elegido.getId());
+  const log = [];
+  HOJAS_A_COPIAR.forEach(nombre => {
+    const h = respaldo.getSheetByName(nombre);
+    if (!h) { log.push('– ' + nombre + ': no estaba en el respaldo.'); return; }
+    copiarHoja_(h, destino);
+    log.push('✔ ' + nombre + ': restaurada.');
+  });
+  ui.alert('Restaurado desde ' + elegido.getName() + '\n\n' + log.join('\n') +
+    '\n\nOjo: si el archivo origen sigue con el borrado, desactiva la actualización automática ' +
+    'o corrige el origen antes de la próxima sincronización.');
 }
 
 /**

@@ -15,6 +15,24 @@ Cada hoja se reemplaza en la misma posición y con el mismo nombre. Si otra hoja
 ejemplo *Indicador*) tiene fórmulas que apuntan a ella, esas fórmulas se conservan.
 En la actualización automática una hoja solo se reemplaza si cambió algo en el origen.
 
+## Seguros
+
+- **Si el archivo origen se borra, está en la papelera o se pierde el acceso**, no se toca nada
+  del 2.0 (queda como estaba). Cuando el origen ya no se use, desactiva la actualización automática
+  y sigue trabajando en el 2.0.
+- **Borrado masivo**: si una hoja del origen queda con menos del 70 % de los datos que tiene el 2.0,
+  esa hoja **no se copia** y se avisa (también por correo). Si el borrado era intencional:
+  *🔄 Sincronización → Sincronizar aceptando un borrado grande*.
+- **Respaldo diario**: antes del primer cambio de cada día se guarda una copia completa del 2.0 en la
+  carpeta de Drive **Respaldos Gestion de Brigadas 2.0** (se guardan los últimos 30 días).
+- **Restaurar**: *🔄 Sincronización → Restaurar desde un respaldo* → escribe la fecha o deja vacío
+  para el más reciente. Vuelve a poner las hojas sincronizadas tal como estaban ese día.
+  También puedes abrir cualquier respaldo de la carpeta directamente, o usar
+  *Archivo → Historial de versiones* de Google.
+
+Los porcentajes y la cantidad de días se cambian al inicio del script (`MAXIMA_REDUCCION`,
+`DIAS_RESPALDO`).
+
 ## Instalación (una sola vez)
 
 1. **Ambos archivos deben estar en formato Google Sheets**, no `.xlsx`. Si en Drive aparece la
@@ -25,7 +43,7 @@ En la actualización automática una hoja solo se reemplaza si cambió algo en e
 4. Borra lo que haya en `Código.gs`, pega todo [`SincronizarBrigadas.gs`](SincronizarBrigadas.gs) y
    reemplaza `PEGA_AQUI_EL_ID_DEL_ARCHIVO_ORIGEN` por el ID del paso 2. Guarda (💾).
 5. Recarga el 2.0 → menú **🔄 Sincronización → Sincronizar ahora** (la primera vez Google pide
-   permisos: *Revisar permisos → tu cuenta → Configuración avanzada → Ir a … → Permitir*).
+   permisos, incluido el acceso a Drive para los respaldos: *Revisar permisos → tu cuenta → Configuración avanzada → Ir a … → Permitir*).
 6. **🔄 Sincronización → Activar actualización automática**: desde ahí corre sola cada hora.
 
 ## Uso diario
