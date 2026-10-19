@@ -242,15 +242,25 @@ function restaurarRespaldo() {
 function copiarHoja_(hojaOrigen, destino, vieja) {
   const nombre = vieja ? vieja.getName() : hojaOrigen.getName();
   const activa = destino.getActiveSheet();
+  // Google a veces no deja copiar una pestaña completa entre archivos ("No se encontró la hoja …",
+  // por ejemplo cuando tiene enlaces a otras pestañas). Entonces se actualiza la pestaña que ya
+  // existe en el 2.0 celda por celda, y se recuerda para no volver a intentarlo cada hora.
+  const props = PropertiesService.getDocumentProperties();
+  const clave = 'SOLO_CONTENIDO_' + hojaOrigen.getName();
+  if (vieja && props.getProperty(clave)) {
+    actualizarContenido_(hojaOrigen, vieja);
+    return 'contenido';
+  }
   const idsAntes = destino.getSheets().map(h => h.getSheetId());
   let nueva;
   try {
     nueva = hojaOrigen.copyTo(destino);
   } catch (e) {
-    // Google a veces no deja copiar una pestaña completa entre archivos ("No se encontró la hoja …").
-    // Se borra cualquier copia a medias y se actualiza la pestaña existente celda por celda.
-    destino.getSheets().filter(h => idsAntes.indexOf(h.getSheetId()) === -1).forEach(h => destino.deleteSheet(h));
-    if (!vieja) throw e;
+    destino.getSheets().filter(h => idsAntes.indexOf(h.getSheetId()) === -1).forEach(h => {
+      try { destino.deleteSheet(h); } catch (x) { /* copia a medias que Google no deja borrar */ }
+    });
+    if (!vieja) throw new Error('Google no dejó copiar la pestaña (' + e.message + ') y no existe en el 2.0 para actualizarla.');
+    props.setProperty(clave, e.message);
     actualizarContenido_(hojaOrigen, vieja);
     return 'contenido';
   }
