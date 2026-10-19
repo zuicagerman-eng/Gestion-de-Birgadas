@@ -43,8 +43,9 @@ Los porcentajes y la cantidad de días se cambian al inicio del script (`MAXIMA_
 2. Abre el **ORIGEN** y copia su ID de la URL:
    `https://docs.google.com/spreadsheets/d/`**`ESTE_ES_EL_ID`**`/edit`
 3. Abre el **DESTINO (2.0)** → *Extensiones → Apps Script*.
-4. Borra lo que haya en `Código.gs`, pega todo [`SincronizarBrigadas.gs`](SincronizarBrigadas.gs) y
-   reemplaza `PEGA_AQUI_EL_ID_DEL_ARCHIVO_ORIGEN` por el ID del paso 2. Guarda (💾).
+4. En el archivo `SincronizarBrigadas.gs` pega todo [`SincronizarBrigadas.gs`](SincronizarBrigadas.gs)
+   (ya trae el ID del origen en `ID_ORIGEN`; verifica que coincida con el del paso 2).
+   **Guarda (💾 o Ctrl + S)** y espera a que desaparezca "Cambios sin guardar".
 5. Recarga el 2.0 → menú **🔄 Sincronización → Sincronizar ahora** (la primera vez Google pide
    permisos, incluido el acceso a Drive para los respaldos: *Revisar permisos → tu cuenta → Configuración avanzada → Ir a … → Permitir*).
 6. **🔄 Sincronización → Activar actualización automática**: desde ahí corre sola cada hora.

@@ -16,7 +16,7 @@
  */
 
 // ID del archivo ORIGEN (el de la info actualizada). Es la parte de la URL entre /d/ y /edit
-const ID_ORIGEN = 'PEGA_AQUI_EL_ID_DEL_ARCHIVO_ORIGEN';
+const ID_ORIGEN = '1yxSzgZAdRiGnLWssifVKfL0g1aPJlRRSkcYtjnYhpo0';
 
 // Cada cuántas horas se actualiza solo (1, 2, 4, 6, 8 o 12)
 const CADA_HORAS = 1;
