@@ -62,6 +62,7 @@
           <li><a href="#" class="nav-link" onclick="navegar('gestion', this); return false;"><i class="fa-solid fa-user-gear me-2"></i>Gestión Brigadistas</a></li>
         </ul>
         <div class="small text-secondary mt-4" id="estado-sesion"><i class="fa-solid fa-lock me-1"></i>Sin sesión</div>
+        <div class="small text-secondary mt-2" id="estado-sync" title="Última vez que el archivo 2.0 recibió los datos del original"></div>
       </nav>
 
       <!-- CONTENIDO -->
@@ -188,7 +189,17 @@
       actualizarEstadoSesion();
       cargarSeccionActual();
       google.script.run.withSuccessHandler(pintarMenuTemarios).getListaTemarios();
+      refrescarEstadoSync();
+      setInterval(refrescarEstadoSync, 60000);
     });
+
+    function refrescarEstadoSync() {
+      google.script.run.withSuccessHandler(r => {
+        const el = document.getElementById('estado-sync');
+        el.innerHTML = r && r.ultima ? '<i class="fa-solid fa-rotate me-1"></i>2.0 actualizado: ' + esc(r.ultima) +
+          (r.pendiente ? '<br><span class="text-warning">Actualización en curso…</span>' : '') : '';
+      }).getEstadoSincronizacion();
+    }
 
     // ── utilidades ──
     function esc(v) {
@@ -372,7 +383,7 @@
       google.script.run
         .withSuccessHandler(res => {
           chk.disabled = false;
-          if (res.exito) { b.asistencias[i].marcada = valor; avisar('Asistencia guardada: ' + b.nombre + ' · ' + h.modulo + ' ' + h.sesion); }
+          if (res.exito) { b.asistencias[i].marcada = valor; avisar('Asistencia guardada: ' + b.nombre + ' · ' + h.modulo + ' ' + h.sesion); refrescarEstadoSync(); }
           else { chk.checked = !valor; if (sesionExpirada(res)) renderAsistencia(ultimaAsistencia); avisar(res.mensaje, 'danger'); }
         })
         .withFailureHandler(err => { chk.disabled = false; chk.checked = !valor; falla(err); })
@@ -473,7 +484,7 @@
         toggleLoader(false);
         if (sesionExpirada(res)) { mostrarGestion(); return avisar(res.mensaje, 'danger'); }
         avisar(res.mensaje, res.exito ? 'success' : 'danger');
-        if (res.exito) { document.getElementById('formBrigadista').reset(); ajustarFormulario(); }
+        if (res.exito) { document.getElementById('formBrigadista').reset(); ajustarFormulario(); refrescarEstadoSync(); }
       }).registrarBrigadistaNuevo(token, data);
     }
 

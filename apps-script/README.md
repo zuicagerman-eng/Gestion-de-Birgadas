@@ -75,7 +75,9 @@ proyecto de Apps Script del 2.0**, junto a `SincronizarBrigadas.gs` (usa su `ID_
 | Indicador (tablero), Cronograma, Temarios | archivo 2.0 | — |
 
 Proveedores, personal Holcim y la app escriben en el **mismo archivo** (el original); el 2.0 lo recibe
-con la sincronización de cada hora. Si el original se borra o va a la papelera, la app usa el 2.0
+con la sincronización de cada hora y, cuando se guarda algo **desde la app**, en 1 a 2 minutos
+(una sola sincronización aunque se marquen muchas casillas seguidas). La app muestra abajo a la
+izquierda la hora de la última actualización del 2.0. Si el original se borra o va a la papelera, la app usa el 2.0
 automáticamente. Las personas se ubican por **cédula** (y nombre si la cédula está repetida) y las
 columnas por su **encabezado**, nunca por número de fila o columna.
 
@@ -90,6 +92,9 @@ columnas por su **encabezado**, nunca por número de fila o columna.
    se guarda cifrada en las propiedades del proyecto, no en el código.
 3. **Implementar → Administrar implementaciones → ✏️ Editar → Versión: Nueva versión → Implementar.**
    La URL de la app no cambia. Sin este paso la app sigue mostrando la versión anterior.
+   Configuración recomendada: **Ejecutar como: Yo** y **Quién tiene acceso: cualquier usuario de tu
+   organización**. Así la app usa tus permisos sobre ambos archivos y puede programar la
+   sincronización rápida; los usuarios no necesitan acceso de edición a las hojas.
 
 ## Seguridad
 

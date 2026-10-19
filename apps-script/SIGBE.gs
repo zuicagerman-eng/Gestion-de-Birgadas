@@ -137,6 +137,7 @@ function guardarAsistencia(token, cedula, nombre, key, marcada) {
     const p = sigbeBuscarPersona_(h.personas, cedula, nombre);
     if (!p) return { exito: false, mensaje: 'No se encontró a ' + nombre + ' (' + cedula + ') en la hoja.' };
     h.hoja.getRange(p.fila, a.col).setValue(marcada === true);
+    sigbeProgramarSincronizacion_(ss);
     return { exito: true, mensaje: 'Guardado' };
   } catch (e) {
     return { exito: false, mensaje: e.message };
@@ -308,10 +309,11 @@ function registrarBrigadistaNuevo(token, data) {
     } else {
       poner('CONTRATISTA', String(data.contratista || '').trim().toUpperCase());
     }
+    const programada = sigbeProgramarSincronizacion_(ss);
     return {
       exito: true,
       mensaje: 'Brigadista guardado en "' + sh.getName() + '", fila ' + nueva + ' (' + sigbeFuente_(ss) + ').' +
-        (sigbeFuente_(ss) === 'archivo original' ? ' Aparecerá en el 2.0 con la próxima sincronización.' : ''),
+        (programada ? ' Aparecerá en el 2.0 en 1 a 2 minutos.' : ''),
     };
   } catch (e) {
     return { exito: false, mensaje: e.message };
@@ -335,6 +337,48 @@ function configurarUsuarioApp() {
     SIGBE_CLAVE_HASH: sigbeHash_(c.getResponseText(), sal),
   });
   ui.alert('Listo. Usuario y clave de la app actualizados.');
+}
+
+// ───────────────────────────── SINCRONIZACIÓN RÁPIDA ─────────────────────────────
+
+/**
+ * Tras guardar en el original, programa una sincronización del 2.0 en ~1 minuto (en vez de esperar
+ * la de cada hora). Si ya hay una pendiente no crea otra, así muchos clics seguidos = una sola.
+ * Devuelve true si el cambio llegará al 2.0 por esta vía.
+ */
+function sigbeProgramarSincronizacion_(ss) {
+  if (sigbeFuente_(ss) !== 'archivo original') return false; // se escribió directo en el 2.0
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const pendiente = Number(props.getProperty('SIGBE_SYNC_PENDIENTE')) || 0;
+    if (Date.now() - pendiente < 10 * 60 * 1000) return true;
+    ScriptApp.newTrigger('sincronizarPendiente').timeBased().after(60 * 1000).create();
+    props.setProperty('SIGBE_SYNC_PENDIENTE', String(Date.now()));
+    return true;
+  } catch (e) {
+    return false; // sin permiso para programar: llegará con la sincronización de cada hora
+  }
+}
+
+/** La ejecuta el activador de un solo uso que crea sigbeProgramarSincronizacion_. */
+function sincronizarPendiente() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'sincronizarPendiente')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  // Se libera antes de sincronizar: lo que se guarde mientras tanto programa otra pasada
+  PropertiesService.getScriptProperties().deleteProperty('SIGBE_SYNC_PENDIENTE');
+  if (typeof sincronizar === 'function') sincronizar();
+}
+
+/** Fecha y hora de la última sincronización del 2.0 (para mostrarla en la app). */
+function getEstadoSincronizacion() {
+  try {
+    const txt = PropertiesService.getDocumentProperties().getProperty('ULTIMO_RESULTADO') || '';
+    const pendiente = Number(PropertiesService.getScriptProperties().getProperty('SIGBE_SYNC_PENDIENTE')) || 0;
+    return { ultima: txt.split('\n')[0], pendiente: Date.now() - pendiente < 10 * 60 * 1000 };
+  } catch (e) {
+    return { ultima: '', pendiente: false };
+  }
 }
 
 // ───────────────────────────── LECTURA DE HOJAS ─────────────────────────────
