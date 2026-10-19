@@ -8,8 +8,8 @@
  *
  * SEGUROS:
  *  - Si el archivo origen se borra, está en la papelera o no se puede abrir: no se toca nada.
- *  - Si una hoja del origen pierde de golpe más de MAXIMA_REDUCCION de su información
- *    (borrado masivo), esa hoja NO se copia y se avisa.
+ *  - Si una hoja del origen pierde de golpe más de MAXIMA_REDUCCION de su información respecto
+ *    a la última vez que se copió (borrado masivo), esa hoja NO se copia y se avisa.
  *  - Antes del primer cambio de cada día se guarda una copia completa del 2.0 en la carpeta
  *    CARPETA_RESPALDOS de Drive (se guardan los últimos DIAS_RESPALDO). Se restaura desde
  *    el menú: 🔄 Sincronización → Restaurar desde un respaldo.
@@ -21,18 +21,18 @@ const ID_ORIGEN = 'PEGA_AQUI_EL_ID_DEL_ARCHIVO_ORIGEN';
 // Cada cuántas horas se actualiza solo (1, 2, 4, 6, 8 o 12)
 const CADA_HORAS = 1;
 
-// Si una hoja del origen queda con menos del 70 % de los datos que tiene hoy el 2.0, no se copia
+// Si una hoja del origen queda con menos del 70 % de los datos que tenía la última vez que se copió, no se copia
 const MAXIMA_REDUCCION = 0.3;
 
 // Respaldos diarios del 2.0
 const CARPETA_RESPALDOS = 'Respaldos Gestion de Brigadas 2.0';
 const DIAS_RESPALDO = 30;
 
-// Hojas que se traen completas del origen (mismo nombre en ambos archivos)
+// Hojas que se traen completas del origen. Basta con el comienzo del nombre de la pestaña.
 const HOJAS_A_COPIAR = [
   '2026 Brigadistas HOLCIM',
   '2026 Brigadistas INHOUSE',
-  '2026 Cronograma Nacional Brigad',
+  '2026 Cronograma Nacional Brigadas',
   // '2026 TEMARIO NACIONAL BRIGADAS',  ← quitar las // del inicio para traerla también
 ];
 
@@ -106,26 +106,27 @@ function sincronizar_(forzar, aceptarBorrado) {
     const props = PropertiesService.getDocumentProperties();
     HOJAS_A_COPIAR.forEach(nombre => {
       try {
-        const ho = origen.getSheetByName(nombre);
+        const ho = buscarHoja_(origen, nombre);
         if (!ho) throw new Error('no existe en el archivo origen');
+        const hd = buscarHoja_(destino, nombre);
         const huella = huella_(ho);
-        if (!forzar && destino.getSheetByName(nombre) && props.getProperty('HUELLA_' + nombre) === huella) {
+        if (!forzar && hd && props.getProperty('HUELLA_' + nombre) === huella) {
           log.push('= ' + nombre + ': sin cambios.');
           return;
         }
-        const hd = destino.getSheetByName(nombre);
-        if (hd && !aceptarBorrado) {
-          const antes = celdasConDatos_(hd);
-          const ahora = celdasConDatos_(ho);
-          if (ahora < antes * (1 - MAXIMA_REDUCCION)) {
-            log.push('⚠ ' + nombre + ': NO se copió. En el origen quedan ' + ahora + ' celdas con datos y en el 2.0 hay ' +
-              antes + ' (posible borrado masivo). Si el cambio es correcto usa "Sincronizar aceptando un borrado grande".');
-            return;
-          }
+        // Base para detectar un borrado masivo: lo que tenía el origen la última vez que se copió
+        const ahora = celdasConDatos_(ho);
+        let antes = Number(props.getProperty('CELDAS_' + nombre)) || 0;
+        if (!antes && hd && props.getProperty('HUELLA_' + nombre)) antes = celdasConDatos_(hd);
+        if (!aceptarBorrado && antes && ahora < antes * (1 - MAXIMA_REDUCCION)) {
+          log.push('⚠ ' + nombre + ': NO se copió. En el origen quedan ' + ahora + ' celdas con datos y la última vez había ' +
+            antes + ' (posible borrado masivo). Si el cambio es correcto usa "Sincronizar aceptando un borrado grande".');
+          return;
         }
         respaldoDelDia_(destino, log);
-        copiarHoja_(ho, destino);
+        copiarHoja_(ho, destino, hd);
         props.setProperty('HUELLA_' + nombre, huella);
+        props.setProperty('CELDAS_' + nombre, String(ahora));
         log.push('✔ ' + nombre + ': actualizada.');
       } catch (e) {
         log.push('✖ ' + nombre + ': ' + e.message);
@@ -156,6 +157,15 @@ function abrirOrigen_() {
       'Si ya no se usa, desactiva la actualización automática.');
   }
   return SpreadsheetApp.openById(ID_ORIGEN);
+}
+
+/** Busca la pestaña por su nombre exacto o, si no, por cómo empieza (sin importar mayúsculas ni espacios). */
+function buscarHoja_(ss, nombre) {
+  const exacta = ss.getSheetByName(nombre);
+  if (exacta) return exacta;
+  const clave = s => String(s).replace(/\s+/g, ' ').trim().toUpperCase();
+  const corto = clave(nombre).slice(0, 31); // Excel corta los nombres a 31 letras
+  return ss.getSheets().find(h => clave(h.getName()).indexOf(corto) === 0) || null;
 }
 
 function celdasConDatos_(h) {
@@ -214,9 +224,9 @@ function restaurarRespaldo() {
   const respaldo = SpreadsheetApp.openById(elegido.getId());
   const log = [];
   HOJAS_A_COPIAR.forEach(nombre => {
-    const h = respaldo.getSheetByName(nombre);
+    const h = buscarHoja_(respaldo, nombre);
     if (!h) { log.push('– ' + nombre + ': no estaba en el respaldo.'); return; }
-    copiarHoja_(h, destino);
+    copiarHoja_(h, destino, buscarHoja_(destino, nombre));
     log.push('✔ ' + nombre + ': restaurada.');
   });
   ui.alert('Restaurado desde ' + elegido.getName() + '\n\n' + log.join('\n') +
@@ -229,9 +239,8 @@ function restaurarRespaldo() {
  * Si otras hojas del destino tienen fórmulas que apuntan a esta hoja, se vuelven a
  * escribir al final para que no queden en #REF!.
  */
-function copiarHoja_(hojaOrigen, destino) {
-  const nombre = hojaOrigen.getName();
-  const vieja = destino.getSheetByName(nombre);
+function copiarHoja_(hojaOrigen, destino, vieja) {
+  const nombre = vieja ? vieja.getName() : hojaOrigen.getName();
   const activa = destino.getActiveSheet();
   const nueva = hojaOrigen.copyTo(destino);
 

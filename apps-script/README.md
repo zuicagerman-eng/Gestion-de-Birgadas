@@ -8,7 +8,7 @@ Hojas que se traen (lista `HOJAS_A_COPIAR` al inicio del script):
 
 - `2026 Brigadistas HOLCIM`
 - `2026 Brigadistas INHOUSE`
-- `2026 Cronograma Nacional Brigad`
+- `2026 Cronograma Nacional Brigadas`
 - `2026 TEMARIO NACIONAL BRIGADAS`: desactivada. Para traerla, quita las `//` del inicio de su línea.
 
 Cada hoja se reemplaza en la misma posición y con el mismo nombre. Si otra hoja del 2.0 (por
@@ -20,7 +20,7 @@ En la actualización automática una hoja solo se reemplaza si cambió algo en e
 - **Si el archivo origen se borra, está en la papelera o se pierde el acceso**, no se toca nada
   del 2.0 (queda como estaba). Cuando el origen ya no se use, desactiva la actualización automática
   y sigue trabajando en el 2.0.
-- **Borrado masivo**: si una hoja del origen queda con menos del 70 % de los datos que tiene el 2.0,
+- **Borrado masivo**: si una hoja del origen queda con menos del 70 % de los datos que tenía la última vez que se copió,
   esa hoja **no se copia** y se avisa (también por correo). Si el borrado era intencional:
   *🔄 Sincronización → Sincronizar aceptando un borrado grande*.
 - **Respaldo diario**: antes del primer cambio de cada día se guarda una copia completa del 2.0 en la
