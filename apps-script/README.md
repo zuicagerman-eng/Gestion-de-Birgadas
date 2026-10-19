@@ -59,3 +59,39 @@ Los porcentajes y la cantidad de días se cambian al inicio del script (`MAXIMA_
 - Si una corrida automática falla, Google envía un correo al dueño del activador.
 - Los botones del panel de control de HOLCIM (🔎 APLICAR / ↺ VER TODO) usan el script del
   archivo origen; en el 2.0 se ven igual pero no filtran.
+
+---
+
+# App web SIGBE 2.0
+
+Archivos: [`SIGBE.gs`](SIGBE.gs) (backend) e [`Index.html`](Index.html) (pantallas). Van en el **mismo
+proyecto de Apps Script del 2.0**, junto a `SincronizarBrigadas.gs` (usa su `ID_ORIGEN`).
+
+## Dónde lee y escribe
+
+| Dato | Lee de | Escribe en |
+|---|---|---|
+| Brigadistas HOLCIM e INHOUSE (directorio, asistencia, registro) | **archivo original** (al instante) | **archivo original** |
+| Indicador (tablero), Cronograma, Temarios | archivo 2.0 | — |
+
+Proveedores, personal Holcim y la app escriben en el **mismo archivo** (el original); el 2.0 lo recibe
+con la sincronización de cada hora. Si el original se borra o va a la papelera, la app usa el 2.0
+automáticamente. Las personas se ubican por **cédula** (y nombre si la cédula está repetida) y las
+columnas por su **encabezado**, nunca por número de fila o columna.
+
+## Instalación / actualización
+
+1. En el editor de Apps Script del 2.0:
+   - `Código.gs` → reemplazar todo por el contenido de `SIGBE.gs`.
+   - `Index.html` → reemplazar todo por el contenido de `Index.html`.
+   - `SincronizarBrigadas.gs` → reemplazar por la versión actual (trae el menú de la clave).
+   - **Guardar (Ctrl + S).**
+2. Recargar el 2.0 → **🔄 Sincronización → 🔐 Configurar usuario y clave de la app SIGBE**. La clave
+   se guarda cifrada en las propiedades del proyecto, no en el código.
+3. **Implementar → Administrar implementaciones → ✏️ Editar → Versión: Nueva versión → Implementar.**
+   La URL de la app no cambia. Sin este paso la app sigue mostrando la versión anterior.
+
+## Seguridad
+
+- Ver la información no requiere clave; **marcar asistencia y registrar brigadistas sí** (la sesión dura 6 horas).
+- La clave se verifica en el servidor en cada guardado. Tras 5 intentos fallidos se bloquea 10 minutos.

@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIGBE 2.0</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f4f6f9; font-family: 'Segoe UI', system-ui, sans-serif; }
+    .sidebar { min-height: 100vh; background: #1a252f; color: #fff; }
+    .sidebar .nav-link { color: #adb5bd; padding: 10px 16px; margin: 2px 0; border-radius: 6px; font-weight: 500; }
+    .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: #0d6efd; }
+    .sidebar .sub-link { padding-left: 35px; font-size: 0.88em; }
+    .main-content { padding: 25px; }
+    .kpi-card { border: none; border-radius: 10px; color: white; }
+    .badge-brecha { background-color: #f8d7da; color: #721c24; }
+    .badge-cumple { background-color: #d4edda; color: #155724; }
+    .fila-total td { background: #eef2f7 !important; font-weight: 600; }
+    .chk-asistencia { transform: scale(1.3); cursor: pointer; }
+    .chk-asistencia:disabled { cursor: not-allowed; }
+    .fecha-sesion { display: block; font-size: 0.7em; color: #6c757d; white-space: nowrap; }
+    .th-modulo { font-size: 0.75em; min-width: 92px; }
+    .col-fija { position: sticky; left: 0; background: #fff; z-index: 1; }
+    #tabla-asistencia thead th.col-fija { background: #212529; z-index: 3; }
+    #loader { display: none; position: fixed; inset: 0; background: rgba(255,255,255,0.75); z-index: 9999; justify-content: center; align-items: center; }
+    #aviso { position: fixed; bottom: 20px; right: 20px; z-index: 10000; min-width: 260px; display: none; }
+  </style>
+</head>
+<body>
+
+  <div id="loader"><div class="spinner-border text-primary" style="width: 3.5rem; height: 3.5rem;" role="status"></div></div>
+  <div id="aviso" class="alert shadow mb-0" role="alert"></div>
+
+  <div class="container-fluid">
+    <div class="row">
+
+      <!-- MENÚ -->
+      <nav class="col-md-3 col-lg-2 sidebar p-3">
+        <div class="d-flex align-items-center mb-4 text-white">
+          <i class="fa-solid fa-shield-halved fa-2x me-2 text-warning"></i>
+          <div>
+            <div class="fs-5 fw-bold">SIGBE 2.0</div>
+            <div class="small text-secondary">Gestión de Brigadas</div>
+          </div>
+        </div>
+        <hr class="text-secondary">
+        <ul class="nav nav-pills flex-column">
+          <li><a href="#" class="nav-link active" onclick="navegar('tablero', this); return false;"><i class="fa-solid fa-chart-line me-2"></i>Tablero de Control</a></li>
+          <li><a href="#" class="nav-link" onclick="navegar('directorio', this); return false;"><i class="fa-solid fa-address-book me-2"></i>Directorio Brigadas</a></li>
+          <li>
+            <a href="#menuCapacitaciones" data-bs-toggle="collapse" class="nav-link d-flex justify-content-between align-items-center">
+              <span><i class="fa-solid fa-graduation-cap me-2"></i>Capacitaciones</span><i class="fa-solid fa-chevron-down small"></i>
+            </a>
+            <div class="collapse show" id="menuCapacitaciones">
+              <ul class="nav flex-column" id="lista-capacitaciones">
+                <li><a href="#" class="nav-link sub-link text-warning fw-bold" onclick="cargarSubCapacitacion('asistencia', 'Control de Asistencia', this); return false;"><i class="fa-solid fa-user-check me-1"></i> Control Asistencia</a></li>
+                <li><a href="#" class="nav-link sub-link" onclick="cargarSubCapacitacion('cronograma', 'Cronograma Nacional 2026', this); return false;">Cronograma 2026</a></li>
+              </ul>
+            </div>
+          </li>
+          <li><a href="#" class="nav-link" onclick="navegar('gestion', this); return false;"><i class="fa-solid fa-user-gear me-2"></i>Gestión Brigadistas</a></li>
+        </ul>
+        <div class="small text-secondary mt-4" id="estado-sesion"><i class="fa-solid fa-lock me-1"></i>Sin sesión</div>
+      </nav>
+
+      <!-- CONTENIDO -->
+      <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content">
+        <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-4 border-bottom">
+          <div>
+            <h2 class="h3 fw-bold text-dark mb-0" id="seccion-titulo">Tablero de Control</h2>
+            <div class="small text-muted" id="seccion-fuente"></div>
+          </div>
+          <button class="btn btn-outline-primary btn-sm" onclick="cargarSeccionActual()"><i class="fa-solid fa-rotate me-1"></i>Actualizar</button>
+        </div>
+
+        <!-- TABLERO -->
+        <div id="sec-tablero" class="seccion-app">
+          <div class="row g-3 mb-4">
+            <div class="col-md-3"><div class="card kpi-card bg-primary p-3"><div class="small text-white-50">PERSONAL TOTAL</div><div class="fs-2 fw-bold" id="kpi-personal">0</div></div></div>
+            <div class="col-md-3"><div class="card kpi-card bg-success p-3"><div class="small text-white-50">BRIGADISTAS ACTUALES</div><div class="fs-2 fw-bold" id="kpi-brigadistas">0</div><div class="small text-white-50" id="kpi-requeridos"></div></div></div>
+            <div class="col-md-3"><div class="card kpi-card bg-info p-3"><div class="small text-white-50">% COBERTURA COLECTIVA</div><div class="fs-2 fw-bold" id="kpi-cobertura">0%</div></div></div>
+            <div class="col-md-3"><div class="card kpi-card bg-danger p-3"><div class="small text-white-50">BRECHA (GAP) PENDIENTE</div><div class="fs-2 fw-bold" id="kpi-brechas">0</div></div></div>
+          </div>
+          <div class="table-responsive bg-white rounded shadow-sm p-3">
+            <table class="table table-hover align-middle">
+              <thead class="table-dark"><tr><th>PLANTA</th><th>EMPRESA</th><th>TOTAL PERSONAS</th><th>REQUERIDOS</th><th>ACTUALES</th><th>% COBERTURA</th><th>BRECHA</th></tr></thead>
+              <tbody id="tbody-tablero"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- DIRECTORIO -->
+        <div id="sec-directorio" class="seccion-app" style="display:none;">
+          <div class="row g-2 mb-3">
+            <div class="col-md-6"><input type="text" class="form-control" placeholder="Buscar por planta, nombre, cédula o contratista..." onkeyup="filtrarTabla('tbody-directorio', this.value)"></div>
+            <div class="col-md-3"><div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="dir-ocultar-desv" checked onchange="renderDirectorio(ultimoDirectorio)"><label class="form-check-label" for="dir-ocultar-desv">Ocultar desvinculados</label></div></div>
+          </div>
+          <div class="table-responsive bg-white rounded shadow-sm p-3">
+            <table class="table table-striped align-middle">
+              <thead class="table-dark"><tr><th>PLANTA</th><th>TIPO</th><th>CONTRATISTA</th><th>ESTADO</th><th>NOMBRE</th><th>CÉDULA</th><th>CERT. 0256</th></tr></thead>
+              <tbody id="tbody-directorio"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- CAPACITACIONES -->
+        <div id="sec-capacitaciones" class="seccion-app" style="display:none;">
+          <div id="contenedor-asistencia" style="display:none;">
+            <div class="row g-2 mb-3 align-items-center">
+              <div class="col-md-5"><input type="text" class="form-control" placeholder="Filtrar por planta, nombre o cédula..." onkeyup="filtrarTabla('tbody-asistencia', this.value)"></div>
+              <div class="col-md-4"><select class="form-select" id="filtro-modulo" onchange="renderAsistencia(ultimaAsistencia)"></select></div>
+              <div class="col-md-3 small text-muted" id="nota-asistencia"></div>
+            </div>
+            <div class="table-responsive bg-white rounded shadow-sm p-3" style="max-height: 650px; overflow: auto;">
+              <table class="table table-sm table-bordered table-hover align-middle text-center" id="tabla-asistencia">
+                <thead class="table-dark sticky-top" id="thead-asistencia"></thead>
+                <tbody id="tbody-asistencia"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="contenedor-cronograma" style="display:none;">
+            <div class="col-md-4 mb-3"><select class="form-select" id="filtro-planta-crono" onchange="renderCronograma(ultimoCronograma)"></select></div>
+            <div class="table-responsive bg-white rounded shadow-sm p-3">
+              <table class="table table-sm table-bordered text-center align-middle">
+                <thead class="table-dark" id="thead-cronograma"></thead>
+                <tbody id="tbody-cronograma"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="contenedor-temario" style="display:none;"><div class="row" id="cards-temario"></div></div>
+        </div>
+
+        <!-- GESTIÓN -->
+        <div id="sec-gestion" class="seccion-app" style="display:none;">
+          <div id="box-login" class="row justify-content-center pt-4">
+            <div class="col-md-5">
+              <div class="card shadow border-0 p-4">
+                <h4 class="text-center mb-4"><i class="fa-solid fa-lock text-primary me-2"></i>Acceso Admin</h4>
+                <input type="text" id="loginUser" class="form-control mb-2" placeholder="Usuario" autocomplete="username">
+                <input type="password" id="loginPass" class="form-control mb-3" placeholder="Clave" autocomplete="current-password" onkeyup="if(event.key==='Enter') autenticarAdmin()">
+                <button class="btn btn-primary w-100" onclick="autenticarAdmin()">Ingresar</button>
+                <div id="msg-login" class="mt-2 text-danger small text-center"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="box-admin" style="display:none;">
+            <div class="card shadow-sm border-0 p-4">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0 text-primary">Registrar brigadista nuevo</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="cerrarSesion()"><i class="fa-solid fa-right-from-bracket me-1"></i>Cerrar sesión</button>
+              </div>
+              <form id="formBrigadista" onsubmit="guardarBrigadista(event)">
+                <div class="row g-3">
+                  <div class="col-md-4"><label class="form-label">Tipo</label>
+                    <select id="regTipo" class="form-select" onchange="ajustarFormulario()"><option value="HOLCIM">HOLCIM</option><option value="INHOUSE">INHOUSE (contratista)</option></select></div>
+                  <div class="col-md-4"><label class="form-label">Planta</label><select id="regPlanta" class="form-select" required></select></div>
+                  <div class="col-md-4 solo-inhouse"><label class="form-label">Contratista</label><input type="text" id="regContratista" class="form-control" list="lista-contratistas"><datalist id="lista-contratistas"></datalist></div>
+                  <div class="col-md-4"><label class="form-label">Nombre y apellido</label><input type="text" id="regNombre" class="form-control" required></div>
+                  <div class="col-md-4"><label class="form-label">Cédula</label><input type="text" id="regCedula" class="form-control" inputmode="numeric" pattern="[0-9]{5,12}" title="Solo números" required></div>
+                  <div class="col-md-4 solo-holcim"><label class="form-label">Estado</label><select id="regEstado" class="form-select"></select></div>
+                  <div class="col-md-4 solo-holcim"><label class="form-label">Fecha de ingreso a la brigada</label><input type="date" id="regFecha" class="form-control"></div>
+                  <div class="col-md-4"><label class="form-label">Certificado vigente 0256</label><select id="regCert" class="form-select"></select></div>
+                </div>
+                <button type="submit" class="btn btn-success mt-4"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar</button>
+                <div class="small text-muted mt-2" id="nota-registro"></div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    let seccionActual = 'tablero';
+    let subCapacitacionActual = 'asistencia';
+    let token = leerToken();
+    let catalogos = null;
+    let ultimoDirectorio = null, ultimaAsistencia = null, ultimoCronograma = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      actualizarEstadoSesion();
+      cargarSeccionActual();
+      google.script.run.withSuccessHandler(pintarMenuTemarios).getListaTemarios();
+    });
+
+    // ── utilidades ──
+    function esc(v) {
+      return String(v === null || v === undefined ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function toggleLoader(show) { document.getElementById('loader').style.display = show ? 'flex' : 'none'; }
+    function avisar(texto, tipo) {
+      const el = document.getElementById('aviso');
+      el.className = 'alert shadow mb-0 alert-' + (tipo || 'success');
+      el.textContent = texto;
+      el.style.display = 'block';
+      clearTimeout(avisar.t);
+      avisar.t = setTimeout(() => el.style.display = 'none', 5000);
+    }
+    function falla(err) { toggleLoader(false); avisar('Error: ' + (err && err.message ? err.message : err), 'danger'); }
+    function fuente(res) {
+      document.getElementById('seccion-fuente').textContent = res && res.fuente ? 'Datos de brigadistas: ' + res.fuente : '';
+    }
+    function leerToken() { try { return sessionStorage.getItem('sigbe_token'); } catch (e) { return null; } }
+    function guardarToken(t) { token = t; try { t ? sessionStorage.setItem('sigbe_token', t) : sessionStorage.removeItem('sigbe_token'); } catch (e) {} actualizarEstadoSesion(); }
+    function actualizarEstadoSesion() {
+      document.getElementById('estado-sesion').innerHTML = token
+        ? '<i class="fa-solid fa-lock-open me-1 text-success"></i>Sesión iniciada'
+        : '<i class="fa-solid fa-lock me-1"></i>Sin sesión';
+    }
+    function sesionExpirada(res) {
+      if (res && !res.exito && /sesión no es válida/i.test(res.mensaje || '')) { guardarToken(null); return true; }
+      return false;
+    }
+    function porcentaje(x) { return (Math.round(x * 1000) / 10) + '%'; }
+    function num(x) { return Math.round(x * 10) / 10; }
+
+    // ── navegación ──
+    function marcarActivo(el) {
+      document.querySelectorAll('.nav-link').forEach(a => a.classList.remove('active'));
+      if (el) el.classList.add('active');
+    }
+    function navegar(seccion, el) {
+      marcarActivo(el);
+      document.querySelectorAll('.seccion-app').forEach(d => d.style.display = 'none');
+      document.getElementById('sec-' + seccion).style.display = 'block';
+      seccionActual = seccion;
+      const titulos = { tablero: 'Tablero de Control', directorio: 'Directorio de Brigadas', gestion: 'Gestión de Brigadistas' };
+      document.getElementById('seccion-titulo').innerText = titulos[seccion] || 'SIGBE 2.0';
+      cargarSeccionActual();
+    }
+    function cargarSubCapacitacion(tipo, titulo, el) {
+      marcarActivo(el);
+      document.querySelectorAll('.seccion-app').forEach(d => d.style.display = 'none');
+      document.getElementById('sec-capacitaciones').style.display = 'block';
+      seccionActual = 'capacitaciones';
+      subCapacitacionActual = tipo;
+      document.getElementById('seccion-titulo').innerText = 'Capacitaciones: ' + titulo;
+      cargarSeccionActual();
+    }
+    function pintarMenuTemarios(nombres) {
+      const ul = document.getElementById('lista-capacitaciones');
+      (nombres || []).forEach(n => {
+        const li = document.createElement('li');
+        const a = document.createElement('a');
+        a.href = '#';
+        a.className = 'nav-link sub-link';
+        a.textContent = n.trim();
+        a.onclick = () => { cargarSubCapacitacion('temario:' + n, n.trim(), a); return false; };
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+    }
+
+    function cargarSeccionActual() {
+      document.getElementById('seccion-fuente').textContent = '';
+      const runner = google.script.run.withFailureHandler(falla);
+      if (seccionActual === 'tablero') {
+        toggleLoader(true);
+        runner.withSuccessHandler(renderTablero).getTableroControl();
+      } else if (seccionActual === 'directorio') {
+        toggleLoader(true);
+        runner.withSuccessHandler(renderDirectorio).getDirectorioUnificado();
+      } else if (seccionActual === 'capacitaciones') {
+        ['asistencia', 'cronograma', 'temario'].forEach(x => document.getElementById('contenedor-' + x).style.display = 'none');
+        toggleLoader(true);
+        if (subCapacitacionActual === 'asistencia') {
+          document.getElementById('contenedor-asistencia').style.display = 'block';
+          runner.withSuccessHandler(renderAsistencia).getSeguimientoAsistencia();
+        } else if (subCapacitacionActual === 'cronograma') {
+          document.getElementById('contenedor-cronograma').style.display = 'block';
+          runner.withSuccessHandler(renderCronograma).getCronogramaCapacitaciones();
+        } else {
+          document.getElementById('contenedor-temario').style.display = 'block';
+          runner.withSuccessHandler(renderTemario).getTemarioCapacitacion(subCapacitacionActual.replace(/^temario:/, ''));
+        }
+      } else if (seccionActual === 'gestion') {
+        mostrarGestion();
+      }
+    }
+
+    // ── tablero ──
+    function renderTablero(res) {
+      toggleLoader(false);
+      if (res.error) return avisar(res.error, 'danger');
+      const k = res.kpis;
+      document.getElementById('kpi-personal').innerText = k.totalPersonal;
+      document.getElementById('kpi-brigadistas').innerText = k.totalBrig;
+      document.getElementById('kpi-requeridos').innerText = 'Requeridos: ' + k.totalRequeridos;
+      document.getElementById('kpi-cobertura').innerText = k.pctGlobal;
+      document.getElementById('kpi-brechas').innerText = k.totalBrechas;
+      document.getElementById('tbody-tablero').innerHTML = res.tabla.map(i => `
+        <tr class="${i.esTotal ? 'fila-total' : ''}">
+          <td class="fw-bold">${esc(i.planta)}</td><td>${esc(i.empresa)}</td><td>${num(i.personas)}</td>
+          <td>${num(i.requeridos)}</td><td>${num(i.actuales)}</td><td>${porcentaje(i.cobertura)}</td>
+          <td><span class="badge ${i.gap > 0 ? 'badge-brecha' : 'badge-cumple'}">${num(i.gap)}</span></td>
+        </tr>`).join('');
+    }
+
+    // ── directorio ──
+    function renderDirectorio(res) {
+      toggleLoader(false);
+      if (!res) return;
+      if (res.error) return avisar(res.error, 'danger');
+      ultimoDirectorio = res;
+      fuente(res);
+      const ocultar = document.getElementById('dir-ocultar-desv').checked;
+      document.getElementById('tbody-directorio').innerHTML = res.lista
+        .filter(i => !(ocultar && /desvinculado/i.test(i.estado)))
+        .map(i => {
+          const cert = String(i.certVigente || '');
+          const certOk = /^\d+$/.test(cert);
+          return `<tr>
+            <td class="fw-bold">${esc(i.planta)}</td>
+            <td><span class="badge ${i.tipo === 'HOLCIM' ? 'bg-primary' : 'bg-info text-dark'}">${esc(i.tipo)}</span></td>
+            <td>${esc(i.contratista)}</td>
+            <td>${i.estado ? `<span class="badge ${/activo/i.test(i.estado) ? 'bg-success' : 'bg-secondary'}">${esc(i.estado)}</span>` : ''}</td>
+            <td>${esc(i.nombre)}</td><td>${esc(i.cedula)}</td>
+            <td>${cert ? `<span class="badge ${certOk ? 'bg-success' : 'bg-warning text-dark'}">${esc(cert)}</span>` : ''}</td>
+          </tr>`;
+        }).join('');
+    }
+
+    // ── asistencia ──
+    function renderAsistencia(res) {
+      toggleLoader(false);
+      if (!res) return;
+      if (res.error) return avisar(res.error, 'danger');
+      ultimaAsistencia = res;
+      fuente(res);
+      document.getElementById('nota-asistencia').textContent = token ? 'Marca la casilla para registrar la asistencia.' : 'Solo lectura: inicia sesión en "Gestión Brigadistas" para marcar.';
+
+      const sel = document.getElementById('filtro-modulo');
+      const modulos = [...new Set(res.encabezados.map(h => h.modulo))];
+      const elegido = sel.value;
+      sel.innerHTML = '<option value="">Todos los módulos</option>' + modulos.map(m => {
+        const t = res.encabezados.find(h => h.modulo === m).titulo;
+        return `<option value="${esc(m)}" ${m === elegido ? 'selected' : ''}>${esc(m + ': ' + t)}</option>`;
+      }).join('');
+      const visibles = res.encabezados.map((h, i) => ({ h, i })).filter(x => !sel.value || x.h.modulo === sel.value);
+
+      document.getElementById('thead-asistencia').innerHTML = '<tr><th class="col-fija">NOMBRE Y APELLIDO</th><th>PLANTA</th><th>ESTADO</th><th>CÉDULA</th>' +
+        visibles.map(x => `<th class="th-modulo" title="${esc(x.h.titulo)}">${esc(x.h.modulo)}<br>${esc(x.h.sesion)}</th>`).join('') + '</tr>';
+
+      document.getElementById('tbody-asistencia').innerHTML = res.brigadistas.map((b, bi) => {
+        const activo = !/desvinculado/i.test(b.estado);
+        const celdas = visibles.map(x => {
+          const a = b.asistencias[x.i];
+          return `<td><input type="checkbox" class="chk-asistencia" ${a.marcada ? 'checked' : ''} ${token && activo ? '' : 'disabled'}
+                  onchange="guardarCambioAsistencia(this, ${bi}, ${x.i})"><span class="fecha-sesion">${esc(a.fecha)}</span></td>`;
+        }).join('');
+        return `<tr class="${activo ? '' : 'text-muted'}">
+          <td class="text-start fw-semibold small col-fija">${esc(b.nombre)}</td>
+          <td class="small text-start">${esc(b.planta)}</td>
+          <td><span class="badge ${activo ? 'bg-success' : 'bg-secondary'}">${esc(b.estado)}</span></td>
+          <td class="small">${esc(b.cedula)}</td>${celdas}</tr>`;
+      }).join('');
+    }
+
+    function guardarCambioAsistencia(chk, bi, i) {
+      const b = ultimaAsistencia.brigadistas[bi];
+      const h = ultimaAsistencia.encabezados[i];
+      const valor = chk.checked;
+      chk.disabled = true;
+      google.script.run
+        .withSuccessHandler(res => {
+          chk.disabled = false;
+          if (res.exito) { b.asistencias[i].marcada = valor; avisar('Asistencia guardada: ' + b.nombre + ' · ' + h.modulo + ' ' + h.sesion); }
+          else { chk.checked = !valor; if (sesionExpirada(res)) renderAsistencia(ultimaAsistencia); avisar(res.mensaje, 'danger'); }
+        })
+        .withFailureHandler(err => { chk.disabled = false; chk.checked = !valor; falla(err); })
+        .guardarAsistencia(token, b.cedula, b.nombre, h.key, valor);
+    }
+
+    // ── cronograma ──
+    function renderCronograma(res) {
+      toggleLoader(false);
+      if (!res) return;
+      if (res.error) return avisar(res.error, 'danger');
+      ultimoCronograma = res;
+      const sel = document.getElementById('filtro-planta-crono');
+      const elegido = sel.value || (res.plantas[0] && res.plantas[0].nombre);
+      sel.innerHTML = res.plantas.map(p => `<option ${p.nombre === elegido ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('');
+      const planta = res.plantas.find(p => p.nombre === sel.value);
+      if (!planta) return;
+      const sesiones = [...new Set(planta.columnas.map(c => c.sesion))];
+      document.getElementById('thead-cronograma').innerHTML =
+        '<tr><th rowspan="2">MES</th><th rowspan="2">ENTRENAMIENTO</th>' +
+        sesiones.map(s => `<th colspan="${planta.columnas.filter(c => c.sesion === s).length}">${esc(s)}</th>`).join('') + '</tr>' +
+        '<tr>' + planta.columnas.map(c => `<th class="small">${esc(c.campo)}</th>`).join('') + '</tr>';
+      document.getElementById('tbody-cronograma').innerHTML = res.filas.map(f =>
+        `<tr><td class="fw-bold">${esc(f.mes)}</td><td class="text-start small">${esc(f.entrenamiento)}</td>` +
+        planta.columnas.map(c => `<td class="small">${esc(f.celdas[c.col])}</td>`).join('') + '</tr>').join('');
+    }
+
+    // ── temarios ──
+    function renderTemario(res) {
+      toggleLoader(false);
+      if (!res) return;
+      if (res.error) return avisar(res.error, 'danger');
+      document.getElementById('cards-temario').innerHTML = res.grupos.map(g => `
+        <div class="col-md-6 mb-4">
+          <div class="card h-100 shadow-sm border-0">
+            <div class="card-header bg-primary text-white fw-bold" style="white-space: pre-line;">${esc(g.titulo || res.encabezado)}</div>
+            <div class="card-body small">
+              ${g.items.map(item => `<div class="mb-2 pb-2 border-bottom">${item.map((x, k) =>
+                k === 0 ? `<div class="fw-semibold" style="white-space: pre-line;">${esc(x.valor)}</div>`
+                        : `<div style="white-space: pre-line;"><span class="text-muted">${esc(x.campo)}:</span> ${esc(x.valor)}</div>`).join('')}</div>`).join('')}
+            </div>
+          </div>
+        </div>`).join('') || '<p class="text-muted">Esta hoja no tiene contenido para mostrar.</p>';
+    }
+
+    // ── gestión ──
+    function mostrarGestion() {
+      document.getElementById('box-login').style.display = token ? 'none' : 'flex';
+      document.getElementById('box-admin').style.display = token ? 'block' : 'none';
+      if (token && !catalogos) {
+        toggleLoader(true);
+        google.script.run.withFailureHandler(falla).withSuccessHandler(c => {
+          toggleLoader(false);
+          if (c.error) return avisar(c.error, 'danger');
+          catalogos = c;
+          document.getElementById('regEstado').innerHTML = c.estados.map(x => `<option>${esc(x)}</option>`).join('');
+          document.getElementById('regCert').innerHTML = c.certificados.map(x => `<option>${esc(x)}</option>`).join('');
+          document.getElementById('lista-contratistas').innerHTML = c.contratistas.map(x => `<option value="${esc(x)}">`).join('');
+          document.getElementById('nota-registro').textContent = 'Se guarda en el ' + c.fuente + ', al final de la planta elegida.';
+          ajustarFormulario();
+        }).getCatalogos();
+      }
+    }
+    function ajustarFormulario() {
+      if (!catalogos) return;
+      const holcim = document.getElementById('regTipo').value === 'HOLCIM';
+      document.querySelectorAll('.solo-holcim').forEach(e => e.style.display = holcim ? '' : 'none');
+      document.querySelectorAll('.solo-inhouse').forEach(e => e.style.display = holcim ? 'none' : '');
+      const plantas = holcim ? catalogos.plantasHolcim : catalogos.plantasInhouse;
+      document.getElementById('regPlanta').innerHTML = '<option value="">Elige la planta…</option>' + plantas.map(p => `<option>${esc(p)}</option>`).join('');
+    }
+    function autenticarAdmin() {
+      const u = document.getElementById('loginUser').value.trim();
+      const p = document.getElementById('loginPass').value;
+      toggleLoader(true);
+      google.script.run.withFailureHandler(falla).withSuccessHandler(res => {
+        toggleLoader(false);
+        document.getElementById('loginPass').value = '';
+        if (res.exito) { guardarToken(res.token); document.getElementById('msg-login').innerText = ''; mostrarGestion(); }
+        else document.getElementById('msg-login').innerText = res.mensaje;
+      }).validarLoginAdmin(u, p);
+    }
+    function cerrarSesion() { guardarToken(null); catalogos = null; mostrarGestion(); }
+    function guardarBrigadista(e) {
+      e.preventDefault();
+      const data = {
+        tipo: document.getElementById('regTipo').value,
+        planta: document.getElementById('regPlanta').value,
+        contratista: document.getElementById('regContratista').value,
+        nombre: document.getElementById('regNombre').value,
+        cedula: document.getElementById('regCedula').value,
+        estado: document.getElementById('regEstado').value,
+        fechaIngreso: document.getElementById('regFecha').value,
+        certificado: document.getElementById('regCert').value,
+      };
+      toggleLoader(true);
+      google.script.run.withFailureHandler(falla).withSuccessHandler(res => {
+        toggleLoader(false);
+        if (sesionExpirada(res)) { mostrarGestion(); return avisar(res.mensaje, 'danger'); }
+        avisar(res.mensaje, res.exito ? 'success' : 'danger');
+        if (res.exito) { document.getElementById('formBrigadista').reset(); ajustarFormulario(); }
+      }).registrarBrigadistaNuevo(token, data);
+    }
+
+    function filtrarTabla(tbodyId, query) {
+      const q = query.toUpperCase();
+      document.querySelectorAll(`#${tbodyId} tr`).forEach(r => { r.style.display = r.innerText.toUpperCase().includes(q) ? '' : 'none'; });
+    }
+  </script>
+</body>
+</html>

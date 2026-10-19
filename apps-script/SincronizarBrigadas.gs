@@ -54,6 +54,8 @@ function onOpen() {
     .addSeparator()
     .addItem('Sincronizar aceptando un borrado grande', 'sincronizarAceptandoBorrado')
     .addItem('Restaurar desde un respaldo', 'restaurarRespaldo')
+    .addSeparator()
+    .addItem('🔐 Configurar usuario y clave de la app SIGBE', 'configurarUsuarioApp')
     .addToUi();
 }
 
