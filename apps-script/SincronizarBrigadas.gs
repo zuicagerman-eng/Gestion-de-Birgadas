@@ -36,6 +36,12 @@ const HOJAS_A_COPIAR = [
   // '2026 TEMARIO NACIONAL BRIGADAS',  ← quitar las // del inicio para traerla también
 ];
 
+// Pestañas que Google no deja copiar completas entre archivos: se actualizan celda por celda
+// (datos, fórmulas, colores y formato de números) sobre la pestaña que ya existe en el 2.0.
+const HOJAS_CELDA_POR_CELDA = [
+  '2026 Cronograma Nacional Brigadas',
+];
+
 // ───────────────────────────── MENÚ Y ACTIVADOR ─────────────────────────────
 
 function onOpen() {
@@ -104,6 +110,7 @@ function sincronizar_(forzar, aceptarBorrado) {
     const destino = SpreadsheetApp.getActiveSpreadsheet();
     const origen = abrirOrigen_();
     const props = PropertiesService.getDocumentProperties();
+    limpiarCopiasDanadas_(destino);
     HOJAS_A_COPIAR.forEach(nombre => {
       try {
         const ho = buscarHoja_(origen, nombre);
@@ -159,13 +166,35 @@ function abrirOrigen_() {
   return SpreadsheetApp.openById(ID_ORIGEN);
 }
 
+/** Pestañas del archivo que se pueden usar (Google a veces deja copias dañadas que fallan al tocarlas). */
+function hojasSanas_(ss) {
+  return ss.getSheets().filter(h => {
+    try { h.getSheetId(); h.getLastRow(); return true; } catch (e) { return false; }
+  });
+}
+
+function empiezaIgual_(a, b) {
+  const clave = s => String(s).replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 31);
+  return clave(a) === clave(b);
+}
+
+/** Borra las pestañas "Copia de …" / "Copy of …" de las hojas sincronizadas que dejaron intentos fallidos. */
+function limpiarCopiasDanadas_(destino) {
+  destino.getSheets().forEach(h => {
+    try {
+      const n = h.getName().replace(/^(Copia de |Copy of )/, '');
+      if (n !== h.getName() && HOJAS_A_COPIAR.some(x => empiezaIgual_(n, x))) destino.deleteSheet(h);
+    } catch (x) { /* si Google no la deja borrar, se ignora */ }
+  });
+}
+
 /** Busca la pestaña por su nombre exacto o, si no, por cómo empieza (sin importar mayúsculas ni espacios). */
 function buscarHoja_(ss, nombre) {
   const exacta = ss.getSheetByName(nombre);
   if (exacta) return exacta;
   const clave = s => String(s).replace(/\s+/g, ' ').trim().toUpperCase();
   const corto = clave(nombre).slice(0, 31); // Excel corta los nombres a 31 letras
-  return ss.getSheets().find(h => clave(h.getName()).indexOf(corto) === 0) || null;
+  return hojasSanas_(ss).find(h => clave(h.getName()).indexOf(corto) === 0) || null;
 }
 
 function celdasConDatos_(h) {
@@ -247,17 +276,24 @@ function copiarHoja_(hojaOrigen, destino, vieja) {
   // existe en el 2.0 celda por celda, y se recuerda para no volver a intentarlo cada hora.
   const props = PropertiesService.getDocumentProperties();
   const clave = 'SOLO_CONTENIDO_' + hojaOrigen.getName();
-  if (vieja && props.getProperty(clave)) {
+  const celdaPorCelda = HOJAS_CELDA_POR_CELDA.some(n => empiezaIgual_(hojaOrigen.getName(), n));
+  if (vieja && (celdaPorCelda || props.getProperty(clave))) {
     actualizarContenido_(hojaOrigen, vieja);
     return 'contenido';
   }
-  const idsAntes = destino.getSheets().map(h => h.getSheetId());
+  const idsAntes = hojasSanas_(destino).map(h => h.getSheetId());
   let nueva;
   try {
     nueva = hojaOrigen.copyTo(destino);
+    SpreadsheetApp.flush();
+    // Antes de tocar la pestaña vieja se comprueba que la copia quedó sana
+    // (a veces Google la crea dañada y falla después con "No se encontró la hoja …").
+    const idNueva = nueva.getSheetId();
+    nueva.getLastRow();
+    if (!hojasSanas_(destino).some(h => h.getSheetId() === idNueva)) throw new Error('la copia no quedó en el archivo');
   } catch (e) {
-    destino.getSheets().filter(h => idsAntes.indexOf(h.getSheetId()) === -1).forEach(h => {
-      try { destino.deleteSheet(h); } catch (x) { /* copia a medias que Google no deja borrar */ }
+    destino.getSheets().forEach(h => {
+      try { if (idsAntes.indexOf(h.getSheetId()) === -1) destino.deleteSheet(h); } catch (x) { /* copia dañada */ }
     });
     if (!vieja) throw new Error('Google no dejó copiar la pestaña (' + e.message + ') y no existe en el 2.0 para actualizarla.');
     props.setProperty(clave, e.message);
@@ -341,7 +377,7 @@ function esError_(v) {
 /** Celdas de otras hojas cuya fórmula menciona la hoja que se va a reemplazar. */
 function guardarReferencias_(destino, nombre, excluirIds) {
   const refs = [];
-  destino.getSheets().forEach(h => {
+  hojasSanas_(destino).forEach(h => {
     if (excluirIds.indexOf(h.getSheetId()) !== -1 || h.getLastRow() === 0) return;
     h.getRange(1, 1, h.getLastRow(), h.getLastColumn()).getFormulas().forEach((fila, i) => {
       fila.forEach((f, j) => {
