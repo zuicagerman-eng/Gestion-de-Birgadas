@@ -14,6 +14,9 @@ Hojas que se traen (lista `HOJAS_A_COPIAR` al inicio del script):
 Cada hoja se reemplaza en la misma posición y con el mismo nombre. Si otra hoja del 2.0 (por
 ejemplo *Indicador*) tiene fórmulas que apuntan a ella, esas fórmulas se conservan.
 En la actualización automática una hoja solo se reemplaza si cambió algo en el origen.
+Si Google no permite copiar una pestaña completa entre archivos (error *"No se encontró la hoja …"*,
+pasa con el Cronograma), esa pestaña se actualiza **celda por celda** en el 2.0: datos, fórmulas,
+colores de fondo y de letra, negritas y formato de números. El resultado dice *"(celda por celda)"*.
 
 ## Seguros
 

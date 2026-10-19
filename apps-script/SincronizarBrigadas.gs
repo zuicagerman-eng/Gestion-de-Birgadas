@@ -124,10 +124,10 @@ function sincronizar_(forzar, aceptarBorrado) {
           return;
         }
         respaldoDelDia_(destino, log);
-        copiarHoja_(ho, destino, hd);
+        const modo = copiarHoja_(ho, destino, hd);
         props.setProperty('HUELLA_' + nombre, huella);
         props.setProperty('CELDAS_' + nombre, String(ahora));
-        log.push('✔ ' + nombre + ': actualizada.');
+        log.push('✔ ' + nombre + ': actualizada' + (modo === 'contenido' ? ' (celda por celda).' : '.'));
       } catch (e) {
         log.push('✖ ' + nombre + ': ' + e.message);
       }
@@ -242,7 +242,18 @@ function restaurarRespaldo() {
 function copiarHoja_(hojaOrigen, destino, vieja) {
   const nombre = vieja ? vieja.getName() : hojaOrigen.getName();
   const activa = destino.getActiveSheet();
-  const nueva = hojaOrigen.copyTo(destino);
+  const idsAntes = destino.getSheets().map(h => h.getSheetId());
+  let nueva;
+  try {
+    nueva = hojaOrigen.copyTo(destino);
+  } catch (e) {
+    // Google a veces no deja copiar una pestaña completa entre archivos ("No se encontró la hoja …").
+    // Se borra cualquier copia a medias y se actualiza la pestaña existente celda por celda.
+    destino.getSheets().filter(h => idsAntes.indexOf(h.getSheetId()) === -1).forEach(h => destino.deleteSheet(h));
+    if (!vieja) throw e;
+    actualizarContenido_(hojaOrigen, vieja);
+    return 'contenido';
+  }
 
   let posicion = destino.getNumSheets();
   let referencias = [];
@@ -256,6 +267,65 @@ function copiarHoja_(hojaOrigen, destino, vieja) {
   destino.moveActiveSheet(posicion);
   referencias.forEach(r => r.hoja.getRange(r.fila, r.col).setFormula(r.formula));
   if (activa && activa.getName() !== nombre) destino.setActiveSheet(activa);
+  return 'completa';
+}
+
+/**
+ * Plan B: deja la pestaña del destino igual a la del origen sin reemplazarla:
+ * datos, fórmulas, colores de fondo y de letra, negritas y formato de números.
+ * Solo escribe lo que cambió, así que los enlaces y bordes de las celdas iguales no se tocan.
+ */
+function actualizarContenido_(ho, hd) {
+  if (hd.getMaxRows() < ho.getMaxRows()) hd.insertRowsAfter(hd.getMaxRows(), ho.getMaxRows() - hd.getMaxRows());
+  if (hd.getMaxColumns() < ho.getMaxColumns()) hd.insertColumnsAfter(hd.getMaxColumns(), ho.getMaxColumns() - hd.getMaxColumns());
+  const filas = Math.max(ho.getLastRow(), hd.getLastRow(), 1);
+  const cols = Math.max(ho.getLastColumn(), hd.getLastColumn(), 1);
+  const ro = ho.getRange(1, 1, filas, cols);
+  const rd = hd.getRange(1, 1, filas, cols);
+
+  const vo = ro.getValues(), fo = ro.getFormulas();
+  const vd = rd.getValues(), fd = rd.getFormulas();
+  for (let r = 0; r < filas; r++) {
+    const nuevos = [];
+    for (let c = 0; c < cols; c++) {
+      let nuevo = null; // null = no tocar
+      if (fo[r][c]) {
+        if (fo[r][c] !== fd[r][c]) nuevo = fo[r][c];
+      } else if (fd[r][c] || !iguales_(vo[r][c], vd[r][c])) {
+        if (!esError_(vo[r][c])) nuevo = vo[r][c];
+      }
+      nuevos.push(nuevo);
+    }
+    escribirTramos_(hd, r + 1, nuevos);
+  }
+
+  [['getBackgrounds', 'setBackgrounds'], ['getFontColors', 'setFontColors'],
+    ['getFontWeights', 'setFontWeights'], ['getNumberFormats', 'setNumberFormats']].forEach(([leer, escribir]) => {
+    const a = ro[leer]();
+    if (JSON.stringify(a) !== JSON.stringify(rd[leer]())) rd[escribir](a);
+  });
+}
+
+/** Escribe solo las celdas con valor distinto de null, agrupadas en tramos seguidos de la fila. */
+function escribirTramos_(sh, fila, nuevos) {
+  let i = 0;
+  while (i < nuevos.length) {
+    if (nuevos[i] === null) { i++; continue; }
+    let j = i;
+    while (j < nuevos.length && nuevos[j] !== null) j++;
+    sh.getRange(fila, i + 1, 1, j - i).setValues([nuevos.slice(i, j)]);
+    i = j;
+  }
+}
+
+function iguales_(a, b) {
+  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+  if (a instanceof Date || b instanceof Date) return false;
+  return a === b;
+}
+
+function esError_(v) {
+  return typeof v === 'string' && /^#(VALUE!|REF!|N\/A|DIV\/0!|NAME\?|NUM!|NULL!|ERROR!)$/.test(v);
 }
 
 /** Celdas de otras hojas cuya fórmula menciona la hoja que se va a reemplazar. */
