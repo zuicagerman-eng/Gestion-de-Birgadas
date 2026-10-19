@@ -7,490 +7,748 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <style>
-    body { background-color: #f4f6f9; font-family: 'Segoe UI', system-ui, sans-serif; }
-    .sidebar { min-height: 100vh; background: #1a252f; color: #fff; }
-    .sidebar .nav-link { color: #adb5bd; padding: 10px 16px; margin: 2px 0; border-radius: 6px; font-weight: 500; }
-    .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: #0d6efd; }
-    .sidebar .sub-link { padding-left: 35px; font-size: 0.88em; }
-    .main-content { padding: 25px; }
-    .kpi-card { border: none; border-radius: 10px; color: white; }
-    .badge-brecha { background-color: #f8d7da; color: #721c24; }
-    .badge-cumple { background-color: #d4edda; color: #155724; }
-    .fila-total td { background: #eef2f7 !important; font-weight: 600; }
-    .chk-asistencia { transform: scale(1.3); cursor: pointer; }
-    .chk-asistencia:disabled { cursor: not-allowed; }
-    .fecha-sesion { display: block; font-size: 0.7em; color: #6c757d; white-space: nowrap; }
-    .th-modulo { font-size: 0.75em; min-width: 92px; }
-    .col-fija { position: sticky; left: 0; background: #fff; z-index: 1; }
-    #tabla-asistencia thead th.col-fija { background: #212529; z-index: 3; }
-    #loader { display: none; position: fixed; inset: 0; background: rgba(255,255,255,0.75); z-index: 9999; justify-content: center; align-items: center; }
-    #aviso { position: fixed; bottom: 20px; right: 20px; z-index: 10000; min-width: 260px; display: none; }
+    :root { --sigbe-oscuro: #1a252f; --sigbe-azul: #0d6efd; }
+    body { background: #f4f6f9; font-family: 'Segoe UI', system-ui, sans-serif; }
+    @media (min-width: 768px) {
+      .sidebar { background: var(--sigbe-oscuro); color: #fff; min-height: 100vh; }
+      .sidebar .offcanvas-md { position: sticky; top: 0; }
+    }
+    .sidebar .nav-link { color: #c3cad1; padding: 11px 16px; margin: 2px 0; border-radius: 8px; font-weight: 500; }
+    .sidebar .nav-link i { width: 22px; }
+    .sidebar .nav-link:hover { color: #fff; background: rgba(255,255,255,.08); }
+    .sidebar .nav-link.active { color: #fff; background: var(--sigbe-azul); }
+    .offcanvas-md.offcanvas-start { background: var(--sigbe-oscuro); }
+    .topbar { background: #fff; border-bottom: 1px solid #e3e7ec; position: sticky; top: 0; z-index: 1020; }
+    .main { padding: 24px; max-width: 1300px; }
+    .kpi { border: 0; border-radius: 12px; }
+    .kpi .num { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+    .kpi .icono { font-size: 1.6rem; opacity: .25; }
+    .tarjeta { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+    .fecha-chip { min-width: 62px; text-align: center; border-radius: 10px; background: #eef3ff; color: #0b4fc2; padding: 6px 4px; line-height: 1.1; }
+    .fecha-chip .dia { font-size: 1.35rem; font-weight: 700; }
+    .fecha-chip .mes { font-size: .72rem; text-transform: uppercase; }
+    .accion-rapida { border-radius: 12px; padding: 18px; text-align: left; }
+    .sede-btn { border-radius: 12px; padding: 16px; font-weight: 600; }
+    .sesion-btn { border-radius: 10px; text-align: left; }
+    .fila-persona { border-radius: 10px; padding: 10px 12px; background: #fff; border: 1px solid #e6e9ee; }
+    .fila-persona.cambiada { background: #fff8e1; border-color: #ffd54f; }
+    .fila-persona.inactiva { opacity: .55; }
+    .btn-asistio { min-width: 130px; }
+    .barra-guardar { position: sticky; bottom: 0; z-index: 1010; background: #fff; border-top: 3px solid #ffc107; box-shadow: 0 -4px 12px rgba(0,0,0,.08); }
+    .mes-titulo { font-weight: 700; color: #495057; text-transform: uppercase; letter-spacing: .05em; font-size: .85rem; }
+    .crono-item.pasada { opacity: .6; }
+    .progress { height: 8px; }
+    #loader { display: none; position: fixed; inset: 0; background: rgba(255,255,255,.7); z-index: 2000; justify-content: center; align-items: center; }
+    #avisos { position: fixed; bottom: 16px; right: 16px; z-index: 2100; max-width: 420px; }
+    .vista { display: none; }
   </style>
 </head>
 <body>
-
-  <div id="loader"><div class="spinner-border text-primary" style="width: 3.5rem; height: 3.5rem;" role="status"></div></div>
-  <div id="aviso" class="alert shadow mb-0" role="alert"></div>
+  <div id="loader"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div></div>
+  <div id="avisos"></div>
 
   <div class="container-fluid">
     <div class="row">
 
-      <!-- MENÚ -->
-      <nav class="col-md-3 col-lg-2 sidebar p-3">
-        <div class="d-flex align-items-center mb-4 text-white">
-          <i class="fa-solid fa-shield-halved fa-2x me-2 text-warning"></i>
-          <div>
-            <div class="fs-5 fw-bold">SIGBE 2.0</div>
-            <div class="small text-secondary">Gestión de Brigadas</div>
-          </div>
-        </div>
-        <hr class="text-secondary">
-        <ul class="nav nav-pills flex-column">
-          <li><a href="#" class="nav-link active" onclick="navegar('tablero', this); return false;"><i class="fa-solid fa-chart-line me-2"></i>Tablero de Control</a></li>
-          <li><a href="#" class="nav-link" onclick="navegar('directorio', this); return false;"><i class="fa-solid fa-address-book me-2"></i>Directorio Brigadas</a></li>
-          <li>
-            <a href="#menuCapacitaciones" data-bs-toggle="collapse" class="nav-link d-flex justify-content-between align-items-center">
-              <span><i class="fa-solid fa-graduation-cap me-2"></i>Capacitaciones</span><i class="fa-solid fa-chevron-down small"></i>
-            </a>
-            <div class="collapse show" id="menuCapacitaciones">
-              <ul class="nav flex-column" id="lista-capacitaciones">
-                <li><a href="#" class="nav-link sub-link text-warning fw-bold" onclick="cargarSubCapacitacion('asistencia', 'Control de Asistencia', this); return false;"><i class="fa-solid fa-user-check me-1"></i> Control Asistencia</a></li>
-                <li><a href="#" class="nav-link sub-link" onclick="cargarSubCapacitacion('cronograma', 'Cronograma Nacional 2026', this); return false;">Cronograma 2026</a></li>
-              </ul>
+      <!-- MENÚ (fijo en pantallas grandes; desplegable en celular) -->
+      <div class="col-md-3 col-lg-2 sidebar p-0">
+        <div class="offcanvas-md offcanvas-start text-white" tabindex="-1" id="menu">
+          <div class="p-3">
+            <div class="d-flex align-items-center mb-3">
+              <i class="fa-solid fa-shield-halved fa-2x me-2 text-warning"></i>
+              <div class="flex-grow-1"><div class="fs-5 fw-bold">SIGBE 2.0</div><div class="small text-secondary">Gestión de Brigadas</div></div>
+              <button type="button" class="btn-close btn-close-white d-md-none" data-bs-dismiss="offcanvas" data-bs-target="#menu"></button>
             </div>
-          </li>
-          <li><a href="#" class="nav-link" onclick="navegar('gestion', this); return false;"><i class="fa-solid fa-user-gear me-2"></i>Gestión Brigadistas</a></li>
-        </ul>
-        <div class="small text-secondary mt-4" id="estado-sesion"><i class="fa-solid fa-lock me-1"></i>Sin sesión</div>
-        <div class="small text-secondary mt-2" id="estado-sync" title="Última vez que el archivo 2.0 recibió los datos del original"></div>
-      </nav>
-
-      <!-- CONTENIDO -->
-      <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content">
-        <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-4 border-bottom">
-          <div>
-            <h2 class="h3 fw-bold text-dark mb-0" id="seccion-titulo">Tablero de Control</h2>
-            <div class="small text-muted" id="seccion-fuente"></div>
+            <ul class="nav flex-column" id="nav">
+              <li><a href="#" class="nav-link" data-vista="inicio"><i class="fa-solid fa-house"></i> Inicio</a></li>
+              <li><a href="#" class="nav-link" data-vista="asistencia"><i class="fa-solid fa-clipboard-check"></i> Tomar asistencia</a></li>
+              <li><a href="#" class="nav-link" data-vista="brigadistas"><i class="fa-solid fa-users"></i> Brigadistas</a></li>
+              <li><a href="#" class="nav-link" data-vista="cronograma"><i class="fa-solid fa-calendar-days"></i> Cronograma</a></li>
+              <li><a href="#" class="nav-link" data-vista="temarios"><i class="fa-solid fa-book-open"></i> Temarios</a></li>
+              <li><a href="#" class="nav-link" data-vista="indicadores"><i class="fa-solid fa-chart-column"></i> Cobertura</a></li>
+              <li><a href="#" class="nav-link" data-vista="historial"><i class="fa-solid fa-clock-rotate-left"></i> Historial de cambios</a></li>
+            </ul>
+            <hr class="text-secondary">
+            <div class="small text-secondary" id="estado-sync"></div>
           </div>
-          <button class="btn btn-outline-primary btn-sm" onclick="cargarSeccionActual()"><i class="fa-solid fa-rotate me-1"></i>Actualizar</button>
         </div>
+      </div>
 
-        <!-- TABLERO -->
-        <div id="sec-tablero" class="seccion-app">
-          <div class="row g-3 mb-4">
-            <div class="col-md-3"><div class="card kpi-card bg-primary p-3"><div class="small text-white-50">PERSONAL TOTAL</div><div class="fs-2 fw-bold" id="kpi-personal">0</div></div></div>
-            <div class="col-md-3"><div class="card kpi-card bg-success p-3"><div class="small text-white-50">BRIGADISTAS ACTUALES</div><div class="fs-2 fw-bold" id="kpi-brigadistas">0</div><div class="small text-white-50" id="kpi-requeridos"></div></div></div>
-            <div class="col-md-3"><div class="card kpi-card bg-info p-3"><div class="small text-white-50">% COBERTURA COLECTIVA</div><div class="fs-2 fw-bold" id="kpi-cobertura">0%</div></div></div>
-            <div class="col-md-3"><div class="card kpi-card bg-danger p-3"><div class="small text-white-50">BRECHA (GAP) PENDIENTE</div><div class="fs-2 fw-bold" id="kpi-brechas">0</div></div></div>
+      <div class="col-md-9 col-lg-10 p-0">
+        <!-- BARRA SUPERIOR: sede y sesión -->
+        <div class="topbar px-3 py-2 d-flex flex-wrap align-items-center gap-2">
+          <button class="btn btn-outline-secondary d-md-none" data-bs-toggle="offcanvas" data-bs-target="#menu" aria-label="Menú"><i class="fa-solid fa-bars"></i></button>
+          <div class="d-flex align-items-center gap-2">
+            <label class="small text-muted mb-0" for="sel-sede"><i class="fa-solid fa-location-dot me-1"></i>Sede</label>
+            <select id="sel-sede" class="form-select form-select-sm" style="min-width: 190px;"></select>
           </div>
-          <div class="table-responsive bg-white rounded shadow-sm p-3">
-            <table class="table table-hover align-middle">
-              <thead class="table-dark"><tr><th>PLANTA</th><th>EMPRESA</th><th>TOTAL PERSONAS</th><th>REQUERIDOS</th><th>ACTUALES</th><th>% COBERTURA</th><th>BRECHA</th></tr></thead>
-              <tbody id="tbody-tablero"></tbody>
-            </table>
+          <div class="ms-auto d-flex align-items-center gap-2">
+            <span class="small text-muted d-none d-sm-inline" id="txt-usuario"></span>
+            <button class="btn btn-sm btn-primary" id="btn-sesion"></button>
           </div>
         </div>
 
-        <!-- DIRECTORIO -->
-        <div id="sec-directorio" class="seccion-app" style="display:none;">
-          <div class="row g-2 mb-3">
-            <div class="col-md-6"><input type="text" class="form-control" placeholder="Buscar por planta, nombre, cédula o contratista..." onkeyup="filtrarTabla('tbody-directorio', this.value)"></div>
-            <div class="col-md-3"><div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="dir-ocultar-desv" checked onchange="renderDirectorio(ultimoDirectorio)"><label class="form-check-label" for="dir-ocultar-desv">Ocultar desvinculados</label></div></div>
-          </div>
-          <div class="table-responsive bg-white rounded shadow-sm p-3">
-            <table class="table table-striped align-middle">
-              <thead class="table-dark"><tr><th>PLANTA</th><th>TIPO</th><th>CONTRATISTA</th><th>ESTADO</th><th>NOMBRE</th><th>CÉDULA</th><th>CERT. 0256</th></tr></thead>
-              <tbody id="tbody-directorio"></tbody>
-            </table>
-          </div>
-        </div>
+        <main class="main">
 
-        <!-- CAPACITACIONES -->
-        <div id="sec-capacitaciones" class="seccion-app" style="display:none;">
-          <div id="contenedor-asistencia" style="display:none;">
-            <div class="row g-2 mb-3 align-items-center">
-              <div class="col-md-5"><input type="text" class="form-control" placeholder="Filtrar por planta, nombre o cédula..." onkeyup="filtrarTabla('tbody-asistencia', this.value)"></div>
-              <div class="col-md-4"><select class="form-select" id="filtro-modulo" onchange="renderAsistencia(ultimaAsistencia)"></select></div>
-              <div class="col-md-3 small text-muted" id="nota-asistencia"></div>
-            </div>
-            <div class="table-responsive bg-white rounded shadow-sm p-3" style="max-height: 650px; overflow: auto;">
-              <table class="table table-sm table-bordered table-hover align-middle text-center" id="tabla-asistencia">
-                <thead class="table-dark sticky-top" id="thead-asistencia"></thead>
-                <tbody id="tbody-asistencia"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div id="contenedor-cronograma" style="display:none;">
-            <div class="col-md-4 mb-3"><select class="form-select" id="filtro-planta-crono" onchange="renderCronograma(ultimoCronograma)"></select></div>
-            <div class="table-responsive bg-white rounded shadow-sm p-3">
-              <table class="table table-sm table-bordered text-center align-middle">
-                <thead class="table-dark" id="thead-cronograma"></thead>
-                <tbody id="tbody-cronograma"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div id="contenedor-temario" style="display:none;"><div class="row" id="cards-temario"></div></div>
-        </div>
-
-        <!-- GESTIÓN -->
-        <div id="sec-gestion" class="seccion-app" style="display:none;">
-          <div id="box-login" class="row justify-content-center pt-4">
-            <div class="col-md-5">
-              <div class="card shadow border-0 p-4">
-                <h4 class="text-center mb-4"><i class="fa-solid fa-lock text-primary me-2"></i>Acceso Admin</h4>
-                <input type="text" id="loginUser" class="form-control mb-2" placeholder="Usuario" autocomplete="username">
-                <input type="password" id="loginPass" class="form-control mb-3" placeholder="Clave" autocomplete="current-password" onkeyup="if(event.key==='Enter') autenticarAdmin()">
-                <button class="btn btn-primary w-100" onclick="autenticarAdmin()">Ingresar</button>
-                <div id="msg-login" class="mt-2 text-danger small text-center"></div>
-              </div>
-            </div>
-          </div>
-
-          <div id="box-admin" style="display:none;">
-            <div class="card shadow-sm border-0 p-4">
-              <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="mb-0 text-primary">Registrar brigadista nuevo</h5>
-                <button class="btn btn-sm btn-outline-secondary" onclick="cerrarSesion()"><i class="fa-solid fa-right-from-bracket me-1"></i>Cerrar sesión</button>
-              </div>
-              <form id="formBrigadista" onsubmit="guardarBrigadista(event)">
-                <div class="row g-3">
-                  <div class="col-md-4"><label class="form-label">Tipo</label>
-                    <select id="regTipo" class="form-select" onchange="ajustarFormulario()"><option value="HOLCIM">HOLCIM</option><option value="INHOUSE">INHOUSE (contratista)</option></select></div>
-                  <div class="col-md-4"><label class="form-label">Planta</label><select id="regPlanta" class="form-select" required></select></div>
-                  <div class="col-md-4 solo-inhouse"><label class="form-label">Contratista</label><input type="text" id="regContratista" class="form-control" list="lista-contratistas"><datalist id="lista-contratistas"></datalist></div>
-                  <div class="col-md-4"><label class="form-label">Nombre y apellido</label><input type="text" id="regNombre" class="form-control" required></div>
-                  <div class="col-md-4"><label class="form-label">Cédula</label><input type="text" id="regCedula" class="form-control" inputmode="numeric" pattern="[0-9]{5,12}" title="Solo números" required></div>
-                  <div class="col-md-4 solo-holcim"><label class="form-label">Estado</label><select id="regEstado" class="form-select"></select></div>
-                  <div class="col-md-4 solo-holcim"><label class="form-label">Fecha de ingreso a la brigada</label><input type="date" id="regFecha" class="form-control"></div>
-                  <div class="col-md-4"><label class="form-label">Certificado vigente 0256</label><select id="regCert" class="form-select"></select></div>
+          <!-- ═════════ INICIO ═════════ -->
+          <section class="vista" id="v-inicio">
+            <h1 class="h3 fw-bold mb-1">Resumen</h1>
+            <p class="text-muted mb-4" id="inicio-sub"></p>
+            <div class="row g-3 mb-4" id="inicio-kpis"></div>
+            <div class="row g-3">
+              <div class="col-lg-7">
+                <div class="tarjeta p-3 h-100">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-calendar-check me-2 text-primary"></i>Próximas capacitaciones</h2>
+                    <a href="#" class="small" data-ir="cronograma">Ver cronograma completo</a>
+                  </div>
+                  <div id="inicio-proximas"></div>
                 </div>
-                <button type="submit" class="btn btn-success mt-4"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar</button>
-                <div class="small text-muted mt-2" id="nota-registro"></div>
-              </form>
+              </div>
+              <div class="col-lg-5">
+                <div class="tarjeta p-3 mb-3">
+                  <h2 class="h6 fw-bold mb-3">¿Qué quieres hacer?</h2>
+                  <div class="d-grid gap-2">
+                    <button class="btn btn-primary accion-rapida" data-ir="asistencia"><i class="fa-solid fa-clipboard-check fa-lg me-2"></i><b>Tomar asistencia</b><div class="small opacity-75">Elige la sesión y marca quién asistió</div></button>
+                    <button class="btn btn-outline-primary accion-rapida" id="btn-rapido-registrar"><i class="fa-solid fa-user-plus fa-lg me-2"></i><b>Registrar brigadista</b><div class="small opacity-75">Agregar una persona nueva a la brigada</div></button>
+                    <button class="btn btn-outline-secondary accion-rapida" data-ir="brigadistas"><i class="fa-solid fa-magnifying-glass fa-lg me-2"></i><b>Buscar brigadista</b><div class="small opacity-75">Por nombre, cédula o planta</div></button>
+                  </div>
+                </div>
+                <div class="tarjeta p-3">
+                  <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-certificate me-2 text-warning"></i>Pendientes de certificado 0256</h2>
+                  <div id="inicio-pendientes" class="small"></div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </section>
 
-      </main>
+          <!-- ═════════ TOMAR ASISTENCIA ═════════ -->
+          <section class="vista" id="v-asistencia">
+            <h1 class="h3 fw-bold mb-1">Tomar asistencia</h1>
+            <nav aria-label="pasos" class="mb-3"><ol class="breadcrumb small mb-0" id="asis-migas"></ol></nav>
+            <div id="asis-contenido"></div>
+          </section>
+
+          <!-- ═════════ BRIGADISTAS ═════════ -->
+          <section class="vista" id="v-brigadistas">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+              <h1 class="h3 fw-bold mb-0">Brigadistas</h1>
+              <button class="btn btn-success" id="btn-registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
+            </div>
+            <div class="tarjeta p-3 mb-3">
+              <div class="row g-2 align-items-center">
+                <div class="col-md-5"><input type="search" id="brig-buscar" class="form-control" placeholder="Buscar por nombre, cédula, planta o contratista…"></div>
+                <div class="col-auto">
+                  <div class="btn-group" role="group" id="brig-tipo">
+                    <button class="btn btn-outline-primary active" data-tipo="">Todos</button>
+                    <button class="btn btn-outline-primary" data-tipo="HOLCIM">Holcim</button>
+                    <button class="btn btn-outline-primary" data-tipo="INHOUSE">Contratistas</button>
+                  </div>
+                </div>
+                <div class="col-auto"><select id="brig-cert" class="form-select"><option value="">Certificado: todos</option><option value="si">Con certificado</option><option value="no">Pendiente</option></select></div>
+                <div class="col-auto form-check ms-2"><input class="form-check-input" type="checkbox" id="brig-desv"><label class="form-check-label small" for="brig-desv">Ver desvinculados</label></div>
+              </div>
+            </div>
+            <div class="small text-muted mb-2" id="brig-conteo"></div>
+            <div class="tarjeta table-responsive">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light"><tr><th>Nombre</th><th>Cédula</th><th>Planta</th><th>Empresa</th><th>Estado</th><th>Certificado 0256</th><th>Cumplimiento</th></tr></thead>
+                <tbody id="brig-tabla"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ═════════ CRONOGRAMA ═════════ -->
+          <section class="vista" id="v-cronograma">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+              <h1 class="h3 fw-bold mb-0">Cronograma de capacitaciones</h1>
+              <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="crono-pasadas"><label class="form-check-label small" for="crono-pasadas">Mostrar sesiones pasadas</label></div>
+            </div>
+            <div id="crono-lista"></div>
+          </section>
+
+          <!-- ═════════ TEMARIOS ═════════ -->
+          <section class="vista" id="v-temarios">
+            <h1 class="h3 fw-bold mb-3">Temarios</h1>
+            <div class="col-md-6 mb-3"><select id="tem-hoja" class="form-select"></select></div>
+            <div class="accordion" id="tem-acordeon"></div>
+          </section>
+
+          <!-- ═════════ COBERTURA ═════════ -->
+          <section class="vista" id="v-indicadores">
+            <h1 class="h3 fw-bold mb-1">Cobertura de brigadistas</h1>
+            <p class="text-muted small mb-3">Brigadistas actuales frente a los requeridos (20 % del personal) por planta y empresa. Fuente: hoja <i>Indicador</i> del 2.0.</p>
+            <div class="tarjeta table-responsive">
+              <table class="table align-middle mb-0">
+                <thead class="table-light"><tr><th>Planta</th><th>Empresa</th><th class="text-end">Personal</th><th class="text-end">Requeridos</th><th class="text-end">Actuales</th><th style="min-width: 180px;">Cobertura</th><th class="text-end">Faltan</th></tr></thead>
+                <tbody id="ind-tabla"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- ═════════ HISTORIAL ═════════ -->
+          <section class="vista" id="v-historial">
+            <h1 class="h3 fw-bold mb-1">Historial de cambios</h1>
+            <p class="text-muted small mb-3">Todo lo que se guarda desde la app queda aquí (también en la hoja <i>Bitácora SIGBE</i> del 2.0). Además, antes del primer cambio de cada día se guarda una copia completa del archivo original en Drive (carpeta <i>Respaldos Gestion de Brigadas 2.0</i>).</p>
+            <div class="tarjeta table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light"><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Brigadista</th><th>Detalle</th><th>Antes</th><th>Después</th></tr></thead>
+                <tbody id="hist-tabla"></tbody>
+              </table>
+            </div>
+          </section>
+
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: iniciar sesión -->
+  <div class="modal fade" id="modal-login" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <form class="modal-content" id="form-login">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-lock text-primary me-2"></i>Iniciar sesión</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <p class="small text-muted">Necesario para marcar asistencia y registrar brigadistas.</p>
+          <input type="text" id="login-usuario" class="form-control mb-2" placeholder="Usuario" autocomplete="username" required>
+          <input type="password" id="login-clave" class="form-control" placeholder="Clave" autocomplete="current-password" required>
+          <div class="text-danger small mt-2" id="login-error"></div>
+        </div>
+        <div class="modal-footer"><button type="submit" class="btn btn-primary w-100">Entrar</button></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: confirmar -->
+  <div class="modal fade" id="modal-confirmar" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="conf-titulo"></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body" id="conf-cuerpo"></div>
+        <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Volver</button><button class="btn btn-success" id="conf-ok"></button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: registrar brigadista -->
+  <div class="modal fade" id="modal-registro" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <form class="modal-content" id="form-registro">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-user-plus text-success me-2"></i>Registrar brigadista</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="btn-group w-100" role="group">
+                <input type="radio" class="btn-check" name="reg-tipo" id="reg-tipo-h" value="HOLCIM" checked><label class="btn btn-outline-primary" for="reg-tipo-h">Personal Holcim</label>
+                <input type="radio" class="btn-check" name="reg-tipo" id="reg-tipo-i" value="INHOUSE"><label class="btn btn-outline-primary" for="reg-tipo-i">Contratista (Inhouse)</label>
+              </div>
+            </div>
+            <div class="col-md-6"><label class="form-label">Planta *</label><select id="reg-planta" class="form-select" required></select></div>
+            <div class="col-md-6 solo-inhouse"><label class="form-label">Empresa contratista *</label><input id="reg-contratista" class="form-control" list="reg-contratistas"><datalist id="reg-contratistas"></datalist></div>
+            <div class="col-md-6"><label class="form-label">Nombre y apellido *</label><input id="reg-nombre" class="form-control" required></div>
+            <div class="col-md-6"><label class="form-label">Cédula *</label><input id="reg-cedula" class="form-control" inputmode="numeric" pattern="[0-9.]{5,15}" title="Solo números" required></div>
+            <div class="col-md-6 solo-holcim"><label class="form-label">Estado</label><select id="reg-estado" class="form-select"></select></div>
+            <div class="col-md-6 solo-holcim"><label class="form-label">Fecha de ingreso a la brigada</label><input type="date" id="reg-fecha" class="form-control"></div>
+            <div class="col-md-6"><label class="form-label">Certificado 0256</label><select id="reg-cert" class="form-select"></select></div>
+          </div>
+          <p class="small text-muted mt-3 mb-0"><i class="fa-solid fa-circle-info me-1"></i>Se agrega al final de su planta en el archivo original, con el mismo formato. Antes de guardar podrás revisar los datos.</p>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Revisar y guardar</button></div>
+      </form>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    let seccionActual = 'tablero';
-    let subCapacitacionActual = 'asistencia';
-    let token = leerToken();
-    let catalogos = null;
-    let ultimoDirectorio = null, ultimaAsistencia = null, ultimoCronograma = null;
+    // ══════════ estado ══════════
+    const estado = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sede: leer('localStorage', 'sigbe_sede') || '', sedes: [] };
+    const asis = { paso: 'sesiones', sesion: null, lista: null, cambios: {}, mostrarInactivos: false, buscar: '' };
+    let brigadistas = null, cronograma = null, catalogos = null, temariosCargados = false;
+    const modal = id => bootstrap.Modal.getOrCreateInstance(document.getElementById(id));
+    const $ = id => document.getElementById(id);
 
-    document.addEventListener('DOMContentLoaded', () => {
-      actualizarEstadoSesion();
-      cargarSeccionActual();
-      google.script.run.withSuccessHandler(pintarMenuTemarios).getListaTemarios();
-      refrescarEstadoSync();
-      setInterval(refrescarEstadoSync, 60000);
+    // ══════════ utilidades ══════════
+    function leer(tipo, k) { try { return window[tipo].getItem(k); } catch (e) { return null; } }
+    function guardar(tipo, k, v) { try { v ? window[tipo].setItem(k, v) : window[tipo].removeItem(k); } catch (e) {} }
+    function esc(v) { return String(v === null || v === undefined ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+    function cargando(si) { $('loader').style.display = si ? 'flex' : 'none'; }
+    /** google.script.run como promesa */
+    function api(nombre, ...args) {
+      return new Promise((ok, mal) => google.script.run.withSuccessHandler(ok).withFailureHandler(mal)[nombre](...args));
+    }
+    function avisar(html, tipo, ms, accion) {
+      const el = document.createElement('div');
+      el.className = 'alert alert-' + (tipo || 'success') + ' shadow d-flex align-items-start gap-2';
+      el.innerHTML = '<div class="flex-grow-1">' + html + '</div>' + (accion ? '<button class="btn btn-sm btn-dark">' + esc(accion.texto) + '</button>' : '') + '<button class="btn-close" aria-label="Cerrar"></button>';
+      el.querySelector('.btn-close').onclick = () => el.remove();
+      if (accion) el.querySelector('.btn-dark').onclick = () => { el.remove(); accion.fn(); };
+      $('avisos').appendChild(el);
+      setTimeout(() => el.remove(), ms || 6000);
+    }
+    function error(e) { cargando(false); avisar('<b>No se pudo completar.</b> ' + esc(e && e.message ? e.message : e), 'danger', 9000); }
+    const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    function chipFecha(iso, texto) {
+      if (!iso) return `<div class="fecha-chip"><div class="mes">${esc(texto || 'sin fecha')}</div></div>`;
+      const [a, m, d] = iso.split('-');
+      return `<div class="fecha-chip"><div class="dia">${+d}</div><div class="mes">${MESES[+m - 1]} ${a}</div></div>`;
+    }
+    function badgeEstado(e) {
+      const n = (e || '').toLowerCase();
+      const cls = n.includes('programada') ? 'bg-success' : n.includes('pendiente') ? 'bg-warning text-dark' : 'bg-secondary';
+      return e && e !== '-' ? `<span class="badge ${cls}">${esc(e)}</span>` : '';
+    }
+    function esActivo(p) { return !/desvinculado/i.test(p.estado || ''); }
+    function tieneCert(c) { return /^\d+$/.test(String(c || '')); }
+
+    // ══════════ arranque ══════════
+    document.addEventListener('DOMContentLoaded', async () => {
+      document.querySelectorAll('#nav .nav-link').forEach(a => a.onclick = e => { e.preventDefault(); ir(a.dataset.vista); });
+      document.querySelectorAll('[data-ir]').forEach(a => a.onclick = e => { e.preventDefault(); ir(a.dataset.ir); });
+      $('sel-sede').onchange = () => cambiarSede($('sel-sede').value);
+      $('btn-sesion').onclick = () => estado.usuario ? cerrarSesion() : pedirSesion();
+      $('form-login').onsubmit = iniciarSesion;
+      $('btn-registrar').onclick = abrirRegistro;
+      $('btn-rapido-registrar').onclick = abrirRegistro;
+      $('form-registro').onsubmit = revisarRegistro;
+      document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
+      ['brig-buscar', 'brig-cert', 'brig-desv'].forEach(id => $(id).oninput = pintarBrigadistas);
+      document.querySelectorAll('#brig-tipo button').forEach(b => b.onclick = () => {
+        document.querySelectorAll('#brig-tipo button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active'); pintarBrigadistas();
+      });
+      $('crono-pasadas').onchange = pintarCronograma;
+      $('tem-hoja').onchange = cargarTemario;
+      window.addEventListener('beforeunload', e => { if (hayCambios()) { e.preventDefault(); e.returnValue = ''; } });
+
+      cargando(true);
+      try {
+        const ctx = await api('getContexto', estado.token);
+        estado.sedes = ctx.sedes;
+        estado.usuario = ctx.usuario;
+        if (!estado.usuario) { estado.token = null; guardar('sessionStorage', 'sigbe_token', null); }
+        if (estado.sede && estado.sedes.indexOf(estado.sede) === -1) estado.sede = '';
+        $('sel-sede').innerHTML = '<option value="">Todas las sedes</option>' + estado.sedes.map(s => `<option ${s === estado.sede ? 'selected' : ''}>${esc(s)}</option>`).join('');
+        pintarSesion();
+        pintarSync(ctx.sync);
+        setInterval(() => api('getEstadoSincronizacion').then(pintarSync).catch(() => {}), 60000);
+      } catch (e) { error(e); }
+      ir('inicio');
     });
 
-    function refrescarEstadoSync() {
-      google.script.run.withSuccessHandler(r => {
-        const el = document.getElementById('estado-sync');
-        el.innerHTML = r && r.ultima ? '<i class="fa-solid fa-rotate me-1"></i>2.0 actualizado: ' + esc(r.ultima) +
-          (r.pendiente ? '<br><span class="text-warning">Actualización en curso…</span>' : '') : '';
-      }).getEstadoSincronizacion();
+    function ir(vista) {
+      if (estado.vista === 'asistencia' && vista !== 'asistencia' && hayCambios() &&
+          !confirm('Tienes cambios de asistencia sin guardar. ¿Salir y descartarlos?')) return;
+      if (vista !== 'asistencia') asis.cambios = {};
+      estado.vista = vista;
+      document.querySelectorAll('.vista').forEach(v => v.style.display = 'none');
+      $('v-' + vista).style.display = 'block';
+      document.querySelectorAll('#nav .nav-link').forEach(a => a.classList.toggle('active', a.dataset.vista === vista));
+      const off = bootstrap.Offcanvas.getInstance($('menu')); if (off) off.hide();
+      window.scrollTo(0, 0);
+      cargarVista();
     }
 
-    // ── utilidades ──
-    function esc(v) {
-      return String(v === null || v === undefined ? '' : v)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    function cambiarSede(s) {
+      if (hayCambios() && !confirm('Tienes cambios de asistencia sin guardar. ¿Cambiar de sede y descartarlos?')) { $('sel-sede').value = estado.sede; return; }
+      estado.sede = s; guardar('localStorage', 'sigbe_sede', s);
+      asis.paso = 'sesiones'; asis.cambios = {};
+      cargarVista();
     }
-    function toggleLoader(show) { document.getElementById('loader').style.display = show ? 'flex' : 'none'; }
-    function avisar(texto, tipo) {
-      const el = document.getElementById('aviso');
-      el.className = 'alert shadow mb-0 alert-' + (tipo || 'success');
-      el.textContent = texto;
-      el.style.display = 'block';
-      clearTimeout(avisar.t);
-      avisar.t = setTimeout(() => el.style.display = 'none', 5000);
+
+    function cargarVista() {
+      ({ inicio: cargarInicio, asistencia: cargarAsistencia, brigadistas: cargarBrigadistas, cronograma: cargarCronograma,
+         temarios: cargarTemarios, indicadores: cargarIndicadores, historial: cargarHistorial })[estado.vista]();
     }
-    function falla(err) { toggleLoader(false); avisar('Error: ' + (err && err.message ? err.message : err), 'danger'); }
-    function fuente(res) {
-      document.getElementById('seccion-fuente').textContent = res && res.fuente ? 'Datos de brigadistas: ' + res.fuente : '';
+
+    function pintarSync(s) {
+      $('estado-sync').innerHTML = s && s.ultima ? `<i class="fa-solid fa-rotate me-1"></i>Archivo 2.0 actualizado:<br>${esc(s.ultima)}` +
+        (s.pendiente ? '<br><span class="text-warning">Actualizando…</span>' : '') : '';
     }
-    function leerToken() { try { return sessionStorage.getItem('sigbe_token'); } catch (e) { return null; } }
-    function guardarToken(t) { token = t; try { t ? sessionStorage.setItem('sigbe_token', t) : sessionStorage.removeItem('sigbe_token'); } catch (e) {} actualizarEstadoSesion(); }
-    function actualizarEstadoSesion() {
-      document.getElementById('estado-sesion').innerHTML = token
-        ? '<i class="fa-solid fa-lock-open me-1 text-success"></i>Sesión iniciada'
-        : '<i class="fa-solid fa-lock me-1"></i>Sin sesión';
+
+    // ══════════ sesión ══════════
+    function pintarSesion() {
+      $('btn-sesion').innerHTML = estado.usuario ? '<i class="fa-solid fa-right-from-bracket me-1"></i>Salir' : '<i class="fa-solid fa-lock me-1"></i>Iniciar sesión';
+      $('btn-sesion').className = 'btn btn-sm ' + (estado.usuario ? 'btn-outline-secondary' : 'btn-primary');
+      $('txt-usuario').innerHTML = estado.usuario ? '<i class="fa-solid fa-circle-check text-success me-1"></i>' + esc(estado.usuario) : 'Solo lectura';
     }
-    function sesionExpirada(res) {
-      if (res && !res.exito && /sesión no es válida/i.test(res.mensaje || '')) { guardarToken(null); return true; }
+    let trasLogin = null;
+    function pedirSesion(luego) {
+      trasLogin = luego || null;
+      $('login-error').textContent = ''; $('login-clave').value = '';
+      modal('modal-login').show();
+      setTimeout(() => $('login-usuario').focus(), 300);
+    }
+    async function iniciarSesion(e) {
+      e.preventDefault();
+      cargando(true);
+      try {
+        const r = await api('validarLoginAdmin', $('login-usuario').value, $('login-clave').value);
+        cargando(false);
+        if (!r.exito) { $('login-error').textContent = r.mensaje; return; }
+        estado.token = r.token; estado.usuario = r.usuario; guardar('sessionStorage', 'sigbe_token', r.token);
+        modal('modal-login').hide(); pintarSesion();
+        avisar('Sesión iniciada. Ya puedes guardar cambios.');
+        if (trasLogin) { const f = trasLogin; trasLogin = null; f(); } else if (estado.vista === 'asistencia') pintarAsistencia();
+      } catch (err) { error(err); }
+    }
+    function cerrarSesion() {
+      api('cerrarSesionApp', estado.token).catch(() => {});
+      estado.token = null; estado.usuario = null; guardar('sessionStorage', 'sigbe_token', null);
+      pintarSesion(); if (estado.vista === 'asistencia') pintarAsistencia();
+    }
+    /** Si el servidor dice que la sesión expiró, la pide de nuevo. */
+    function revisarSesion(r) {
+      if (r && !r.exito && /sesión no es válida/i.test(r.mensaje || '')) {
+        estado.token = null; estado.usuario = null; pintarSesion();
+        avisar('Tu sesión expiró. Inicia sesión otra vez.', 'warning'); pedirSesion(); return true;
+      }
       return false;
     }
-    function porcentaje(x) { return (Math.round(x * 1000) / 10) + '%'; }
-    function num(x) { return Math.round(x * 10) / 10; }
 
-    // ── navegación ──
-    function marcarActivo(el) {
-      document.querySelectorAll('.nav-link').forEach(a => a.classList.remove('active'));
-      if (el) el.classList.add('active');
-    }
-    function navegar(seccion, el) {
-      marcarActivo(el);
-      document.querySelectorAll('.seccion-app').forEach(d => d.style.display = 'none');
-      document.getElementById('sec-' + seccion).style.display = 'block';
-      seccionActual = seccion;
-      const titulos = { tablero: 'Tablero de Control', directorio: 'Directorio de Brigadas', gestion: 'Gestión de Brigadistas' };
-      document.getElementById('seccion-titulo').innerText = titulos[seccion] || 'SIGBE 2.0';
-      cargarSeccionActual();
-    }
-    function cargarSubCapacitacion(tipo, titulo, el) {
-      marcarActivo(el);
-      document.querySelectorAll('.seccion-app').forEach(d => d.style.display = 'none');
-      document.getElementById('sec-capacitaciones').style.display = 'block';
-      seccionActual = 'capacitaciones';
-      subCapacitacionActual = tipo;
-      document.getElementById('seccion-titulo').innerText = 'Capacitaciones: ' + titulo;
-      cargarSeccionActual();
-    }
-    function pintarMenuTemarios(nombres) {
-      const ul = document.getElementById('lista-capacitaciones');
-      (nombres || []).forEach(n => {
-        const li = document.createElement('li');
-        const a = document.createElement('a');
-        a.href = '#';
-        a.className = 'nav-link sub-link';
-        a.textContent = n.trim();
-        a.onclick = () => { cargarSubCapacitacion('temario:' + n, n.trim(), a); return false; };
-        li.appendChild(a);
-        ul.appendChild(li);
-      });
+    // ══════════ INICIO ══════════
+    async function cargarInicio() {
+      $('inicio-sub').textContent = estado.sede ? 'Sede ' + estado.sede : 'Todas las sedes · elige tu sede arriba para ver solo la tuya';
+      cargando(true);
+      try {
+        const r = await api('getInicio', estado.sede);
+        cargando(false);
+        const pctAsis = r.asistencia.conFecha ? Math.round(r.asistencia.marcadas / r.asistencia.conFecha * 100) : 0;
+        const pctCert = r.brigadistas ? Math.round(r.certVigente / r.brigadistas * 100) : 0;
+        const kpi = (color, icono, titulo, num, sub, pct) => `
+          <div class="col-sm-6 col-xl-3"><div class="card kpi text-white bg-${color} p-3 h-100">
+            <div class="d-flex justify-content-between"><div class="small text-white-50 text-uppercase">${titulo}</div><i class="fa-solid ${icono} icono"></i></div>
+            <div class="num">${num}</div><div class="small text-white-50">${sub}</div>
+            ${pct === undefined ? '' : `<div class="progress bg-white bg-opacity-25 mt-2"><div class="progress-bar bg-white" style="width:${Math.min(pct, 100)}%"></div></div>`}
+          </div></div>`;
+        $('inicio-kpis').innerHTML =
+          kpi('primary', 'fa-users', 'Brigadistas activos', r.brigadistas, `${r.holcim} Holcim · ${r.inhouse} contratistas`) +
+          kpi('success', 'fa-certificate', 'Certificado 0256', pctCert + '%', `${r.certVigente} con certificado · ${r.certPendiente} pendientes`, pctCert) +
+          kpi('info', 'fa-clipboard-check', 'Asistencia registrada', pctAsis + '%', `${r.asistencia.marcadas} de ${r.asistencia.conFecha} sesiones programadas`, pctAsis) +
+          kpi('dark', 'fa-shield-halved', 'Cobertura de brigada', r.cobertura.pct + '%', `${r.cobertura.actuales} de ${r.cobertura.personas} trabajadores · se requieren ${r.cobertura.requeridos}`, r.cobertura.pct / 0.2);
+        $('inicio-proximas').innerHTML = r.proximas.length ? r.proximas.map(s => `
+          <div class="d-flex align-items-center gap-3 py-2 border-bottom">
+            ${chipFecha(s.fechaIso, s.fecha)}
+            <div class="flex-grow-1"><div class="fw-semibold small">${esc(s.entrenamiento)}</div>
+              <div class="small text-muted">${esc(s.planta)} · ${esc(s.sesion)}${s.observaciones ? ' · ' + esc(s.observaciones) : ''}</div></div>
+            ${badgeEstado(s.estado)}
+          </div>`).join('') : '<p class="text-muted small mb-0">No hay capacitaciones programadas próximamente.</p>';
+        $('inicio-pendientes').innerHTML = r.pendientesCert.length
+          ? `<p class="text-muted mb-2">${r.certPendiente} brigadista(s) activos sin certificado registrado:</p><ul class="mb-0 ps-3" style="max-height: 180px; overflow:auto;">` +
+            r.pendientesCert.map(p => `<li>${esc(p.nombre)} <span class="text-muted">· ${esc(p.planta)}</span></li>`).join('') + '</ul>'
+          : '<p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>Todos tienen certificado.</p>';
+      } catch (e) { error(e); }
     }
 
-    function cargarSeccionActual() {
-      document.getElementById('seccion-fuente').textContent = '';
-      const runner = google.script.run.withFailureHandler(falla);
-      if (seccionActual === 'tablero') {
-        toggleLoader(true);
-        runner.withSuccessHandler(renderTablero).getTableroControl();
-      } else if (seccionActual === 'directorio') {
-        toggleLoader(true);
-        runner.withSuccessHandler(renderDirectorio).getDirectorioUnificado();
-      } else if (seccionActual === 'capacitaciones') {
-        ['asistencia', 'cronograma', 'temario'].forEach(x => document.getElementById('contenedor-' + x).style.display = 'none');
-        toggleLoader(true);
-        if (subCapacitacionActual === 'asistencia') {
-          document.getElementById('contenedor-asistencia').style.display = 'block';
-          runner.withSuccessHandler(renderAsistencia).getSeguimientoAsistencia();
-        } else if (subCapacitacionActual === 'cronograma') {
-          document.getElementById('contenedor-cronograma').style.display = 'block';
-          runner.withSuccessHandler(renderCronograma).getCronogramaCapacitaciones();
-        } else {
-          document.getElementById('contenedor-temario').style.display = 'block';
-          runner.withSuccessHandler(renderTemario).getTemarioCapacitacion(subCapacitacionActual.replace(/^temario:/, ''));
-        }
-      } else if (seccionActual === 'gestion') {
-        mostrarGestion();
+    // ══════════ TOMAR ASISTENCIA ══════════
+    function hayCambios() { return Object.keys(asis.cambios).length > 0; }
+
+    async function cargarAsistencia() {
+      if (!estado.sede) { asis.paso = 'sede'; return pintarAsistencia(); }
+      if (asis.paso === 'lista' && asis.lista) return pintarAsistencia();
+      asis.paso = 'sesiones';
+      cargando(true);
+      try { asis.sesiones = await api('getSesionesAsistencia', estado.sede); cargando(false); pintarAsistencia(); }
+      catch (e) { error(e); }
+    }
+
+    function migas() {
+      const items = [['Sede', estado.sede || 'elegir', "asis.paso='sede';pintarAsistencia()"]];
+      if (asis.paso !== 'sede') items.push(['Sesión', asis.paso === 'lista' ? asis.lista.modulo + ' · ' + asis.lista.sesion : 'elegir', "volverASesiones()"]);
+      if (asis.paso === 'lista') items.push(['Asistentes', '', null]);
+      $('asis-migas').innerHTML = items.map(([t, v, fn], i) => i === items.length - 1
+        ? `<li class="breadcrumb-item active">${esc(t)}${v ? ': <b>' + esc(v) + '</b>' : ''}</li>`
+        : `<li class="breadcrumb-item"><a href="#" onclick="${fn};return false;">${esc(t)}: <b>${esc(v)}</b></a></li>`).join('');
+    }
+
+    function pintarAsistencia() {
+      migas();
+      const c = $('asis-contenido');
+      if (asis.paso === 'sede') {
+        c.innerHTML = `<div class="tarjeta p-4"><h2 class="h5 mb-3">1. ¿En qué sede vas a tomar asistencia?</h2><div class="row g-2">` +
+          estado.sedes.map(s => `<div class="col-6 col-md-4 col-lg-3"><button class="btn btn-outline-primary sede-btn w-100" onclick="elegirSede('${esc(s)}')"><i class="fa-solid fa-location-dot me-1"></i>${esc(s)}</button></div>`).join('') +
+          '</div></div>';
+        return;
       }
-    }
-
-    // ── tablero ──
-    function renderTablero(res) {
-      toggleLoader(false);
-      if (res.error) return avisar(res.error, 'danger');
-      const k = res.kpis;
-      document.getElementById('kpi-personal').innerText = k.totalPersonal;
-      document.getElementById('kpi-brigadistas').innerText = k.totalBrig;
-      document.getElementById('kpi-requeridos').innerText = 'Requeridos: ' + k.totalRequeridos;
-      document.getElementById('kpi-cobertura').innerText = k.pctGlobal;
-      document.getElementById('kpi-brechas').innerText = k.totalBrechas;
-      document.getElementById('tbody-tablero').innerHTML = res.tabla.map(i => `
-        <tr class="${i.esTotal ? 'fila-total' : ''}">
-          <td class="fw-bold">${esc(i.planta)}</td><td>${esc(i.empresa)}</td><td>${num(i.personas)}</td>
-          <td>${num(i.requeridos)}</td><td>${num(i.actuales)}</td><td>${porcentaje(i.cobertura)}</td>
-          <td><span class="badge ${i.gap > 0 ? 'badge-brecha' : 'badge-cumple'}">${num(i.gap)}</span></td>
-        </tr>`).join('');
-    }
-
-    // ── directorio ──
-    function renderDirectorio(res) {
-      toggleLoader(false);
-      if (!res) return;
-      if (res.error) return avisar(res.error, 'danger');
-      ultimoDirectorio = res;
-      fuente(res);
-      const ocultar = document.getElementById('dir-ocultar-desv').checked;
-      document.getElementById('tbody-directorio').innerHTML = res.lista
-        .filter(i => !(ocultar && /desvinculado/i.test(i.estado)))
-        .map(i => {
-          const cert = String(i.certVigente || '');
-          const certOk = /^\d+$/.test(cert);
-          return `<tr>
-            <td class="fw-bold">${esc(i.planta)}</td>
-            <td><span class="badge ${i.tipo === 'HOLCIM' ? 'bg-primary' : 'bg-info text-dark'}">${esc(i.tipo)}</span></td>
-            <td>${esc(i.contratista)}</td>
-            <td>${i.estado ? `<span class="badge ${/activo/i.test(i.estado) ? 'bg-success' : 'bg-secondary'}">${esc(i.estado)}</span>` : ''}</td>
-            <td>${esc(i.nombre)}</td><td>${esc(i.cedula)}</td>
-            <td>${cert ? `<span class="badge ${certOk ? 'bg-success' : 'bg-warning text-dark'}">${esc(cert)}</span>` : ''}</td>
-          </tr>`;
-        }).join('');
-    }
-
-    // ── asistencia ──
-    function renderAsistencia(res) {
-      toggleLoader(false);
-      if (!res) return;
-      if (res.error) return avisar(res.error, 'danger');
-      ultimaAsistencia = res;
-      fuente(res);
-      document.getElementById('nota-asistencia').textContent = token ? 'Marca la casilla para registrar la asistencia.' : 'Solo lectura: inicia sesión en "Gestión Brigadistas" para marcar.';
-
-      const sel = document.getElementById('filtro-modulo');
-      const modulos = [...new Set(res.encabezados.map(h => h.modulo))];
-      const elegido = sel.value;
-      sel.innerHTML = '<option value="">Todos los módulos</option>' + modulos.map(m => {
-        const t = res.encabezados.find(h => h.modulo === m).titulo;
-        return `<option value="${esc(m)}" ${m === elegido ? 'selected' : ''}>${esc(m + ': ' + t)}</option>`;
-      }).join('');
-      const visibles = res.encabezados.map((h, i) => ({ h, i })).filter(x => !sel.value || x.h.modulo === sel.value);
-
-      document.getElementById('thead-asistencia').innerHTML = '<tr><th class="col-fija">NOMBRE Y APELLIDO</th><th>PLANTA</th><th>ESTADO</th><th>CÉDULA</th>' +
-        visibles.map(x => `<th class="th-modulo" title="${esc(x.h.titulo)}">${esc(x.h.modulo)}<br>${esc(x.h.sesion)}</th>`).join('') + '</tr>';
-
-      document.getElementById('tbody-asistencia').innerHTML = res.brigadistas.map((b, bi) => {
-        const activo = !/desvinculado/i.test(b.estado);
-        const celdas = visibles.map(x => {
-          const a = b.asistencias[x.i];
-          return `<td><input type="checkbox" class="chk-asistencia" ${a.marcada ? 'checked' : ''} ${token && activo ? '' : 'disabled'}
-                  onchange="guardarCambioAsistencia(this, ${bi}, ${x.i})"><span class="fecha-sesion">${esc(a.fecha)}</span></td>`;
-        }).join('');
-        return `<tr class="${activo ? '' : 'text-muted'}">
-          <td class="text-start fw-semibold small col-fija">${esc(b.nombre)}</td>
-          <td class="small text-start">${esc(b.planta)}</td>
-          <td><span class="badge ${activo ? 'bg-success' : 'bg-secondary'}">${esc(b.estado)}</span></td>
-          <td class="small">${esc(b.cedula)}</td>${celdas}</tr>`;
-      }).join('');
-    }
-
-    function guardarCambioAsistencia(chk, bi, i) {
-      const b = ultimaAsistencia.brigadistas[bi];
-      const h = ultimaAsistencia.encabezados[i];
-      const valor = chk.checked;
-      chk.disabled = true;
-      google.script.run
-        .withSuccessHandler(res => {
-          chk.disabled = false;
-          if (res.exito) { b.asistencias[i].marcada = valor; avisar('Asistencia guardada: ' + b.nombre + ' · ' + h.modulo + ' ' + h.sesion); refrescarEstadoSync(); }
-          else { chk.checked = !valor; if (sesionExpirada(res)) renderAsistencia(ultimaAsistencia); avisar(res.mensaje, 'danger'); }
-        })
-        .withFailureHandler(err => { chk.disabled = false; chk.checked = !valor; falla(err); })
-        .guardarAsistencia(token, b.cedula, b.nombre, h.key, valor);
-    }
-
-    // ── cronograma ──
-    function renderCronograma(res) {
-      toggleLoader(false);
-      if (!res) return;
-      if (res.error) return avisar(res.error, 'danger');
-      ultimoCronograma = res;
-      const sel = document.getElementById('filtro-planta-crono');
-      const elegido = sel.value || (res.plantas[0] && res.plantas[0].nombre);
-      sel.innerHTML = res.plantas.map(p => `<option ${p.nombre === elegido ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('');
-      const planta = res.plantas.find(p => p.nombre === sel.value);
-      if (!planta) return;
-      const sesiones = [...new Set(planta.columnas.map(c => c.sesion))];
-      document.getElementById('thead-cronograma').innerHTML =
-        '<tr><th rowspan="2">MES</th><th rowspan="2">ENTRENAMIENTO</th>' +
-        sesiones.map(s => `<th colspan="${planta.columnas.filter(c => c.sesion === s).length}">${esc(s)}</th>`).join('') + '</tr>' +
-        '<tr>' + planta.columnas.map(c => `<th class="small">${esc(c.campo)}</th>`).join('') + '</tr>';
-      document.getElementById('tbody-cronograma').innerHTML = res.filas.map(f =>
-        `<tr><td class="fw-bold">${esc(f.mes)}</td><td class="text-start small">${esc(f.entrenamiento)}</td>` +
-        planta.columnas.map(c => `<td class="small">${esc(f.celdas[c.col])}</td>`).join('') + '</tr>').join('');
-    }
-
-    // ── temarios ──
-    function renderTemario(res) {
-      toggleLoader(false);
-      if (!res) return;
-      if (res.error) return avisar(res.error, 'danger');
-      document.getElementById('cards-temario').innerHTML = res.grupos.map(g => `
-        <div class="col-md-6 mb-4">
-          <div class="card h-100 shadow-sm border-0">
-            <div class="card-header bg-primary text-white fw-bold" style="white-space: pre-line;">${esc(g.titulo || res.encabezado)}</div>
-            <div class="card-body small">
-              ${g.items.map(item => `<div class="mb-2 pb-2 border-bottom">${item.map((x, k) =>
-                k === 0 ? `<div class="fw-semibold" style="white-space: pre-line;">${esc(x.valor)}</div>`
-                        : `<div style="white-space: pre-line;"><span class="text-muted">${esc(x.campo)}:</span> ${esc(x.valor)}</div>`).join('')}</div>`).join('')}
-            </div>
+      if (asis.paso === 'sesiones') {
+        const s = asis.sesiones;
+        const modulos = [];
+        s.sesiones.forEach(x => { let m = modulos.find(y => y.modulo === x.modulo); if (!m) modulos.push(m = { modulo: x.modulo, titulo: x.titulo, items: [] }); m.items.push(x); });
+        c.innerHTML = `<div class="tarjeta p-4"><h2 class="h5 mb-1">2. ¿Qué sesión?</h2><p class="text-muted small">${s.total} brigadistas activos en ${esc(estado.sede)}. Debajo de cada sesión ves su fecha y cuántos ya tienen asistencia.</p>` +
+          modulos.map(m => `<div class="mb-3"><div class="fw-semibold small mb-1"><span class="badge bg-dark me-1">${esc(m.modulo)}</span>${esc(m.titulo)}</div><div class="d-flex flex-wrap gap-2">` +
+            m.items.map(x => `<button class="btn ${x.fecha ? 'btn-outline-primary' : 'btn-outline-secondary'} sesion-btn" onclick="elegirSesion('${esc(x.key)}')">
+               <div class="fw-semibold">${esc(x.sesion)}</div><div class="small">${x.fecha ? '<i class="fa-regular fa-calendar me-1"></i>' + esc(x.fecha) : 'sin fecha'}</div>
+               <div class="small ${x.marcadas ? 'text-success' : 'text-muted'}"><i class="fa-solid fa-user-check me-1"></i>${x.marcadas}/${s.total}</div></button>`).join('') +
+          '</div></div>').join('') + '</div>';
+        return;
+      }
+      // paso: lista
+      const L = asis.lista;
+      const q = asis.buscar.toUpperCase();
+      const visibles = L.personas.map((p, i) => ({ p, i })).filter(x => (asis.mostrarInactivos || x.p.activo) && (!q || (x.p.nombre + ' ' + x.p.cedula).toUpperCase().includes(q)));
+      const n = Object.keys(asis.cambios).length;
+      const marcadosHoy = L.personas.filter(p => p.marcada).length;
+      c.innerHTML = `
+        <div class="tarjeta p-3 mb-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div><div class="small text-muted">${esc(estado.sede)} · ${esc(L.modulo)} · ${esc(L.sesion)}</div><h2 class="h5 mb-1">${esc(L.titulo)}</h2>
+              <div class="small"><i class="fa-regular fa-calendar me-1"></i>${esc(asis.sesion.fecha || 'Sin fecha programada')} · <b>${marcadosHoy}</b> de ${L.personas.filter(p => p.activo).length} con asistencia guardada</div></div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="volverASesiones()"><i class="fa-solid fa-arrow-left me-1"></i>Otra sesión</button>
           </div>
-        </div>`).join('') || '<p class="text-muted">Esta hoja no tiene contenido para mostrar.</p>';
+          <div class="row g-2 mt-2 align-items-center">
+            <div class="col-md-5"><input type="search" class="form-control form-control-sm" placeholder="Buscar nombre o cédula…" value="${esc(asis.buscar)}" oninput="asis.buscar=this.value;pintarAsistencia();this.focus();this.setSelectionRange(this.value.length,this.value.length)"></div>
+            <div class="col-auto"><button class="btn btn-sm btn-outline-success" onclick="marcarTodos(true)" ${estado.usuario ? '' : 'disabled'}>Marcar todos</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="marcarTodos(false)" ${estado.usuario ? '' : 'disabled'}>Quitar todos</button></div>
+            <div class="col-auto form-check ms-2"><input class="form-check-input" type="checkbox" id="asis-inact" ${asis.mostrarInactivos ? 'checked' : ''} onchange="asis.mostrarInactivos=this.checked;pintarAsistencia()"><label class="form-check-label small" for="asis-inact">Ver desvinculados</label></div>
+          </div>
+          ${estado.usuario ? '' : '<div class="alert alert-info small mt-3 mb-0"><i class="fa-solid fa-lock me-1"></i>Estás en <b>solo lectura</b>. <a href="#" onclick="pedirSesion();return false;">Inicia sesión</a> para marcar asistencia.</div>'}
+        </div>
+        <div class="d-grid gap-2 mb-3">` +
+        visibles.map(({ p, i }) => {
+          const v = valorActual(i);
+          const cambiada = i in asis.cambios;
+          return `<div class="fila-persona d-flex flex-wrap align-items-center gap-2 ${cambiada ? 'cambiada' : ''} ${p.activo ? '' : 'inactiva'}">
+            <div class="flex-grow-1"><div class="fw-semibold">${esc(p.nombre)}</div><div class="small text-muted">C.C. ${esc(p.cedula)} · ${esc(p.planta)}${p.activo ? '' : ' · <span class="badge bg-secondary">Desvinculado</span>'}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
+            <button class="btn ${v ? 'btn-success' : 'btn-outline-secondary'} btn-asistio" ${estado.usuario && p.activo ? '' : 'disabled'} onclick="alternar(${i})">
+              ${v ? '<i class="fa-solid fa-check me-1"></i>Asistió' : '<i class="fa-regular fa-square me-1"></i>No asistió'}</button>
+          </div>`;
+        }).join('') + (visibles.length ? '' : '<p class="text-muted">No hay brigadistas para mostrar.</p>') + '</div>' +
+        (n ? `<div class="barra-guardar p-3 d-flex flex-wrap align-items-center gap-2 rounded-top">
+            <div class="flex-grow-1"><i class="fa-solid fa-triangle-exclamation text-warning me-1"></i><b>${n}</b> cambio(s) sin guardar</div>
+            <button class="btn btn-outline-secondary" onclick="asis.cambios={};pintarAsistencia()">Descartar</button>
+            <button class="btn btn-success" onclick="confirmarAsistencia()"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button></div>` : '');
     }
 
-    // ── gestión ──
-    function mostrarGestion() {
-      document.getElementById('box-login').style.display = token ? 'none' : 'flex';
-      document.getElementById('box-admin').style.display = token ? 'block' : 'none';
-      if (token && !catalogos) {
-        toggleLoader(true);
-        google.script.run.withFailureHandler(falla).withSuccessHandler(c => {
-          toggleLoader(false);
-          if (c.error) return avisar(c.error, 'danger');
-          catalogos = c;
-          document.getElementById('regEstado').innerHTML = c.estados.map(x => `<option>${esc(x)}</option>`).join('');
-          document.getElementById('regCert').innerHTML = c.certificados.map(x => `<option>${esc(x)}</option>`).join('');
-          document.getElementById('lista-contratistas').innerHTML = c.contratistas.map(x => `<option value="${esc(x)}">`).join('');
-          document.getElementById('nota-registro').textContent = 'Se guarda en el ' + c.fuente + ', al final de la planta elegida.';
-          ajustarFormulario();
-        }).getCatalogos();
-      }
+    function valorActual(i) { return i in asis.cambios ? asis.cambios[i] : asis.lista.personas[i].marcada; }
+    function elegirSede(s) { $('sel-sede').value = s; cambiarSede(s); }
+    function volverASesiones() {
+      if (hayCambios() && !confirm('Tienes cambios sin guardar. ¿Descartarlos?')) return;
+      asis.cambios = {}; asis.paso = 'sesiones'; asis.lista = null; cargarAsistencia();
     }
-    function ajustarFormulario() {
-      if (!catalogos) return;
-      const holcim = document.getElementById('regTipo').value === 'HOLCIM';
+    async function elegirSesion(key) {
+      cargando(true);
+      try {
+        asis.sesion = asis.sesiones.sesiones.find(x => x.key === key);
+        asis.lista = await api('getListaAsistencia', estado.sede, key);
+        asis.cambios = {}; asis.buscar = ''; asis.paso = 'lista';
+        cargando(false); pintarAsistencia(); window.scrollTo(0, 0);
+      } catch (e) { error(e); }
+    }
+    function alternar(i) {
+      const p = asis.lista.personas[i];
+      const nuevo = !valorActual(i);
+      if (nuevo === p.marcada) delete asis.cambios[i]; else asis.cambios[i] = nuevo;
+      pintarAsistencia();
+    }
+    function marcarTodos(v) {
+      asis.lista.personas.forEach((p, i) => { if (p.activo) { if (v === p.marcada) delete asis.cambios[i]; else asis.cambios[i] = v; } });
+      pintarAsistencia();
+    }
+    function confirmarAsistencia() {
+      if (!estado.usuario) return pedirSesion(confirmarAsistencia);
+      const L = asis.lista;
+      const idx = Object.keys(asis.cambios).map(Number);
+      const si = idx.filter(i => asis.cambios[i]).map(i => L.personas[i].nombre);
+      const no = idx.filter(i => !asis.cambios[i]).map(i => L.personas[i].nombre);
+      $('conf-titulo').textContent = 'Confirmar asistencia';
+      $('conf-cuerpo').innerHTML = `<p class="mb-2"><b>${esc(L.modulo)} · ${esc(L.sesion)}</b> — ${esc(L.titulo)}<br><span class="small text-muted">${esc(estado.sede)} · ${esc(asis.sesion.fecha || 'sin fecha')}</span></p>` +
+        (si.length ? `<p class="mb-1 text-success fw-semibold"><i class="fa-solid fa-check me-1"></i>Marcar asistencia (${si.length}):</p><ul class="small">${si.map(x => '<li>' + esc(x) + '</li>').join('')}</ul>` : '') +
+        (no.length ? `<p class="mb-1 text-danger fw-semibold"><i class="fa-solid fa-xmark me-1"></i>Quitar asistencia (${no.length}):</p><ul class="small">${no.map(x => '<li>' + esc(x) + '</li>').join('')}</ul>` : '') +
+        '<p class="small text-muted mb-0">Se guarda en el archivo original y queda en el historial. Podrás deshacerlo justo después.</p>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar';
+      $('conf-ok').onclick = () => { modal('modal-confirmar').hide(); guardarAsistencia(); };
+      modal('modal-confirmar').show();
+    }
+    async function guardarAsistencia() {
+      const L = asis.lista, key = asis.sesion.key;
+      const cambios = Object.keys(asis.cambios).map(Number).map(i => ({ cedula: L.personas[i].cedula, nombre: L.personas[i].nombre, valor: asis.cambios[i], anterior: L.personas[i].marcada }));
+      cargando(true);
+      try {
+        const r = await api('guardarAsistenciaLote', estado.token, key, cambios);
+        cargando(false);
+        if (revisarSesion(r)) return;
+        if (!r.exito) return avisar(esc(r.mensaje), 'danger', 9000);
+        const aplicados = cambios.filter(c => !r.conflictos.some(x => x.indexOf(c.nombre) === 0));
+        asis.cambios = {};
+        asis.lista = await api('getListaAsistencia', estado.sede, key);
+        pintarAsistencia();
+        avisar('<b>' + esc(r.mensaje) + '</b>' + (r.conflictos.length ? '<ul class="small mb-0 mt-1">' + r.conflictos.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' : ''),
+          r.conflictos.length ? 'warning' : 'success', 15000,
+          aplicados.length ? { texto: 'Deshacer', fn: () => deshacerAsistencia(key, aplicados) } : null);
+        api('getEstadoSincronizacion').then(pintarSync).catch(() => {});
+      } catch (e) { error(e); }
+    }
+    async function deshacerAsistencia(key, aplicados) {
+      cargando(true);
+      try {
+        const r = await api('guardarAsistenciaLote', estado.token, key, aplicados.map(c => ({ cedula: c.cedula, nombre: c.nombre, valor: c.anterior, anterior: c.valor })));
+        cargando(false);
+        if (revisarSesion(r)) return;
+        avisar(r.exito ? 'Cambios deshechos.' : esc(r.mensaje), r.exito ? 'info' : 'danger');
+        if (asis.lista) { asis.lista = await api('getListaAsistencia', estado.sede, key); pintarAsistencia(); }
+      } catch (e) { error(e); }
+    }
+
+    // ══════════ BRIGADISTAS ══════════
+    async function cargarBrigadistas() {
+      cargando(true);
+      try { brigadistas = await api('getBrigadistas', estado.sede); cargando(false); pintarBrigadistas(); }
+      catch (e) { error(e); }
+    }
+    function pintarBrigadistas() {
+      if (!brigadistas) return;
+      const q = $('brig-buscar').value.toUpperCase();
+      const tipo = document.querySelector('#brig-tipo .active').dataset.tipo;
+      const cert = $('brig-cert').value;
+      const desv = $('brig-desv').checked;
+      const lista = brigadistas.filter(p => (desv || esActivo(p)) && (!tipo || p.tipo === tipo) &&
+        (!cert || (cert === 'si') === tieneCert(p.certificado)) &&
+        (!q || [p.nombre, p.cedula, p.planta, p.contratista].join(' ').toUpperCase().includes(q)));
+      $('brig-conteo').textContent = lista.length + ' brigadista(s)' + (estado.sede ? ' en ' + estado.sede : '');
+      $('brig-tabla').innerHTML = lista.map(p => `<tr class="${esActivo(p) ? '' : 'text-muted'}">
+        <td class="fw-semibold">${esc(p.nombre)}</td><td>${esc(p.cedula)}</td><td class="small">${esc(p.planta)}</td>
+        <td><span class="badge ${p.tipo === 'HOLCIM' ? 'bg-primary' : 'bg-info text-dark'}">${esc(p.tipo === 'HOLCIM' ? 'Holcim' : p.contratista || 'Contratista')}</span></td>
+        <td><span class="badge ${esActivo(p) ? 'bg-success' : 'bg-secondary'}">${esc(p.estado || 'Activo')}</span></td>
+        <td>${p.certificado ? `<span class="badge ${tieneCert(p.certificado) ? 'bg-success' : 'bg-warning text-dark'}">${esc(p.certificado)}</span>` : ''}</td>
+        <td class="small">${esc(p.cumplimiento)}</td></tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center py-4">Sin resultados</td></tr>';
+    }
+
+    async function abrirRegistro() {
+      if (!estado.usuario) return pedirSesion(abrirRegistro);
+      if (!catalogos) {
+        cargando(true);
+        try { catalogos = await api('getCatalogos'); cargando(false); } catch (e) { return error(e); }
+        $('reg-estado').innerHTML = catalogos.estados.map(x => `<option>${esc(x)}</option>`).join('');
+        $('reg-cert').innerHTML = catalogos.certificados.map(x => `<option ${/pendiente/i.test(x) ? 'selected' : ''}>${esc(x)}</option>`).join('');
+        $('reg-contratistas').innerHTML = catalogos.contratistas.map(x => `<option value="${esc(x)}">`).join('');
+      }
+      $('form-registro').reset();
+      ajustarRegistro();
+      modal('modal-registro').show();
+    }
+    function ajustarRegistro() {
+      const holcim = document.querySelector('input[name="reg-tipo"]:checked').value === 'HOLCIM';
       document.querySelectorAll('.solo-holcim').forEach(e => e.style.display = holcim ? '' : 'none');
       document.querySelectorAll('.solo-inhouse').forEach(e => e.style.display = holcim ? 'none' : '');
+      $('reg-contratista').required = !holcim;
       const plantas = holcim ? catalogos.plantasHolcim : catalogos.plantasInhouse;
-      document.getElementById('regPlanta').innerHTML = '<option value="">Elige la planta…</option>' + plantas.map(p => `<option>${esc(p)}</option>`).join('');
+      // Preselecciona la planta de la sede elegida si hay una sola
+      const deSede = plantas.filter(p => estado.sede && p.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').includes(estado.sede.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')));
+      $('reg-planta').innerHTML = '<option value="">Elige la planta…</option>' + plantas.map(p => `<option ${deSede.length === 1 && deSede[0] === p ? 'selected' : ''}>${esc(p)}</option>`).join('');
     }
-    function autenticarAdmin() {
-      const u = document.getElementById('loginUser').value.trim();
-      const p = document.getElementById('loginPass').value;
-      toggleLoader(true);
-      google.script.run.withFailureHandler(falla).withSuccessHandler(res => {
-        toggleLoader(false);
-        document.getElementById('loginPass').value = '';
-        if (res.exito) { guardarToken(res.token); document.getElementById('msg-login').innerText = ''; mostrarGestion(); }
-        else document.getElementById('msg-login').innerText = res.mensaje;
-      }).validarLoginAdmin(u, p);
-    }
-    function cerrarSesion() { guardarToken(null); catalogos = null; mostrarGestion(); }
-    function guardarBrigadista(e) {
+    function revisarRegistro(e) {
       e.preventDefault();
-      const data = {
-        tipo: document.getElementById('regTipo').value,
-        planta: document.getElementById('regPlanta').value,
-        contratista: document.getElementById('regContratista').value,
-        nombre: document.getElementById('regNombre').value,
-        cedula: document.getElementById('regCedula').value,
-        estado: document.getElementById('regEstado').value,
-        fechaIngreso: document.getElementById('regFecha').value,
-        certificado: document.getElementById('regCert').value,
-      };
-      toggleLoader(true);
-      google.script.run.withFailureHandler(falla).withSuccessHandler(res => {
-        toggleLoader(false);
-        if (sesionExpirada(res)) { mostrarGestion(); return avisar(res.mensaje, 'danger'); }
-        avisar(res.mensaje, res.exito ? 'success' : 'danger');
-        if (res.exito) { document.getElementById('formBrigadista').reset(); ajustarFormulario(); refrescarEstadoSync(); }
-      }).registrarBrigadistaNuevo(token, data);
+      const tipo = document.querySelector('input[name="reg-tipo"]:checked').value;
+      const d = { tipo, planta: $('reg-planta').value, contratista: $('reg-contratista').value, nombre: $('reg-nombre').value.trim(),
+        cedula: $('reg-cedula').value.replace(/\D/g, ''), estado: $('reg-estado').value, fechaIngreso: $('reg-fecha').value, certificado: $('reg-cert').value };
+      const yaExiste = (brigadistas || []).find(p => p.cedula.replace(/\D/g, '') === d.cedula);
+      if (yaExiste) return avisar('La cédula ' + esc(d.cedula) + ' ya está registrada: <b>' + esc(yaExiste.nombre) + '</b> (' + esc(yaExiste.planta) + ').', 'warning', 9000);
+      const fila = (k, v) => v ? `<tr><th class="text-muted fw-normal">${k}</th><td class="fw-semibold">${esc(v)}</td></tr>` : '';
+      $('conf-titulo').textContent = 'Revisa los datos antes de guardar';
+      $('conf-cuerpo').innerHTML = '<table class="table table-sm mb-2">' + fila('Tipo', tipo === 'HOLCIM' ? 'Personal Holcim' : 'Contratista (Inhouse)') + fila('Planta', d.planta) +
+        fila('Empresa', tipo === 'INHOUSE' ? d.contratista.toUpperCase() : '') + fila('Nombre', d.nombre.toUpperCase()) + fila('Cédula', d.cedula) +
+        fila('Estado', tipo === 'HOLCIM' ? d.estado : '') + fila('Fecha de ingreso', tipo === 'HOLCIM' ? d.fechaIngreso : '') + fila('Certificado 0256', d.certificado) + '</table>' +
+        '<p class="small text-muted mb-0">Se agregará al final de la planta en el archivo original.</p>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Confirmar y guardar';
+      $('conf-ok').onclick = () => guardarRegistro(d);
+      modal('modal-registro').hide();
+      modal('modal-confirmar').show();
+    }
+    async function guardarRegistro(d) {
+      modal('modal-confirmar').hide();
+      cargando(true);
+      try {
+        const r = await api('registrarBrigadistaNuevo', estado.token, d);
+        cargando(false);
+        if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000);
+        if (!r.exito) { modal('modal-registro').show(); return; }
+        brigadistas = null;
+        if (estado.vista === 'brigadistas') cargarBrigadistas();
+        api('getEstadoSincronizacion').then(pintarSync).catch(() => {});
+      } catch (e) { error(e); }
     }
 
-    function filtrarTabla(tbodyId, query) {
-      const q = query.toUpperCase();
-      document.querySelectorAll(`#${tbodyId} tr`).forEach(r => { r.style.display = r.innerText.toUpperCase().includes(q) ? '' : 'none'; });
+    // ══════════ CRONOGRAMA ══════════
+    async function cargarCronograma() {
+      cargando(true);
+      try { cronograma = await api('getCronograma', estado.sede); cargando(false); pintarCronograma(); }
+      catch (e) { error(e); }
+    }
+    function pintarCronograma() {
+      if (!cronograma) return;
+      const pasadas = $('crono-pasadas').checked;
+      const lista = cronograma.filter(s => pasadas || !s.pasada).sort((a, b) => (a.fechaIso || '9') < (b.fechaIso || '9') ? -1 : 1);
+      const grupos = {};
+      lista.forEach(s => { const k = s.fechaIso ? s.fechaIso.slice(0, 7) : 'sin'; (grupos[k] = grupos[k] || []).push(s); });
+      const nombreMes = k => { if (k === 'sin') return 'Sin fecha definida'; const [a, m] = k.split('-'); return ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][+m - 1] + ' ' + a; };
+      $('crono-lista').innerHTML = Object.keys(grupos).map(k => `
+        <div class="mes-titulo mt-3 mb-2">${nombreMes(k)}</div>
+        <div class="tarjeta">` + grupos[k].map(s => `
+          <div class="crono-item d-flex align-items-center gap-3 p-3 border-bottom ${s.pasada ? 'pasada' : ''}">
+            ${chipFecha(s.fechaIso, s.fecha)}
+            <div class="flex-grow-1"><div class="fw-semibold small">${esc(s.entrenamiento)}</div>
+              <div class="small text-muted"><i class="fa-solid fa-location-dot me-1"></i>${esc(s.planta)} · ${esc(s.sesion)}${s.fechaAmbipar && s.fechaAmbipar !== s.fecha ? ' · Ambipar: ' + esc(s.fechaAmbipar) : ''}${s.observaciones ? ' · ' + esc(s.observaciones) : ''}</div></div>
+            ${badgeEstado(s.estado)}
+          </div>`).join('') + '</div>').join('') || '<p class="text-muted">No hay sesiones para mostrar.</p>';
+    }
+
+    // ══════════ TEMARIOS ══════════
+    async function cargarTemarios() {
+      if (temariosCargados) return;
+      cargando(true);
+      try {
+        const nombres = await api('getListaTemarios');
+        $('tem-hoja').innerHTML = nombres.map(n => `<option value="${esc(n)}">${esc(n.trim())}</option>`).join('');
+        temariosCargados = true;
+        cargarTemario();
+      } catch (e) { error(e); }
+    }
+    async function cargarTemario() {
+      cargando(true);
+      try {
+        const r = await api('getTemarioCapacitacion', $('tem-hoja').value);
+        cargando(false);
+        $('tem-acordeon').innerHTML = r.grupos.map((g, i) => `
+          <div class="accordion-item">
+            <h2 class="accordion-header"><button class="accordion-button ${i ? 'collapsed' : ''}" type="button" data-bs-toggle="collapse" data-bs-target="#tem-${i}">
+              <span style="white-space: pre-line;">${esc(g.titulo || r.encabezado)}</span><span class="badge bg-secondary ms-2">${g.items.length}</span></button></h2>
+            <div id="tem-${i}" class="accordion-collapse collapse ${i ? '' : 'show'}" data-bs-parent="#tem-acordeon"><div class="accordion-body small">` +
+            g.items.map(item => '<div class="mb-2 pb-2 border-bottom">' + item.map((x, k) => k === 0
+              ? `<div class="fw-semibold" style="white-space: pre-line;">${esc(x.valor)}</div>`
+              : `<div style="white-space: pre-line;"><span class="text-muted">${esc(x.campo)}:</span> ${esc(x.valor)}</div>`).join('') + '</div>').join('') +
+            '</div></div></div>').join('') || '<p class="text-muted">Esta hoja no tiene contenido para mostrar.</p>';
+      } catch (e) { error(e); }
+    }
+
+    // ══════════ COBERTURA ══════════
+    async function cargarIndicadores() {
+      cargando(true);
+      try {
+        const filas = await api('getIndicadores', estado.sede);
+        cargando(false);
+        const n = x => Math.round(x * 10) / 10;
+        $('ind-tabla').innerHTML = filas.map(f => {
+          const pct = Math.round(f.cobertura * 1000) / 10;
+          const color = pct >= 20 ? 'bg-success' : pct >= 10 ? 'bg-warning' : 'bg-danger';
+          return `<tr class="${f.esTotal ? 'table-light fw-bold' : ''}"><td>${esc(f.planta)}</td><td>${esc(f.empresa)}</td>
+            <td class="text-end">${n(f.personas)}</td><td class="text-end">${n(f.requeridos)}</td><td class="text-end">${n(f.actuales)}</td>
+            <td><div class="d-flex align-items-center gap-2"><div class="progress flex-grow-1"><div class="progress-bar ${color}" style="width:${Math.min(pct / 0.2, 100)}%"></div></div><span class="small">${pct}%</span></div></td>
+            <td class="text-end">${f.gap > 0 ? `<span class="badge bg-danger-subtle text-danger">${n(f.gap)}</span>` : '<i class="fa-solid fa-check text-success"></i>'}</td></tr>`;
+        }).join('') || '<tr><td colspan="7" class="text-muted text-center py-4">Sin datos para esta sede</td></tr>';
+      } catch (e) { error(e); }
+    }
+
+    // ══════════ HISTORIAL ══════════
+    async function cargarHistorial() {
+      cargando(true);
+      try {
+        const filas = await api('getBitacora');
+        cargando(false);
+        $('hist-tabla').innerHTML = filas.map(f => `<tr><td class="small text-nowrap">${esc(f.fecha)}</td><td class="small">${esc(f.usuario)}</td><td class="small">${esc(f.accion)}</td>
+          <td class="small"><b>${esc(f.nombre)}</b><br><span class="text-muted">${esc(f.cedula)}</span></td><td class="small">${esc(f.detalle)}</td>
+          <td class="small">${esc(f.antes)}</td><td class="small">${esc(f.despues)}</td></tr>`).join('') ||
+          '<tr><td colspan="7" class="text-muted text-center py-4">Todavía no hay cambios hechos desde la app.</td></tr>';
+      } catch (e) { error(e); }
     }
   </script>
 </body>

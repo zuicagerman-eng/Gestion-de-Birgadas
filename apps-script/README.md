@@ -65,38 +65,58 @@ Los porcentajes y la cantidad de días se cambian al inicio del script (`MAXIMA_
 # App web SIGBE 2.0
 
 Archivos: [`SIGBE.gs`](SIGBE.gs) (backend) e [`Index.html`](Index.html) (pantallas). Van en el **mismo
-proyecto de Apps Script del 2.0**, junto a `SincronizarBrigadas.gs` (usa su `ID_ORIGEN`).
+proyecto de Apps Script del 2.0**, junto a `SincronizarBrigadas.gs` (usa su `ID_ORIGEN` y su carpeta de respaldos).
+
+## Pantallas
+
+| Menú | Para qué sirve |
+|---|---|
+| **Inicio** | Resumen de la sede: brigadistas activos, certificado 0256, asistencia registrada, cobertura, próximas capacitaciones y pendientes de certificado. Accesos rápidos. |
+| **Tomar asistencia** | Paso a paso: sede → sesión (con su fecha y cuántos ya asistieron) → lista de personas con botón *Asistió / No asistió* → **Revisar y guardar** (resumen antes de guardar) → opción **Deshacer**. |
+| **Brigadistas** | Buscar y filtrar (Holcim / contratistas, certificado, desvinculados). **Registrar brigadista** con revisión antes de guardar. |
+| **Cronograma** | Sesiones por mes con fecha, planta, sesión y estado; oculta las pasadas. |
+| **Temarios** | Módulos de cada temario en acordeón. |
+| **Cobertura** | Hoja *Indicador*: brigadistas actuales frente a requeridos, con barra de avance. |
+| **Historial de cambios** | Todo lo guardado desde la app: quién, cuándo, antes y después. |
+
+Arriba se elige la **sede** (se recuerda en ese navegador) y todo se filtra por ella. Las plantas de las
+distintas hojas ("AGG - MONDOÑEDO", "Mondoñedo", "AGG - Mondoñedo") se agrupan por sede (`SIGBE_SEDES`).
 
 ## Dónde lee y escribe
 
 | Dato | Lee de | Escribe en |
 |---|---|---|
-| Brigadistas HOLCIM e INHOUSE (directorio, asistencia, registro) | **archivo original** (al instante) | **archivo original** |
-| Indicador (tablero), Cronograma, Temarios | archivo 2.0 | — |
+| Brigadistas HOLCIM e INHOUSE (lista, asistencia, registro) | **archivo original** (al instante) | **archivo original** |
+| Indicador, Cronograma, Temarios | archivo 2.0 | — |
+| Historial (Bitácora SIGBE) | archivo 2.0 | archivo 2.0 |
 
-Proveedores, personal Holcim y la app escriben en el **mismo archivo** (el original); el 2.0 lo recibe
-con la sincronización de cada hora y, cuando se guarda algo **desde la app**, en 1 a 2 minutos
-(una sola sincronización aunque se marquen muchas casillas seguidas). La app muestra abajo a la
-izquierda la hora de la última actualización del 2.0. Si el original se borra o va a la papelera, la app usa el 2.0
-automáticamente. Las personas se ubican por **cédula** (y nombre si la cédula está repetida) y las
-columnas por su **encabezado**, nunca por número de fila o columna.
+El 2.0 recibe lo guardado desde la app en 1 a 2 minutos (y lo de los proveedores con la sincronización
+de cada hora). Si el original se borra o va a la papelera, la app usa el 2.0 automáticamente.
+
+## Seguros contra daños
+
+- **Nada se guarda sin confirmar**: la asistencia se marca en pantalla, se revisa en un resumen y solo
+  entonces se guarda; el registro de brigadistas también muestra los datos antes de guardar.
+- **Deshacer** inmediatamente después de guardar asistencia.
+- **No pisa cambios ajenos**: si una casilla cambió en la hoja desde que se abrió la pantalla
+  (por ejemplo, la marcó un proveedor), ese cambio no se aplica y se avisa.
+- **Solo escribe en casillas de asistencia**, nunca sobre fechas o textos. Personas por cédula (+ nombre
+  si la cédula se repite) y columnas por encabezado, nunca por posición.
+- **No deja registrar una cédula repetida** (ni en Holcim ni en contratistas).
+- **Respaldo diario del archivo original** antes del primer cambio del día (carpeta *Respaldos Gestion
+  de Brigadas 2.0*, últimos 30 días), además del respaldo diario del 2.0 y del historial de versiones de Google.
+- **Historial**: hoja *Bitácora SIGBE* del 2.0 con cada cambio (quién, cuándo, antes, después).
+- **Sesión con clave** para guardar (6 horas); la clave se guarda cifrada y se verifica en el servidor;
+  5 intentos fallidos bloquean 10 minutos. Sin sesión, la app es de solo lectura.
 
 ## Instalación / actualización
 
 1. En el editor de Apps Script del 2.0:
    - `Código.gs` → reemplazar todo por el contenido de `SIGBE.gs`.
    - `Index.html` → reemplazar todo por el contenido de `Index.html`.
-   - `SincronizarBrigadas.gs` → reemplazar por la versión actual (trae el menú de la clave).
+   - `SincronizarBrigadas.gs` → reemplazar por la versión actual.
    - **Guardar (Ctrl + S).**
-2. Recargar el 2.0 → **🔄 Sincronización → 🔐 Configurar usuario y clave de la app SIGBE**. La clave
-   se guarda cifrada en las propiedades del proyecto, no en el código.
+2. Si aún no se hizo: recargar el 2.0 → **🔄 Sincronización → 🔐 Configurar usuario y clave de la app SIGBE**.
 3. **Implementar → Administrar implementaciones → ✏️ Editar → Versión: Nueva versión → Implementar.**
-   La URL de la app no cambia. Sin este paso la app sigue mostrando la versión anterior.
-   Configuración recomendada: **Ejecutar como: Yo** y **Quién tiene acceso: cualquier usuario de tu
-   organización**. Así la app usa tus permisos sobre ambos archivos y puede programar la
-   sincronización rápida; los usuarios no necesitan acceso de edición a las hojas.
-
-## Seguridad
-
-- Ver la información no requiere clave; **marcar asistencia y registrar brigadistas sí** (la sesión dura 6 horas).
-- La clave se verifica en el servidor en cada guardado. Tras 5 intentos fallidos se bloquea 10 minutos.
+   La URL no cambia. Recomendado: **Ejecutar como: Yo** y acceso para los usuarios de tu organización.
+   Google puede pedir de nuevo permisos (Drive, para el respaldo del original): aceptarlos.

@@ -2,28 +2,50 @@
  * SIGBE 2.0 - Sistema de Gestión de Brigadas (backend de la app web)
  *
  * Va en el mismo proyecto de Apps Script del archivo 2.0, junto a SincronizarBrigadas.gs
- * (usa su ID_ORIGEN).
+ * (usa su ID_ORIGEN y su carpeta de respaldos).
  *
  * DÓNDE LEE Y ESCRIBE
- *  - Brigadistas HOLCIM e INHOUSE: en el ARCHIVO ORIGINAL (donde también marcan los
- *    proveedores). Así la app ve al instante lo que marcan ellos y lo que se registra aquí;
- *    el 2.0 lo recibe con la sincronización automática.
+ *  - Brigadistas HOLCIM e INHOUSE: en el ARCHIVO ORIGINAL (donde también marcan los proveedores).
+ *    El 2.0 lo recibe con la sincronización (1-2 minutos después de guardar desde la app).
  *    Si el original ya no existe o está en la papelera, usa automáticamente el 2.0.
  *  - Indicador, Cronograma y Temarios: se leen del 2.0.
  *
- * Personas: se ubican por CÉDULA (y nombre si la cédula está repetida), nunca por número de fila.
- * Columnas: se ubican por el texto del encabezado ("PLANTA", "CÉDULA", "Asistencia"...).
+ * SEDES: cada hoja nombra las plantas distinto ("AGG - MONDOÑEDO", "Mondoñedo", "AGG - Mondoñedo"),
+ * así que la app las agrupa por sede (ver SIGBE_SEDES) para poder filtrar todo por una sola.
  *
- * SEGURIDAD: registrar brigadistas y marcar asistencia exige iniciar sesión. El usuario y la
- * clave se configuran desde el menú 🔄 Sincronización → Configurar usuario y clave de la app
- * (no van escritos en el código).
+ * SEGUROS AL ESCRIBIR
+ *  - Exige iniciar sesión (usuario y clave del menú 🔄 Sincronización, guardados cifrados).
+ *  - Personas por CÉDULA (+ nombre si se repite) y columnas por ENCABEZADO, nunca por posición.
+ *  - Solo escribe en casillas de asistencia (nunca sobre fechas o textos).
+ *  - Si la casilla cambió desde que se cargó la pantalla (alguien más la marcó), no la pisa y avisa.
+ *  - Respaldo completo del archivo original antes del primer cambio de cada día.
+ *  - Cada cambio queda en la hoja "Bitácora SIGBE" del 2.0 (quién, cuándo, antes y después).
  */
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
 const SIGBE_HOJA_INDICADOR = 'Indicador';
 const SIGBE_HOJA_CRONOGRAMA = '2026 Cronograma Nacional Brigadas';
+const SIGBE_HOJA_BITACORA = 'Bitácora SIGBE';
 const SIGBE_HORAS_SESION = 6;
+const SIGBE_DIAS_RESPALDO_ORIGINAL = 30;
+
+// Sede: [nombre a mostrar, palabras que la identifican en cualquier hoja]
+const SIGBE_SEDES = [
+  ['Mondoñedo', ['MONDONEDO']],
+  ['Tocancipá', ['TOCANCIPA', 'TQC']],
+  ['Chía', ['CHIA']],
+  ['Sibaté', ['SIBATE']],
+  ['Puente Aranda', ['PUENTE ARANDA']],
+  ['Bello', ['BELLO']],
+  ['Valle', ['VALLE', 'PALMIRA', 'CALISUR']],
+  ['Boyacá', ['BOYACA', 'TUNJA']],
+  ['Nobsa', ['NOBSA', 'CEMENTO', 'GEOCYCLE']],
+  ['Barranca', ['BARRANCA']],
+  ['Teleport', ['TELEPORT']],
+  ['Fundación', ['FUNDACION']],
+  ['Transcem', ['TRANSCEM']],
+];
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
@@ -34,257 +56,127 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ───────────────────────────── MÓDULO 1: TABLERO ─────────────────────────────
+// ───────────────────────────── INICIO ─────────────────────────────
 
-function getTableroControl() {
-  try {
-    const sh = sigbeHoja_(SpreadsheetApp.getActiveSpreadsheet(), SIGBE_HOJA_INDICADOR);
-    const t = sigbeTabla_(sh, ['PLANTA', 'EMPRESA']);
-    const c = n => t.col(n);
-    const cols = {
-      planta: c('PLANTA'), empresa: c('EMPRESA'), personas: c('TOTAL TRABAJADORES'),
-      requeridos: c('BRIGADISTAS REQUERIDOS'), actuales: c('BRIGADISTAS ACTUALES'),
-      gap: c('GAP POR GESTION'), cobertura: c('% COBERTURA ACTUAL'),
-    };
-    let planta = '';
-    const tabla = [];
-    let totalPersonal = 0, totalBrig = 0, totalRequeridos = 0, totalBrechas = 0;
-    t.filas.forEach(f => {
-      const v = f.valores;
-      planta = String(v[cols.planta - 1] || '').trim() || planta;
-      const empresa = String(v[cols.empresa - 1] || '').trim();
-      if (!empresa) return;
-      const fila = {
-        planta: planta,
-        empresa: empresa,
-        esTotal: sigbeNorm_(empresa) === 'TOTAL',
-        personas: sigbeNum_(v[cols.personas - 1]),
-        requeridos: sigbeNum_(v[cols.requeridos - 1]),
-        actuales: sigbeNum_(v[cols.actuales - 1]),
-        gap: sigbeNum_(v[cols.gap - 1]),
-        cobertura: sigbeNum_(v[cols.cobertura - 1]),
-      };
-      tabla.push(fila);
-      if (!fila.esTotal) { // las filas TOTAL no se suman para no contar doble
-        totalPersonal += fila.personas;
-        totalBrig += fila.actuales;
-        totalRequeridos += fila.requeridos;
-        if (fila.gap > 0) totalBrechas += fila.gap;
-      }
-    });
-    return {
-      kpis: {
-        totalPersonal: totalPersonal,
-        totalBrig: totalBrig,
-        totalRequeridos: Math.round(totalRequeridos * 10) / 10,
-        pctGlobal: totalPersonal ? (totalBrig / totalPersonal * 100).toFixed(1) + '%' : '0%',
-        totalBrechas: Math.round(totalBrechas * 10) / 10,
-      },
-      tabla: tabla,
-    };
-  } catch (e) {
-    return { error: e.message, kpis: {}, tabla: [] };
-  }
-}
-
-// ───────────────────────────── MÓDULO 2: DIRECTORIO ─────────────────────────────
-
-function getDirectorioUnificado() {
-  try {
-    const ss = sigbeArchivoDatos_();
-    const lista = [];
-    sigbeLeerHolcim_(ss).personas.forEach(p => lista.push({
-      planta: p.planta, tipo: 'HOLCIM', contratista: 'HOLCIM', estado: p.estado,
-      nombre: p.nombre, cedula: p.cedula, certVigente: p.certificado,
-    }));
-    sigbeLeerInhouse_(ss).forEach(p => lista.push(p));
-    return { lista: lista, fuente: sigbeFuente_(ss) };
-  } catch (e) {
-    return { error: e.message, lista: [] };
-  }
-}
-
-// ───────────────────────────── MÓDULO 3: ASISTENCIA ─────────────────────────────
-
-/** Solo las columnas "Asistencia" (casillas); la fecha de la sesión se muestra junto a cada una. */
-function getSeguimientoAsistencia() {
-  try {
-    const ss = sigbeArchivoDatos_();
-    const h = sigbeLeerHolcim_(ss);
-    return {
-      encabezados: h.asistencias.map(a => ({ key: a.key, modulo: a.modulo, titulo: a.titulo, sesion: a.sesion })),
-      brigadistas: h.personas.map(p => ({
-        planta: p.planta, estado: p.estado, nombre: p.nombre, cedula: p.cedula, empresa: 'HOLCIM',
-        asistencias: h.asistencias.map(a => ({ marcada: p.valores[a.col - 1] === true, fecha: sigbeTexto_(p.valores[a.colFecha - 1]) })),
-      })),
-      fuente: sigbeFuente_(ss),
-    };
-  } catch (e) {
-    return { error: e.message, encabezados: [], brigadistas: [] };
-  }
-}
-
-/** Marca o desmarca una asistencia. Ubica a la persona por cédula (+ nombre) y la casilla por módulo y sesión. */
-function guardarAsistencia(token, cedula, nombre, key, marcada) {
-  const lock = LockService.getScriptLock();
-  try {
-    sigbeExigirSesion_(token);
-    if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
-    const ss = sigbeArchivoDatos_();
-    const h = sigbeLeerHolcim_(ss);
-    const a = h.asistencias.find(x => x.key === key);
-    if (!a) return { exito: false, mensaje: 'No se encontró la columna de asistencia (' + key + ').' };
-    const p = sigbeBuscarPersona_(h.personas, cedula, nombre);
-    if (!p) return { exito: false, mensaje: 'No se encontró a ' + nombre + ' (' + cedula + ') en la hoja.' };
-    h.hoja.getRange(p.fila, a.col).setValue(marcada === true);
-    sigbeProgramarSincronizacion_(ss);
-    return { exito: true, mensaje: 'Guardado' };
-  } catch (e) {
-    return { exito: false, mensaje: e.message };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-// ───────────────────────────── CRONOGRAMA Y TEMARIOS ─────────────────────────────
-
-/** Cronograma completo, agrupado por planta (encabezado de 3 filas: planta / sesión / campo). */
-function getCronogramaCapacitaciones() {
-  try {
-    const sh = sigbeHoja_(SpreadsheetApp.getActiveSpreadsheet(), SIGBE_HOJA_CRONOGRAMA);
-    const v = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getDisplayValues();
-    const plantas = [];
-    let planta = null, sesion = '';
-    for (let c = 2; c < v[0].length; c++) {
-      if (v[0][c]) { planta = { nombre: v[0][c], columnas: [] }; plantas.push(planta); sesion = ''; }
-      if (v[1][c]) sesion = v[1][c].trim();
-      if (planta && v[2][c]) planta.columnas.push({ col: c, sesion: sesion, campo: v[2][c] });
-    }
-    let mes = '';
-    const filas = [];
-    for (let r = 3; r < v.length; r++) {
-      mes = v[r][0] || mes;
-      if (!v[r][1]) continue;
-      filas.push({ mes: mes, entrenamiento: v[r][1], celdas: v[r] });
-    }
-    return { plantas: plantas, filas: filas };
-  } catch (e) {
-    return { error: e.message, plantas: [], filas: [] };
-  }
-}
-
-/** Hojas de temario disponibles (en el 2.0 y, si existe, en el original). */
-function getListaTemarios() {
-  const nombres = [];
-  const agregar = ss => {
-    if (!ss) return;
-    ss.getSheets().forEach(h => {
-      const n = h.getName();
-      if (/TEMARIO/i.test(n) && nombres.indexOf(n) === -1) nombres.push(n);
-    });
+/** Datos para arrancar la app: sedes disponibles, estado de la sesión y de la sincronización. */
+function getContexto(token) {
+  const ss = sigbeArchivoDatos_();
+  const h = sigbeLeerHolcim_(ss);
+  const inh = sigbeLeerInhouse_(ss);
+  const sedes = sigbeUnicos_(h.personas.concat(inh).map(p => sigbeSede_(p.planta)));
+  return {
+    sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1),
+    usuario: sigbeUsuarioSesion_(token),
+    fuente: sigbeFuente_(ss),
+    sync: getEstadoSincronizacion(),
   };
-  agregar(SpreadsheetApp.getActiveSpreadsheet());
-  agregar(sigbeOrigenOpcional_());
-  return nombres;
 }
 
-/** Lee un temario: encabezados en la primera fila con 3 o más títulos; agrupa por la primera columna (celdas combinadas). */
-function getTemarioCapacitacion(nombreHoja) {
-  try {
-    const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nombreHoja) ||
-      (sigbeOrigenOpcional_() && sigbeOrigenOpcional_().getSheetByName(nombreHoja));
-    if (!sh) return { error: 'No existe la hoja ' + nombreHoja, grupos: [] };
-    const v = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getDisplayValues();
-    const r0 = v.findIndex(f => f.filter(x => String(x).trim()).length >= 3);
-    if (r0 === -1) return { grupos: [] };
-    const enc = v[r0];
-    const grupos = [];
-    let actual = null;
-    for (let r = r0 + 1; r < v.length; r++) {
-      const f = v[r];
-      if (!f.some(x => String(x).trim())) continue;
-      if (f[0]) { actual = { titulo: f[0], items: [] }; grupos.push(actual); }
-      if (!actual) { actual = { titulo: '', items: [] }; grupos.push(actual); }
-      const item = [];
-      for (let c = 1; c < f.length; c++) if (String(f[c]).trim() && enc[c]) item.push({ campo: enc[c], valor: f[c] });
-      if (item.length) actual.items.push(item);
+/** Resumen de la sede (o de todas si sede = ''). */
+function getInicio(sede) {
+  const ss = sigbeArchivoDatos_();
+  const h = sigbeLeerHolcim_(ss);
+  const enSede = p => !sede || sigbeSede_(p.planta) === sede;
+  const activos = p => !/DESVINCULADO/.test(sigbeNorm_(p.estado));
+  const holcim = h.personas.filter(enSede);
+  const inhouse = sigbeLeerInhouse_(ss).filter(enSede);
+  const todos = holcim.concat(inhouse).filter(activos);
+  const certVigente = todos.filter(p => /^\d+$/.test(p.certificado)).length;
+
+  // Asistencias registradas vs. sesiones con fecha (solo HOLCIM, que es donde hay casillas)
+  let conFecha = 0, marcadas = 0;
+  holcim.filter(activos).forEach(p => h.asistencias.forEach(a => {
+    if (p.valores[a.colFecha - 1] instanceof Date) {
+      conFecha++;
+      if (p.valores[a.col - 1] === true) marcadas++;
     }
-    return { encabezado: enc[0], grupos: grupos };
-  } catch (e) {
-    return { error: e.message, grupos: [] };
-  }
+  }));
+
+  const hoy = sigbeHoy_();
+  const proximas = sigbeSesionesCronograma_()
+    .filter(s => (!sede || s.sede === sede) && s.fechaIso && s.fechaIso >= hoy)
+    .sort((a, b) => a.fechaIso < b.fechaIso ? -1 : 1)
+    .slice(0, 8);
+
+  const cobertura = sigbeLeerIndicador_().filter(f => !f.esTotal && (!sede || sigbeSede_(f.planta) === sede));
+  const personas = cobertura.reduce((n, f) => n + f.personas, 0);
+  const actuales = cobertura.reduce((n, f) => n + f.actuales, 0);
+  const requeridos = cobertura.reduce((n, f) => n + f.requeridos, 0);
+
+  return {
+    brigadistas: todos.length,
+    holcim: holcim.filter(activos).length,
+    inhouse: inhouse.filter(activos).length,
+    certVigente: certVigente,
+    certPendiente: todos.length - certVigente,
+    asistencia: { conFecha: conFecha, marcadas: marcadas },
+    cobertura: { personas: personas, actuales: actuales, requeridos: Math.round(requeridos * 10) / 10,
+      pct: personas ? Math.round(actuales / personas * 1000) / 10 : 0 },
+    proximas: proximas,
+    pendientesCert: todos.filter(p => !/^\d+$/.test(p.certificado))
+      .map(p => ({ nombre: p.nombre, planta: p.planta, tipo: p.tipo || 'HOLCIM' })).slice(0, 50),
+  };
 }
 
-// ───────────────────────────── MÓDULO 4: GESTIÓN ─────────────────────────────
+// ───────────────────────────── BRIGADISTAS ─────────────────────────────
 
-function validarLoginAdmin(usuario, clave) {
-  const cache = CacheService.getScriptCache();
-  const intentos = Number(cache.get('sigbe_intentos')) || 0;
-  if (intentos >= 5) return { exito: false, mensaje: 'Demasiados intentos. Espera 10 minutos.' };
-  const props = PropertiesService.getScriptProperties();
-  const u = props.getProperty('SIGBE_USUARIO');
-  const hash = props.getProperty('SIGBE_CLAVE_HASH');
-  if (!u || !hash) return { exito: false, mensaje: 'Falta configurar el usuario y la clave (menú 🔄 Sincronización).' };
-  if (usuario === u && sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash) {
-    cache.remove('sigbe_intentos');
-    const token = Utilities.getUuid();
-    cache.put('sigbe_sesion_' + token, usuario, SIGBE_HORAS_SESION * 3600);
-    return { exito: true, token: token, mensaje: 'Acceso autorizado' };
-  }
-  cache.put('sigbe_intentos', String(intentos + 1), 600);
-  return { exito: false, mensaje: 'Usuario o contraseña incorrectos' };
+function getBrigadistas(sede) {
+  const ss = sigbeArchivoDatos_();
+  const lista = sigbeLeerHolcim_(ss).personas.map(p => ({
+    planta: p.planta, sede: sigbeSede_(p.planta), tipo: 'HOLCIM', contratista: 'HOLCIM', estado: p.estado,
+    nombre: p.nombre, cedula: p.cedula, certificado: p.certificado, cumplimiento: p.cumplimiento,
+  })).concat(sigbeLeerInhouse_(ss).map(p => ({
+    planta: p.planta, sede: sigbeSede_(p.planta), tipo: 'INHOUSE', contratista: p.contratista, estado: p.estado || 'Activo',
+    nombre: p.nombre, cedula: p.cedula, certificado: p.certificado, cumplimiento: '',
+  })));
+  return lista.filter(p => !sede || p.sede === sede);
 }
 
-/** Listas para el formulario: plantas, estados, certificados y contratistas tal como los acepta la hoja. */
+/** Listas para el formulario: plantas, estados y certificados tal como los acepta la hoja. */
 function getCatalogos() {
-  try {
-    const ss = sigbeArchivoDatos_();
-    const h = sigbeLeerHolcim_(ss);
-    const sh = h.hoja;
-    const fila = h.filaEncabezado + 1;
-    const lista = (col, porDefecto) => sigbeListaValidacion_(sh.getRange(fila, col)) || porDefecto;
-    const plantasHolcim = lista(h.cols.planta, sigbeUnicos_(h.personas.map(p => p.planta)));
-    const inhouse = sigbeLeerInhouse_(ss);
-    return {
-      plantasHolcim: plantasHolcim,
-      plantasInhouse: sigbeUnicos_(inhouse.map(p => p.planta).concat(plantasHolcim)),
-      estados: lista(h.cols.estado, ['Activo', 'Desvinculado']),
-      certificados: h.cols.certificado ? lista(h.cols.certificado, ['41', '21', 'Pendiente']) : ['41', '21', 'Pendiente'],
-      contratistas: sigbeUnicos_(inhouse.map(p => p.contratista)),
-      fuente: sigbeFuente_(ss),
-    };
-  } catch (e) {
-    return { error: e.message };
-  }
+  const ss = sigbeArchivoDatos_();
+  const h = sigbeLeerHolcim_(ss);
+  const fila = h.filaEncabezado + 1;
+  const lista = (col, porDefecto) => (col && sigbeListaValidacion_(h.hoja.getRange(fila, col))) || porDefecto;
+  const plantasHolcim = lista(h.cols.planta, sigbeUnicos_(h.personas.map(p => p.planta)));
+  const inhouse = sigbeLeerInhouse_(ss);
+  return {
+    plantasHolcim: plantasHolcim,
+    plantasInhouse: sigbeUnicos_(inhouse.map(p => p.planta).concat(plantasHolcim)),
+    estados: lista(h.cols.estado, ['Activo', 'Desvinculado']),
+    certificados: lista(h.cols.certificado, ['41', '21', 'Pendiente']),
+    contratistas: sigbeUnicos_(inhouse.map(p => p.contratista)),
+  };
 }
 
 /** Agrega un brigadista al final de su planta, copiando formato, desplegables y casillas de la fila de arriba. */
 function registrarBrigadistaNuevo(token, data) {
   const lock = LockService.getScriptLock();
   try {
-    sigbeExigirSesion_(token);
-    const nombre = String(data.nombre || '').trim().toUpperCase();
+    const usuario = sigbeExigirSesion_(token);
+    const nombre = String(data.nombre || '').trim().replace(/\s+/g, ' ').toUpperCase();
     const cedula = String(data.cedula || '').replace(/\D/g, '');
     const planta = String(data.planta || '').trim();
-    if (!nombre || !cedula || !planta) return { exito: false, mensaje: 'Planta, nombre y cédula son obligatorios.' };
+    if (!nombre || !planta) return { exito: false, mensaje: 'La planta y el nombre son obligatorios.' };
+    if (cedula.length < 5 || cedula.length > 12) return { exito: false, mensaje: 'La cédula debe tener entre 5 y 12 números.' };
     if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
 
     const ss = sigbeArchivoDatos_();
     const esHolcim = data.tipo === 'HOLCIM';
     const sh = sigbeHoja_(ss, esHolcim ? SIGBE_HOJA_HOLCIM : SIGBE_HOJA_INHOUSE);
-    const t = sigbeTabla_(sh, ['CEDULA']);
+    const t = sigbeTabla_(sh, ['PLANTA', 'CEDULA']);
     const colCed = t.col('CEDULA');
     const colPlanta = t.col('PLANTA');
-    if (t.filas.some(f => String(f.valores[colCed - 1]).replace(/\D/g, '') === cedula)) {
-      return { exito: false, mensaje: 'Ya existe un brigadista con la cédula ' + cedula + ' en ' + sh.getName() + '.' };
-    }
+    // La cédula no puede existir ni en HOLCIM ni en INHOUSE
+    const existe = sigbeLeerHolcim_(ss).personas.concat(sigbeLeerInhouse_(ss))
+      .find(p => p.cedula.replace(/\D/g, '') === cedula);
+    if (existe) return { exito: false, mensaje: 'La cédula ' + cedula + ' ya está registrada: ' + existe.nombre + ' (' + existe.planta + ').' };
+
+    sigbeRespaldoOriginalDelDia_(ss);
 
     // Última fila de esa planta (sin contar los TOTAL); si la planta no existe, al final de los datos
     let pos = 0;
-    t.filas.forEach(f => {
-      const p = sigbeNorm_(f.valores[colPlanta - 1]);
-      if (p === sigbeNorm_(planta)) pos = f.fila;
-    });
+    t.filas.forEach(f => { if (sigbeNorm_(f.valores[colPlanta - 1]) === sigbeNorm_(planta)) pos = f.fila; });
     if (!pos) pos = t.filas.length ? t.filas[t.filas.length - 1].fila : t.filaEncabezado;
 
     sh.insertRowAfter(pos);
@@ -309,17 +201,188 @@ function registrarBrigadistaNuevo(token, data) {
     } else {
       poner('CONTRATISTA', String(data.contratista || '').trim().toUpperCase());
     }
+    sigbeBitacora_(usuario, [['Registro de brigadista', sh.getName() + ' (' + sigbeFuente_(ss) + ')', nueva, cedula, nombre, planta, '', 'Nuevo']]);
     const programada = sigbeProgramarSincronizacion_(ss);
     return {
       exito: true,
-      mensaje: 'Brigadista guardado en "' + sh.getName() + '", fila ' + nueva + ' (' + sigbeFuente_(ss) + ').' +
-        (programada ? ' Aparecerá en el 2.0 en 1 a 2 minutos.' : ''),
+      mensaje: nombre + ' quedó registrado en ' + planta + (programada ? '. Se verá en el 2.0 en 1 a 2 minutos.' : '.'),
     };
   } catch (e) {
     return { exito: false, mensaje: e.message };
   } finally {
     lock.releaseLock();
   }
+}
+
+// ───────────────────────────── ASISTENCIA ─────────────────────────────
+
+/** Sesiones de la sede (módulo + sesión) con su fecha y cuántos tienen asistencia marcada. */
+function getSesionesAsistencia(sede) {
+  const ss = sigbeArchivoDatos_();
+  const h = sigbeLeerHolcim_(ss);
+  const personas = h.personas.filter(p => sigbeSede_(p.planta) === sede && !/DESVINCULADO/.test(sigbeNorm_(p.estado)));
+  return {
+    total: personas.length,
+    sesiones: h.asistencias.map(a => {
+      const fechas = {};
+      let marcadas = 0;
+      personas.forEach(p => {
+        const f = sigbeTexto_(p.valores[a.colFecha - 1]);
+        if (f) fechas[f] = (fechas[f] || 0) + 1;
+        if (p.valores[a.col - 1] === true) marcadas++;
+      });
+      const fecha = Object.keys(fechas).sort((x, y) => fechas[y] - fechas[x])[0] || '';
+      return { key: a.key, modulo: a.modulo, titulo: a.titulo, sesion: a.sesion, fecha: fecha,
+        fechaIso: sigbeIso_(fecha), marcadas: marcadas };
+    }),
+  };
+}
+
+/** Brigadistas de la sede con su asistencia en una sesión. */
+function getListaAsistencia(sede, key) {
+  const ss = sigbeArchivoDatos_();
+  const h = sigbeLeerHolcim_(ss);
+  const a = h.asistencias.find(x => x.key === key);
+  if (!a) throw new Error('No se encontró la sesión ' + key);
+  return {
+    modulo: a.modulo, titulo: a.titulo, sesion: a.sesion,
+    personas: h.personas.filter(p => sigbeSede_(p.planta) === sede).map(p => ({
+      nombre: p.nombre, cedula: p.cedula, planta: p.planta, estado: p.estado,
+      activo: !/DESVINCULADO/.test(sigbeNorm_(p.estado)),
+      marcada: p.valores[a.col - 1] === true,
+      fecha: sigbeTexto_(p.valores[a.colFecha - 1]),
+    })),
+  };
+}
+
+/**
+ * Guarda varios cambios de asistencia de una sesión.
+ * cambios: [{ cedula, nombre, valor, anterior }] — "anterior" es lo que mostraba la pantalla;
+ * si en la hoja ya no coincide (alguien la cambió), ese cambio no se aplica y se informa.
+ */
+function guardarAsistenciaLote(token, key, cambios) {
+  const lock = LockService.getScriptLock();
+  try {
+    const usuario = sigbeExigirSesion_(token);
+    if (!cambios || !cambios.length) return { exito: true, guardados: 0, conflictos: [], mensaje: 'No había cambios.' };
+    if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
+    const ss = sigbeArchivoDatos_();
+    const h = sigbeLeerHolcim_(ss);
+    const a = h.asistencias.find(x => x.key === key);
+    if (!a) return { exito: false, mensaje: 'No se encontró la columna de asistencia (' + key + ').' };
+
+    sigbeRespaldoOriginalDelDia_(ss);
+    const conflictos = [];
+    const bitacora = [];
+    let guardados = 0;
+    cambios.forEach(c => {
+      const p = sigbeBuscarPersona_(h.personas, c.cedula, c.nombre);
+      if (!p) { conflictos.push(c.nombre + ' (ya no está en la hoja)'); return; }
+      const actual = p.valores[a.col - 1];
+      if (actual !== true && actual !== false && actual !== '') { conflictos.push(c.nombre + ' (la celda no es una casilla)'); return; }
+      if ((actual === true) !== (c.anterior === true)) { conflictos.push(c.nombre + ' (alguien la cambió mientras tanto)'); return; }
+      h.hoja.getRange(p.fila, a.col).setValue(c.valor === true);
+      guardados++;
+      bitacora.push(['Asistencia', h.hoja.getName() + ' (' + sigbeFuente_(ss) + ')', p.fila, p.cedula, p.nombre,
+        a.modulo + ' ' + a.sesion, actual === true ? 'Asistió' : 'No', c.valor === true ? 'Asistió' : 'No']);
+    });
+    if (bitacora.length) sigbeBitacora_(usuario, bitacora);
+    if (guardados) sigbeProgramarSincronizacion_(ss);
+    return {
+      exito: true, guardados: guardados, conflictos: conflictos,
+      mensaje: guardados + ' asistencia(s) guardada(s)' + (conflictos.length ? '; ' + conflictos.length + ' no se aplicaron.' : '.'),
+    };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ───────────────────────────── CRONOGRAMA, TEMARIOS, INDICADORES ─────────────────────────────
+
+/** Sesiones del cronograma de la sede, agrupadas por mes, listas para mostrar como lista. */
+function getCronograma(sede) {
+  const hoy = sigbeHoy_();
+  const sesiones = sigbeSesionesCronograma_().filter(s => !sede || s.sede === sede);
+  sesiones.forEach(s => { s.pasada = !!s.fechaIso && s.fechaIso < hoy; });
+  return sesiones;
+}
+
+/** Hojas de temario disponibles (en el 2.0 y, si existe, en el original). */
+function getListaTemarios() {
+  const nombres = [];
+  [SpreadsheetApp.getActiveSpreadsheet(), sigbeOrigenOpcional_()].forEach(ss => {
+    if (!ss) return;
+    ss.getSheets().forEach(h => {
+      const n = h.getName();
+      if (/TEMARIO/i.test(n) && nombres.indexOf(n) === -1) nombres.push(n);
+    });
+  });
+  return nombres;
+}
+
+/** Lee un temario: encabezados en la primera fila con 3 o más títulos; agrupa por la primera columna. */
+function getTemarioCapacitacion(nombreHoja) {
+  const origen = sigbeOrigenOpcional_();
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nombreHoja) || (origen && origen.getSheetByName(nombreHoja));
+  if (!sh) throw new Error('No existe la hoja ' + nombreHoja);
+  const v = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getDisplayValues();
+  const r0 = v.findIndex(f => f.filter(x => String(x).trim()).length >= 3);
+  if (r0 === -1) return { grupos: [] };
+  const enc = v[r0];
+  const grupos = [];
+  let actual = null;
+  for (let r = r0 + 1; r < v.length; r++) {
+    const f = v[r];
+    if (!f.some(x => String(x).trim())) continue;
+    if (f[0] || !actual) { actual = { titulo: f[0], items: [] }; grupos.push(actual); }
+    const item = [];
+    for (let c = 1; c < f.length; c++) if (String(f[c]).trim() && enc[c]) item.push({ campo: enc[c], valor: f[c] });
+    if (item.length) actual.items.push(item);
+  }
+  return { encabezado: enc[0], grupos: grupos };
+}
+
+function getIndicadores(sede) {
+  return sigbeLeerIndicador_().filter(f => !sede || sigbeSede_(f.planta) === sede);
+}
+
+// ───────────────────────────── HISTORIAL ─────────────────────────────
+
+function getBitacora() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SIGBE_HOJA_BITACORA);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const n = Math.min(sh.getLastRow() - 1, 200);
+  return sh.getRange(sh.getLastRow() - n + 1, 1, n, 10).getValues().reverse().map(f => ({
+    fecha: sigbeTexto_(f[0], true), usuario: f[1], accion: f[2], hoja: f[3], fila: f[4], cedula: sigbeTexto_(f[5]),
+    nombre: f[6], detalle: f[7], antes: f[8], despues: f[9],
+  }));
+}
+
+// ───────────────────────────── SESIÓN ─────────────────────────────
+
+function validarLoginAdmin(usuario, clave) {
+  const cache = CacheService.getScriptCache();
+  const intentos = Number(cache.get('sigbe_intentos')) || 0;
+  if (intentos >= 5) return { exito: false, mensaje: 'Demasiados intentos. Espera 10 minutos.' };
+  const props = PropertiesService.getScriptProperties();
+  const u = props.getProperty('SIGBE_USUARIO');
+  const hash = props.getProperty('SIGBE_CLAVE_HASH');
+  if (!u || !hash) return { exito: false, mensaje: 'Falta configurar el usuario y la clave (menú 🔄 Sincronización del 2.0).' };
+  if (String(usuario).trim() === u && sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash) {
+    cache.remove('sigbe_intentos');
+    const token = Utilities.getUuid();
+    cache.put('sigbe_sesion_' + token, u, SIGBE_HORAS_SESION * 3600);
+    return { exito: true, token: token, usuario: u, mensaje: 'Acceso autorizado' };
+  }
+  cache.put('sigbe_intentos', String(intentos + 1), 600);
+  return { exito: false, mensaje: 'Usuario o clave incorrectos' };
+}
+
+function cerrarSesionApp(token) {
+  if (token) CacheService.getScriptCache().remove('sigbe_sesion_' + token);
+  return true;
 }
 
 /** Menú del 2.0: guarda usuario y clave de la app (la clave se guarda cifrada con SHA-256, no en el código). */
@@ -343,8 +406,7 @@ function configurarUsuarioApp() {
 
 /**
  * Tras guardar en el original, programa una sincronización del 2.0 en ~1 minuto (en vez de esperar
- * la de cada hora). Si ya hay una pendiente no crea otra, así muchos clics seguidos = una sola.
- * Devuelve true si el cambio llegará al 2.0 por esta vía.
+ * la de cada hora). Si ya hay una pendiente no crea otra. Devuelve true si el cambio llegará así.
  */
 function sigbeProgramarSincronizacion_(ss) {
   if (sigbeFuente_(ss) !== 'archivo original') return false; // se escribió directo en el 2.0
@@ -379,6 +441,59 @@ function getEstadoSincronizacion() {
   } catch (e) {
     return { ultima: '', pendiente: false };
   }
+}
+
+// ───────────────────────────── SEGUROS ─────────────────────────────
+
+/** Copia completa del archivo original antes del primer cambio del día (carpeta de respaldos del 2.0). */
+function sigbeRespaldoOriginalDelDia_(ss) {
+  if (sigbeFuente_(ss) !== 'archivo original') return; // el 2.0 ya tiene su propio respaldo diario
+  const nombre = 'Respaldo ORIGINAL ' + sigbeHoy_();
+  const carpeta = typeof carpetaRespaldos_ === 'function' ? carpetaRespaldos_() : DriveApp.getRootFolder();
+  if (carpeta.getFilesByName(nombre).hasNext()) return;
+  DriveApp.getFileById(ss.getId()).makeCopy(nombre, carpeta);
+  const viejos = [];
+  const it = carpeta.getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getName().indexOf('Respaldo ORIGINAL ') === 0) viejos.push(f);
+  }
+  viejos.sort((a, b) => b.getName().localeCompare(a.getName()));
+  viejos.slice(SIGBE_DIAS_RESPALDO_ORIGINAL).forEach(f => f.setTrashed(true));
+}
+
+/** Agrega filas a la hoja "Bitácora SIGBE" del 2.0 (la crea si no existe). */
+function sigbeBitacora_(usuario, filas) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let sh = ss.getSheetByName(SIGBE_HOJA_BITACORA);
+    if (!sh) {
+      sh = ss.insertSheet(SIGBE_HOJA_BITACORA);
+      sh.getRange(1, 1, 1, 10).setValues([['Fecha', 'Usuario', 'Acción', 'Hoja', 'Fila', 'Cédula', 'Nombre', 'Detalle', 'Antes', 'Después']])
+        .setFontWeight('bold').setBackground('#1a252f').setFontColor('#ffffff');
+      sh.setFrozenRows(1);
+      sh.protect().setDescription('Bitácora de la app SIGBE (solo la app escribe aquí)').setWarningOnly(true);
+    }
+    const ahora = new Date();
+    sh.getRange(sh.getLastRow() + 1, 1, filas.length, 10).setValues(filas.map(f => [ahora, usuario].concat(f)));
+  } catch (e) {
+    console.log('No se pudo escribir la bitácora: ' + e.message);
+  }
+}
+
+function sigbeExigirSesion_(token) {
+  const u = sigbeUsuarioSesion_(token);
+  if (!u) throw new Error('La sesión no es válida o expiró. Vuelve a iniciar sesión.');
+  return u;
+}
+
+function sigbeUsuarioSesion_(token) {
+  return token ? CacheService.getScriptCache().get('sigbe_sesion_' + token) : null;
+}
+
+function sigbeHash_(texto, sal) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(sal || '') + String(texto || ''));
+  return Utilities.base64Encode(bytes);
 }
 
 // ───────────────────────────── LECTURA DE HOJAS ─────────────────────────────
@@ -416,9 +531,7 @@ function sigbeHoja_(ss, nombre) {
  * pedidos) y devuelve las filas de datos con su número real de fila.
  */
 function sigbeTabla_(sh, requeridos) {
-  const ultima = sh.getLastRow();
-  const cols = sh.getLastColumn();
-  const v = sh.getRange(1, 1, ultima, cols).getValues();
+  const v = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), Math.max(sh.getLastColumn(), 1)).getValues();
   const r0 = v.slice(0, 10).findIndex(f => requeridos.every(req => f.some(x => sigbeNorm_(x) === sigbeNorm_(req))));
   if (r0 === -1) throw new Error('No se encontraron los encabezados en "' + sh.getName() + '".');
   const enc = v[r0].map(sigbeNorm_);
@@ -446,7 +559,7 @@ function sigbeLeerHolcim_(ss) {
   const t = sigbeTabla_(sh, ['PLANTA', 'CEDULA']);
   const cols = {
     planta: t.col('PLANTA'), estado: t.col('ESTADO'), nombre: t.col('NOMBRE Y APELLIDO'),
-    cedula: t.col('CEDULA'), certificado: t.col('CERTIFICADO'),
+    cedula: t.col('CEDULA'), certificado: t.col('CERTIFICADO'), cumplimiento: t.col('% DE CUMPLIMIENTO'),
   };
 
   // Casillas de asistencia: columnas cuyo encabezado empieza por "Asistencia".
@@ -468,11 +581,13 @@ function sigbeLeerHolcim_(ss) {
     const planta = String(v[cols.planta - 1] || '').trim();
     const nombre = String(v[cols.nombre - 1] || '').trim();
     if (!nombre || sigbeNorm_(planta).indexOf('TOTAL') === 0) return;
+    const cumpl = cols.cumplimiento ? v[cols.cumplimiento - 1] : '';
     personas.push({
-      fila: f.fila, valores: v, planta: planta, nombre: nombre,
+      fila: f.fila, valores: v, planta: planta, nombre: nombre, tipo: 'HOLCIM',
       estado: cols.estado ? String(v[cols.estado - 1] || '') : '',
       cedula: sigbeTexto_(v[cols.cedula - 1]),
       certificado: cols.certificado ? sigbeTexto_(v[cols.certificado - 1]) : '',
+      cumplimiento: typeof cumpl === 'number' ? Math.round(cumpl * 100) + '%' : '',
     });
   });
   return { hoja: sh, filaEncabezado: t.filaEncabezado, cols: cols, asistencias: asistencias, personas: personas };
@@ -490,8 +605,68 @@ function sigbeLeerInhouse_(ss) {
       contratista: c.contratista ? String(f.valores[c.contratista - 1] || '').trim() : '',
       estado: c.estado ? String(f.valores[c.estado - 1] || '') : '',
       nombre: String(f.valores[c.nombre - 1]).trim(), cedula: sigbeTexto_(f.valores[c.cedula - 1]),
-      certVigente: c.cert ? sigbeTexto_(f.valores[c.cert - 1]) : '',
+      certificado: c.cert ? sigbeTexto_(f.valores[c.cert - 1]) : '',
     }));
+}
+
+function sigbeLeerIndicador_() {
+  const sh = sigbeHoja_(SpreadsheetApp.getActiveSpreadsheet(), SIGBE_HOJA_INDICADOR);
+  const t = sigbeTabla_(sh, ['PLANTA', 'EMPRESA']);
+  const c = { planta: t.col('PLANTA'), empresa: t.col('EMPRESA'), personas: t.col('TOTAL TRABAJADORES'),
+    requeridos: t.col('BRIGADISTAS REQUERIDOS'), actuales: t.col('BRIGADISTAS ACTUALES'),
+    gap: t.col('GAP POR GESTION'), cobertura: t.col('% COBERTURA ACTUAL') };
+  let planta = '';
+  const filas = [];
+  t.filas.forEach(f => {
+    const v = f.valores;
+    planta = String(v[c.planta - 1] || '').trim() || planta;
+    const empresa = String(v[c.empresa - 1] || '').trim();
+    if (!empresa) return;
+    filas.push({
+      planta: planta, sede: sigbeSede_(planta), empresa: empresa, esTotal: sigbeNorm_(empresa) === 'TOTAL',
+      personas: sigbeNum_(v[c.personas - 1]), requeridos: sigbeNum_(v[c.requeridos - 1]),
+      actuales: sigbeNum_(v[c.actuales - 1]), gap: sigbeNum_(v[c.gap - 1]), cobertura: sigbeNum_(v[c.cobertura - 1]),
+    });
+  });
+  return filas;
+}
+
+/** Todas las sesiones del cronograma como lista: sede, planta, mes, entrenamiento, sesión, fecha, estado... */
+function sigbeSesionesCronograma_() {
+  const sh = sigbeHoja_(SpreadsheetApp.getActiveSpreadsheet(), SIGBE_HOJA_CRONOGRAMA);
+  const rango = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
+  const v = rango.getValues();
+  const d = rango.getDisplayValues();
+  // Bloques: planta (fila 1) → sesión (fila 2) → campos (fila 3)
+  const bloques = [];
+  let planta = '', bloque = null;
+  for (let c = 2; c < d[0].length; c++) {
+    if (d[0][c]) planta = d[0][c].trim();
+    if (d[0][c] || d[1][c]) { bloque = { planta: planta, sesion: (d[1][c] || 'Sesión 1').trim(), campos: {} }; bloques.push(bloque); }
+    if (bloque && d[2][c]) bloque.campos[sigbeNorm_(d[2][c])] = c;
+  }
+  const lista = [];
+  let mes = '';
+  for (let r = 3; r < d.length; r++) {
+    mes = d[r][0].trim() || mes;
+    const entrenamiento = d[r][1].trim();
+    if (!entrenamiento) continue;
+    bloques.forEach(b => {
+      const cf = b.campos['FECHA HOLCIM'];
+      if (cf === undefined) return;
+      const fechaTxt = d[r][cf].trim();
+      if (!fechaTxt || fechaTxt === '-') return;
+      const val = (k) => b.campos[k] !== undefined ? d[r][b.campos[k]].trim() : '';
+      lista.push({
+        sede: sigbeSede_(b.planta), planta: b.planta, mes: mes, entrenamiento: entrenamiento, sesion: b.sesion,
+        fecha: v[r][cf] instanceof Date ? sigbeTexto_(v[r][cf]) : fechaTxt,
+        fechaIso: v[r][cf] instanceof Date ? Utilities.formatDate(v[r][cf], Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
+        fechaAmbipar: val('FECHA AMBIPAR'), estado: val('ESTADO'), observaciones: val('OBSERVACIONES'),
+        brigadistas: val('# BRIGADISTAS'),
+      });
+    });
+  }
+  return lista;
 }
 
 function sigbeBuscarPersona_(personas, cedula, nombre) {
@@ -502,15 +677,11 @@ function sigbeBuscarPersona_(personas, cedula, nombre) {
 
 // ───────────────────────────── UTILIDADES ─────────────────────────────
 
-function sigbeExigirSesion_(token) {
-  if (!token || !CacheService.getScriptCache().get('sigbe_sesion_' + token)) {
-    throw new Error('La sesión no es válida o expiró. Inicia sesión en "Gestión Brigadistas".');
-  }
-}
-
-function sigbeHash_(texto, sal) {
-  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(sal || '') + String(texto || ''));
-  return Utilities.base64Encode(bytes);
+/** Sede a la que pertenece un nombre de planta de cualquier hoja ("AGG - MONDOÑEDO" → "Mondoñedo"). */
+function sigbeSede_(planta) {
+  const n = sigbeNorm_(planta);
+  const s = SIGBE_SEDES.find(x => x[1].some(k => n.indexOf(k) !== -1));
+  return s ? s[0] : String(planta || '').trim();
 }
 
 function sigbeListaValidacion_(celda) {
@@ -540,10 +711,20 @@ function sigbeNumOTexto_(v) {
   return /^\d+$/.test(s) ? Number(s) : s;
 }
 
-function sigbeTexto_(v) {
-  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+function sigbeTexto_(v, conHora) {
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), conHora ? 'dd/MM/yyyy HH:mm' : 'dd/MM/yyyy');
   if (typeof v === 'number') return String(Math.round(v * 100) / 100);
   return v === null || v === undefined ? '' : String(v).trim();
+}
+
+function sigbeHoy_() {
+  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+/** "dd/MM/yyyy" → "yyyy-MM-dd" (para ordenar y comparar). */
+function sigbeIso_(txt) {
+  const m = String(txt).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
 }
 
 /** "2026-10-19" (del formulario) → fecha real de la hoja. */
