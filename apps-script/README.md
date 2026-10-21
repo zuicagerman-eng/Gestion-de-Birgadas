@@ -88,6 +88,28 @@ distintas hojas ("AGG - MONDOÑEDO", "Mondoñedo", "AGG - Mondoñedo") se agrupa
 Abajo a la izquierda se ve la **versión** instalada y la hora de la última actualización del 2.0; si las
 pantallas y el servidor tienen versiones distintas, aparece un aviso amarillo (falta pegar un archivo o publicar).
 
+## Qué sesiones ofrece la app en cada sede (regla del cronograma)
+
+La hoja HOLCIM tiene columnas de asistencia para todos los módulos con Sesión 1 y Sesión 2 (M8 con 6),
+pero **cada planta tiene 1 o 2 sesiones y no todos los entrenamientos le aplican**. Eso lo dice el
+**Cronograma**: los bloques "Sesión 1 / Sesión 2" bajo cada planta (fila 2) y las celdas con `-` (gris)
+en *Fecha HOLCIM*, que significan "no aplica". La app lo lee así, por sede:
+
+1. Busca las filas del cronograma cuyo entrenamiento tiene el mismo nombre que el módulo de HOLCIM
+   (sin el prefijo "AGG:", "TODOS:", "RMX & TQC:", y sin tildes ni puntuación).
+2. Recorre esas filas en orden y, en cada una, Sesión 1 y luego Sesión 2 de la planta; cada celda que no
+   sea `-` es una sesión que aplica. Así M8 (Rsln 0256, 3 filas) da 3 sesiones a una planta de 1 sesión y 6 a una de 2.
+3. Una sesión también aplica si ya tiene **fecha real** en la hoja de brigadistas para esa planta.
+4. La fecha mostrada es la de la hoja de brigadistas; si no hay, la del cronograma (con su estado:
+   Programada, Pendiente Holcim…). `#VALUE!` o vacío = "sin fecha aún".
+5. Si la sede no aparece en el cronograma, se ofrecen todas las sesiones. Un módulo repetido en HOLCIM
+   (M2 tiene el mismo nombre que M1) solo se ofrece si tiene fecha en la hoja.
+
+En "Tomar asistencia" se ven solo las sesiones que aplican y un enlace *"Ver las N que no aplican"*; una
+sesión que no aplica igual se puede marcar (sale un aviso). La ficha del brigadista y el indicador de
+asistencia del Inicio usan la misma regla. El diagnóstico avisa si una sede no está en el cronograma o
+si un módulo no tiene fila.
+
 ## Dónde lee y escribe
 
 | Dato | Lee de | Escribe en |

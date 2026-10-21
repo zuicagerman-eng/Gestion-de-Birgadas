@@ -378,7 +378,7 @@
     // ══════════ estado ══════════
     const VERSION_HTML = '2.1.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const estado = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sede: leer('localStorage', 'sigbe_sede') || '', sedes: [] };
-    const asis = { paso: 'sesiones', sesion: null, lista: null, cambios: {}, mostrarInactivos: false, buscar: '' };
+    const asis = { paso: 'sesiones', sesion: null, lista: null, cambios: {}, mostrarInactivos: false, buscar: '', verNoAplican: false };
     let brigadistas = null, brigadistasVisibles = [], cronograma = null, catalogos = null, temariosCargados = false, ultimoEstado = null;
     const modal = id => bootstrap.Modal.getOrCreateInstance(document.getElementById(id));
     const $ = id => document.getElementById(id);
@@ -607,12 +607,24 @@
         const s = asis.sesiones;
         const modulos = [];
         s.sesiones.forEach(x => { let m = modulos.find(y => y.modulo === x.modulo); if (!m) modulos.push(m = { modulo: x.modulo, titulo: x.titulo, items: [] }); m.items.push(x); });
-        c.innerHTML = `<div class="tarjeta p-4"><h2 class="h5 mb-1">2. ¿Qué sesión?</h2><p class="text-muted small">${s.total} brigadistas activos en ${esc(estado.sede)}. Debajo de cada sesión ves su fecha y cuántos ya tienen asistencia.</p>` +
-          modulos.map(m => `<div class="mb-3"><div class="fw-semibold small mb-1"><span class="badge bg-dark me-1">${esc(m.modulo)}</span>${esc(m.titulo)}</div><div class="d-flex flex-wrap gap-2">` +
-            m.items.map(x => `<button class="btn ${x.fecha ? 'btn-outline-primary' : 'btn-outline-secondary'} sesion-btn" onclick="elegirSesion('${esc(x.key)}')">
-               <div class="fw-semibold">${esc(x.sesion)}</div><div class="small">${x.fecha ? '<i class="fa-regular fa-calendar me-1"></i>' + esc(x.fecha) : 'sin fecha'}</div>
-               <div class="small ${x.marcadas ? 'text-success' : 'text-muted'}"><i class="fa-solid fa-user-check me-1"></i>${x.marcadas}/${s.total}</div></button>`).join('') +
-          '</div></div>').join('') + '</div>';
+        const noAplican = s.sesiones.filter(x => !x.aplica).length;
+        const aplican = s.sesiones.length - noAplican;
+        const boton = x => `<button class="btn ${x.aplica ? (x.fecha ? 'btn-outline-primary' : 'btn-outline-secondary') : 'btn-outline-secondary opacity-75'} sesion-btn" onclick="elegirSesion('${esc(x.key)}')" title="${esc(x.motivo)}">
+               <div class="fw-semibold">${esc(x.sesion)}${x.aplica ? '' : ' <span class="badge bg-secondary">no aplica</span>'}</div>
+               <div class="small">${x.fecha ? '<i class="fa-regular fa-calendar me-1"></i>' + esc(x.fecha) : (x.aplica ? 'sin fecha aún' : '—')}${x.origenFecha === 'cronograma' && x.estado && x.estado !== '-' ? ' · ' + esc(x.estado) : ''}</div>
+               <div class="small ${x.marcadas ? 'text-success' : 'text-muted'}"><i class="fa-solid fa-user-check me-1"></i>${x.marcadas}/${s.total}</div></button>`;
+        c.innerHTML = `<div class="tarjeta p-4">
+          <h2 class="h5 mb-1">2. ¿Qué sesión?</h2>
+          <p class="text-muted small mb-1">${s.total} brigadistas activos en ${esc(estado.sede)}. Debajo de cada sesión ves su fecha y cuántos ya tienen asistencia.</p>
+          <p class="small mb-3">${s.enCronograma
+            ? `<i class="fa-solid fa-calendar-check text-primary me-1"></i>Según el cronograma, <b>${esc(estado.sede)}</b> tiene <b>${s.sesionesPorPlanta} sesión(es)</b> por entrenamiento y le aplican <b>${aplican}</b> sesiones.`
+            : '<i class="fa-solid fa-triangle-exclamation text-warning me-1"></i>Esta sede no aparece en el cronograma: se muestran todas las sesiones.'}
+            ${noAplican ? ` <a href="#" onclick="asis.verNoAplican=!asis.verNoAplican;pintarAsistencia();return false;">${asis.verNoAplican ? 'Ocultar' : 'Ver'} las ${noAplican} que no aplican</a>` : ''}</p>` +
+          modulos.map(m => {
+            const items = m.items.filter(x => x.aplica || asis.verNoAplican);
+            if (!items.length) return '';
+            return `<div class="mb-3"><div class="fw-semibold small mb-1"><span class="badge bg-dark me-1">${esc(m.modulo)}</span>${esc(m.titulo)}</div><div class="d-flex flex-wrap gap-2">${items.map(boton).join('')}</div></div>`;
+          }).join('') + '</div>';
         return;
       }
       // paso: lista
@@ -625,7 +637,8 @@
         <div class="tarjeta p-3 mb-3">
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
             <div><div class="small text-muted">${esc(estado.sede)} · ${esc(L.modulo)} · ${esc(L.sesion)}</div><h2 class="h5 mb-1">${esc(L.titulo)}</h2>
-              <div class="small"><i class="fa-regular fa-calendar me-1"></i>${esc(asis.sesion.fecha || 'Sin fecha programada')} · <b>${marcadosHoy}</b> de ${L.personas.filter(p => p.activo).length} con asistencia guardada</div></div>
+              <div class="small"><i class="fa-regular fa-calendar me-1"></i>${esc(L.fecha || asis.sesion.fecha || 'Sin fecha programada')}${L.estado && L.estado !== '-' ? ' · ' + esc(L.estado) : ''} · <b>${marcadosHoy}</b> de ${L.personas.filter(p => p.activo).length} con asistencia guardada</div>
+              ${L.aplica === false ? `<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa-solid fa-triangle-exclamation me-1"></i>Según el cronograma esta sesión <b>no aplica</b> en ${esc(estado.sede)} (${esc(L.motivo)}). Puedes marcar igual si de verdad se dictó.</div>` : ''}</div>
             <div class="d-flex gap-1">
               <button class="btn btn-sm btn-outline-secondary" onclick="imprimirLista()" title="Lista para firmar en la capacitación"><i class="fa-solid fa-print me-1"></i>Imprimir</button>
               <button class="btn btn-sm btn-outline-secondary" onclick="descargarCsvAsistencia()" title="Descargar en Excel/CSV"><i class="fa-solid fa-file-csv me-1"></i>CSV</button>
@@ -808,10 +821,11 @@
           </div><p class="small text-muted mt-2 mb-0">La planta y el nombre no se editan desde la app (para no desordenar la hoja); hazlo en el archivo original.</p></div>`;
       }
       if (f.tipo === 'HOLCIM') {
-        html += `<h6 class="fw-bold mt-3 mb-2">Sesiones de capacitación <span class="badge bg-secondary">${asistio} asistidas</span></h6>
+        html += `<h6 class="fw-bold mt-3 mb-2">Sesiones de capacitación <span class="badge bg-secondary">${asistio} asistidas de ${f.sesiones.filter(s => s.aplica).length} que aplican</span></h6>
           <div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead class="table-light"><tr><th>Módulo</th><th>Sesión</th><th>Fecha</th><th>Asistencia</th></tr></thead><tbody>` +
-          f.sesiones.map(s => `<tr class="${!s.fecha ? 'text-muted' : ''}"><td><span class="badge bg-dark me-1">${esc(s.modulo)}</span>${esc(s.titulo)}</td><td>${esc(s.sesion)}</td><td>${esc(s.fecha || 'sin fecha')}</td>
+          f.sesiones.filter(s => s.aplica || s.marcada).map(s => `<tr class="${!s.fecha ? 'text-muted' : ''}"><td><span class="badge bg-dark me-1">${esc(s.modulo)}</span>${esc(s.titulo)}</td><td>${esc(s.sesion)}</td><td>${esc(s.fecha || 'sin fecha')}</td>
             <td>${s.marcada ? '<span class="text-success"><i class="fa-solid fa-check me-1"></i>Asistió</span>' : s.pasada ? '<span class="text-danger"><i class="fa-solid fa-xmark me-1"></i>No asistió</span>' : '<span class="text-muted">pendiente</span>'}</td></tr>`).join('') +
+          (f.sesiones.some(s => !s.aplica && !s.marcada) ? `<tr class="text-muted small"><td colspan="4"><i class="fa-solid fa-circle-info me-1"></i>${f.sesiones.filter(s => !s.aplica && !s.marcada).length} sesión(es) no aplican en ${esc(f.sede)} según el cronograma y no se muestran.</td></tr>` : '') +
           '</tbody></table></div>';
       }
       html += `<p class="small text-muted mt-3 mb-0">Fila ${f.fila} de "${esc(f.hoja)}" · ${esc(f.fuente)}</p>`;

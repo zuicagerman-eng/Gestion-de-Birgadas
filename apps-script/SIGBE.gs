@@ -87,14 +87,21 @@ function getInicio(sede) {
   const todos = holcim.concat(inhouse).filter(activos);
   const certVigente = todos.filter(p => /^\d+$/.test(p.certificado)).length;
 
-  // Asistencias registradas vs. sesiones con fecha (solo HOLCIM, que es donde hay casillas)
+  // Asistencias registradas vs. sesiones que aplican y tienen fecha (solo HOLCIM, que es donde hay casillas)
   let conFecha = 0, marcadas = 0;
-  holcim.filter(activos).forEach(p => h.asistencias.forEach(a => {
-    if (p.valores[a.colFecha - 1] instanceof Date) {
-      conFecha++;
-      if (p.valores[a.col - 1] === true) marcadas++;
-    }
-  }));
+  const porSede = {};
+  holcim.filter(activos).forEach(p => {
+    const s = sigbeSede_(p.planta);
+    if (!porSede[s]) porSede[s] = sigbeSesionesSede_(h, s, holcim.filter(activos).filter(x => sigbeSede_(x.planta) === s)).sesiones;
+    porSede[s].forEach(x => {
+      if (!x.aplica) return;
+      const fechaPersona = p.valores[x.colFecha - 1];
+      if (fechaPersona instanceof Date || x.fechaIso) {
+        conFecha++;
+        if (p.valores[x.col - 1] === true) marcadas++;
+      }
+    });
+  });
 
   const hoy = sigbeHoy_();
   const proximas = sigbeSesionesCronograma_()
@@ -220,24 +227,25 @@ function registrarBrigadistaNuevo(token, data) {
 
 // ───────────────────────────── ASISTENCIA ─────────────────────────────
 
-/** Sesiones de la sede (módulo + sesión) con su fecha y cuántos tienen asistencia marcada. */
+/**
+ * Sesiones de la sede (módulo + sesión) con su fecha, si aplican según el cronograma y cuántos
+ * tienen asistencia marcada. Ver sigbeSesionesSede_ para la regla.
+ */
 function getSesionesAsistencia(sede) {
   const ss = sigbeArchivoDatos_();
   const h = sigbeLeerHolcim_(ss);
   const personas = h.personas.filter(p => sigbeSede_(p.planta) === sede && !/DESVINCULADO/.test(sigbeNorm_(p.estado)));
+  const info = sigbeSesionesSede_(h, sede, personas);
   return {
     total: personas.length,
-    sesiones: h.asistencias.map(a => {
-      const fechas = {};
+    enCronograma: info.enCronograma,
+    plantasCronograma: info.plantas,
+    sesionesPorPlanta: info.sesionesPorPlanta,
+    sesiones: info.sesiones.map(x => {
       let marcadas = 0;
-      personas.forEach(p => {
-        const f = sigbeTexto_(p.valores[a.colFecha - 1]);
-        if (f) fechas[f] = (fechas[f] || 0) + 1;
-        if (p.valores[a.col - 1] === true) marcadas++;
-      });
-      const fecha = Object.keys(fechas).sort((x, y) => fechas[y] - fechas[x])[0] || '';
-      return { key: a.key, modulo: a.modulo, titulo: a.titulo, sesion: a.sesion, fecha: fecha,
-        fechaIso: sigbeIso_(fecha), marcadas: marcadas };
+      personas.forEach(p => { if (p.valores[x.col - 1] === true) marcadas++; });
+      return { key: x.key, modulo: x.modulo, titulo: x.titulo, sesion: x.sesion, fecha: x.fecha, fechaIso: x.fechaIso,
+        origenFecha: x.origenFecha, estado: x.estado, aplica: x.aplica, motivo: x.motivo, marcadas: marcadas };
     }),
   };
 }
@@ -248,9 +256,12 @@ function getListaAsistencia(sede, key) {
   const h = sigbeLeerHolcim_(ss);
   const a = h.asistencias.find(x => x.key === key);
   if (!a) throw new Error('No se encontró la sesión ' + key);
+  const personasSede = h.personas.filter(p => sigbeSede_(p.planta) === sede);
+  const info = sigbeSesionesSede_(h, sede, personasSede.filter(p => !/DESVINCULADO/.test(sigbeNorm_(p.estado)))).sesiones.find(x => x.key === key) || {};
   return {
-    modulo: a.modulo, titulo: a.titulo, sesion: a.sesion,
-    personas: h.personas.filter(p => sigbeSede_(p.planta) === sede).map(p => ({
+    modulo: a.modulo, titulo: a.titulo, sesion: a.sesion, fecha: info.fecha || '', estado: info.estado || '',
+    aplica: info.aplica !== false, motivo: info.motivo || '',
+    personas: personasSede.map(p => ({
       nombre: p.nombre, cedula: p.cedula, planta: p.planta, estado: p.estado,
       activo: !/DESVINCULADO/.test(sigbeNorm_(p.estado)),
       marcada: p.valores[a.col - 1] === true,
@@ -379,15 +390,19 @@ function getFichaBrigadista(tipo, cedula, nombre) {
   const p = sigbeBuscarPersona_(h.personas, cedula, nombre);
   if (!p) throw new Error('No se encontró a ' + nombre + ' en la hoja HOLCIM.');
   const hoy = sigbeHoy_();
+  const sede = sigbeSede_(p.planta);
+  const info = sigbeSesionesSede_(h, sede, h.personas.filter(x => sigbeSede_(x.planta) === sede && !/DESVINCULADO/.test(sigbeNorm_(x.estado))));
   return {
-    tipo: 'HOLCIM', nombre: p.nombre, cedula: p.cedula, planta: p.planta, sede: sigbeSede_(p.planta), contratista: 'HOLCIM',
+    tipo: 'HOLCIM', nombre: p.nombre, cedula: p.cedula, planta: p.planta, sede: sede, contratista: 'HOLCIM',
     estado: p.estado, certificado: p.certificado, fechaIngreso: p.fechaIngreso, cumplimiento: p.cumplimiento,
     cumplimientoTexto: p.cumplimientoTexto, fila: p.fila, hoja: h.hoja.getName(), fuente: sigbeFuente_(ss),
     sesiones: h.asistencias.map(a => {
-      const fecha = sigbeTexto_(p.valores[a.colFecha - 1]);
+      const x = info.sesiones.find(y => y.key === a.key) || {};
+      const fechaPersona = sigbeTexto_(p.valores[a.colFecha - 1]);
+      const fecha = sigbeIso_(fechaPersona) ? fechaPersona : (x.fecha || fechaPersona);
       const iso = sigbeIso_(fecha);
       return { key: a.key, modulo: a.modulo, titulo: a.titulo, sesion: a.sesion, fecha: fecha,
-        marcada: p.valores[a.col - 1] === true, pasada: !!iso && iso < hoy };
+        marcada: p.valores[a.col - 1] === true, pasada: !!iso && iso < hoy, aplica: x.aplica !== false, motivo: x.motivo || '' };
     }),
   };
 }
@@ -615,7 +630,29 @@ function diagnosticoSistema() {
     else add('sedes', 'ok', 'Plantas y sedes', 'Todas las plantas tienen sede.');
   }
 
-  // 12. Ejecución y versión
+  // 12. Cronograma frente a brigadistas (de aquí salen las sesiones que aplican por sede)
+  if (holcim) {
+    try {
+      const crono = sigbeCronogramaCeldas_();
+      const sedesCrono = sigbeUnicos_(crono.bloques.map(b => b.sede));
+      const sedesHolcim = sigbeUnicos_(holcim.personas.map(p => sigbeSede_(p.planta)));
+      const sinCrono = sedesHolcim.filter(x => sedesCrono.indexOf(x) === -1);
+      if (sinCrono.length) add('cronogramaSedes', 'aviso', 'Sedes sin columna en el cronograma', sinCrono.join(', ') + '. Para ellas la app ofrece todas las sesiones.', 'Agrega la planta al cronograma (fila 1) o revisa su nombre.');
+      else add('cronogramaSedes', 'ok', 'Sedes en el cronograma', sedesCrono.length + ' plantas con ' + crono.bloques.length + ' bloques de sesión; sesiones por sede: ' +
+        sedesHolcim.map(x => x + ' ' + Math.max.apply(null, crono.bloques.filter(b => b.sede === x).map(b => b.n)) ).join(', ') + '.');
+      const sinFila = [];
+      const vistos = {};
+      holcim.asistencias.forEach(a => {
+        if (vistos[a.modulo]) return; vistos[a.modulo] = true;
+        const clave = sigbeClaveEntrenamiento_(a.titulo);
+        if (!crono.filas.some(f => sigbeMismoEntrenamiento_(f.clave, clave))) sinFila.push(a.modulo + ' ' + a.titulo);
+      });
+      if (sinFila.length) add('cronogramaModulos', 'info', 'Módulos de HOLCIM sin fila en el cronograma', sinFila.join(' · ') + '. Sus sesiones solo se ofrecen si ya tienen fecha en la hoja de brigadistas.', 'Si el módulo sí se dicta, agrega su fila al cronograma con el mismo nombre.');
+      else add('cronogramaModulos', 'ok', 'Módulos y cronograma', 'Todos los módulos de HOLCIM tienen fila en el cronograma.');
+    } catch (e) { add('cronogramaSedes', 'aviso', 'Cronograma', 'No se pudo leer: ' + e.message, 'Revisa que la pestaña del cronograma exista en el 2.0 con sus 3 filas de encabezado.'); }
+  }
+
+  // 13. Ejecución y versión
   add('ejecucion', 'info', 'La app se ejecuta como', sigbeCorreoEjecucion_() + '. Esa cuenta necesita editar el original y el 2.0.');
   add('version', 'info', 'Versión instalada', 'SIGBE ' + SIGBE_VERSION + '. Si la app muestra otra versión, falta "Implementar → Nueva versión".');
 
@@ -988,6 +1025,142 @@ function sigbeBuscarPersona_(personas, cedula, nombre) {
   const ced = String(cedula || '').replace(/\D/g, '');
   const candidatos = personas.filter(p => ced ? p.cedula.replace(/\D/g, '') === ced : true);
   return candidatos.find(p => sigbeNorm_(p.nombre) === sigbeNorm_(nombre)) || (ced && candidatos.length === 1 ? candidatos[0] : null);
+}
+
+// ───────────────────────────── CRONOGRAMA → SESIONES QUE APLICAN POR SEDE ─────────────────────────────
+
+let sigbeCronoCache_ = null;
+
+/**
+ * Lee el cronograma una sola vez por ejecución y lo deja como:
+ *  bloques: [{ planta, sede, sesion, n (1 o 2), colFecha, colEstado }]  (una planta puede tener 1 o 2 bloques)
+ *  filas:   [{ entrenamiento, clave, celdas: [{ aplica, fecha, fechaIso, estado }] }]  (una celda por bloque)
+ * Una celda con "-" (o fondo gris) significa que ese entrenamiento NO aplica a esa planta.
+ */
+function sigbeCronogramaCeldas_() {
+  if (sigbeCronoCache_) return sigbeCronoCache_;
+  const sh = sigbeHoja_(SpreadsheetApp.getActiveSpreadsheet(), SIGBE_HOJA_CRONOGRAMA);
+  const rango = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
+  const v = rango.getValues(), d = rango.getDisplayValues(), bg = rango.getBackgrounds();
+  const bloques = [];
+  let planta = '', bloque = null, n = 0;
+  for (let c = 2; c < d[0].length; c++) {
+    if (d[0][c]) { planta = d[0][c].trim(); n = 0; }
+    if (d[0][c] || d[1][c]) {
+      n++;
+      bloque = { planta: planta, sede: sigbeSede_(planta), sesion: (d[1][c] || 'Sesión ' + n).trim(), n: n, colFecha: -1, colEstado: -1 };
+      bloques.push(bloque);
+    }
+    if (bloque && d[2][c]) {
+      const k = sigbeNorm_(d[2][c]);
+      if (k === 'FECHA HOLCIM') bloque.colFecha = c;
+      if (k === 'ESTADO') bloque.colEstado = c;
+    }
+  }
+  const filas = [];
+  for (let r = 3; r < d.length; r++) {
+    const entrenamiento = d[r][1].trim();
+    if (!entrenamiento) continue;
+    filas.push({
+      entrenamiento: entrenamiento,
+      clave: sigbeClaveEntrenamiento_(entrenamiento),
+      celdas: bloques.map(b => {
+        if (b.colFecha < 0) return { aplica: false, fecha: '', fechaIso: '', estado: '' };
+        const txt = d[r][b.colFecha].trim();
+        const val = v[r][b.colFecha];
+        const noAplica = txt === '-' || sigbeEsGris_(bg[r][b.colFecha]);
+        const esError = txt.charAt(0) === '#'; // #VALUE!, #REF!… en el cronograma = sin fecha
+        return {
+          aplica: !noAplica,
+          fecha: val instanceof Date ? sigbeTexto_(val) : (noAplica || esError ? '' : txt),
+          fechaIso: val instanceof Date ? Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
+          estado: b.colEstado >= 0 ? d[r][b.colEstado].trim() : '',
+        };
+      }),
+    });
+  }
+  sigbeCronoCache_ = { bloques: bloques, filas: filas };
+  return sigbeCronoCache_;
+}
+
+/**
+ * Para una sede, decide qué sesiones de la hoja HOLCIM aplican, con qué fecha y por qué.
+ * Regla: una sesión aplica si (a) ya tiene fecha real en la hoja de brigadistas para esa planta, o
+ * (b) el cronograma tiene, para esa planta, una celda que no sea "-" en una fila del mismo módulo.
+ * Las filas del cronograma que coinciden con el módulo se recorren en orden y, dentro de cada una,
+ * Sesión 1 y luego Sesión 2: así M8 (Rsln 0256, 3 filas) da 3 sesiones a una planta de 1 sesión y 6 a una de 2.
+ * Si la sede no aparece en el cronograma, todas las sesiones aplican (no hay con qué filtrar).
+ */
+function sigbeSesionesSede_(h, sede, personasSede) {
+  let crono = null;
+  try { crono = sigbeCronogramaCeldas_(); } catch (e) { crono = null; }
+  const idxBloques = crono ? crono.bloques.map((b, i) => i).filter(i => crono.bloques[i].sede === sede) : [];
+  const enCronograma = idxBloques.length > 0;
+  const plantas = sigbeUnicos_(idxBloques.map(i => crono.bloques[i].planta));
+  const sesionesPorPlanta = enCronograma ? Math.max.apply(null, idxBloques.map(i => crono.bloques[i].n)) : 0;
+
+  // Fecha real más común en la hoja de brigadistas, por sesión
+  const fechaHoja = a => {
+    const c = {};
+    personasSede.forEach(p => { const f = p.valores[a.colFecha - 1]; if (f instanceof Date) { const t = sigbeTexto_(f); c[t] = (c[t] || 0) + 1; } });
+    return Object.keys(c).sort((x, y) => c[y] - c[x])[0] || '';
+  };
+
+  const clavesUsadas = {};
+  const porModulo = {};
+  const sesiones = h.asistencias.map(a => {
+    if (!porModulo[a.modulo]) {
+      const clave = sigbeClaveEntrenamiento_(a.titulo);
+      const duplicado = !!clavesUsadas[clave];
+      clavesUsadas[clave] = true;
+      const filas = (crono && !duplicado) ? crono.filas.filter(f => sigbeMismoEntrenamiento_(f.clave, clave)) : [];
+      // Celdas aplicables para la sede: se toma la planta con más celdas (en Valle hay Palmira y Calisur)
+      let celdas = [];
+      plantas.forEach(pl => {
+        const idx = idxBloques.filter(i => crono.bloques[i].planta === pl);
+        const lista = [];
+        filas.forEach(f => idx.forEach(i => { const c = f.celdas[i]; if (c.aplica) lista.push(c); }));
+        if (lista.length > celdas.length) celdas = lista;
+      });
+      porModulo[a.modulo] = { filas: filas.length, celdas: celdas, duplicado: duplicado, i: 0 };
+    }
+    const m = porModulo[a.modulo];
+    const celda = m.celdas[m.i++] || null;
+    const fh = fechaHoja(a);
+    let aplica, motivo;
+    if (fh) { aplica = true; motivo = 'Fecha asignada en la hoja de brigadistas'; }
+    else if (!enCronograma) { aplica = true; motivo = 'La sede no está en el cronograma: se ofrecen todas las sesiones'; }
+    else if (celda) { aplica = true; motivo = 'Según el cronograma'; }
+    else if (m.duplicado) { aplica = false; motivo = 'Módulo repetido en la hoja (mismo nombre que otro) y sin fecha'; }
+    else if (m.filas) { aplica = false; motivo = 'No aplica en esta sede según el cronograma'; }
+    else { aplica = false; motivo = 'Este módulo no está en el cronograma y no tiene fecha en la hoja'; }
+    const fecha = fh || (celda ? celda.fecha : '');
+    return { key: a.key, modulo: a.modulo, titulo: a.titulo, sesion: a.sesion, col: a.col, colFecha: a.colFecha,
+      fecha: fecha, fechaIso: fh ? sigbeIso_(fh) : (celda ? celda.fechaIso : ''), origenFecha: fh ? 'hoja' : (celda && celda.fecha ? 'cronograma' : ''),
+      estado: celda ? celda.estado : '', aplica: aplica, motivo: motivo };
+  });
+  return { enCronograma: enCronograma, plantas: plantas, sesionesPorPlanta: sesionesPorPlanta, sesiones: sesiones };
+}
+
+/** Texto comparable de un entrenamiento: primera línea, sin prefijo "AGG:", "TODOS:", "RMX & TQC:", sin tildes ni puntuación. */
+function sigbeClaveEntrenamiento_(txt) {
+  let t = String(txt || '').split('\n')[0].trim();
+  const m = t.match(/^([A-Za-z&\s]{1,15}):\s*(.+)$/);
+  if (m) t = m[2];
+  return sigbeNorm_(t).replace(/[,;:.()*]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function sigbeMismoEntrenamiento_(a, b) {
+  if (!a || !b || a.length < 8 || b.length < 8) return false;
+  return a === b || a.indexOf(b) !== -1 || b.indexOf(a) !== -1;
+}
+
+/** Fondo gris (como las celdas "-" del cronograma): tonos entre #505050 y #d0d0d0 con r≈g≈b. */
+function sigbeEsGris_(color) {
+  const m = String(color || '').match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!m) return false;
+  const r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  return Math.abs(r - g) < 14 && Math.abs(g - b) < 14 && r >= 0x50 && r <= 0xd0;
 }
 
 // ───────────────────────────── UTILIDADES ─────────────────────────────
