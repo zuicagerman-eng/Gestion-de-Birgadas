@@ -56,6 +56,7 @@ function onOpen() {
     .addItem('Restaurar desde un respaldo', 'restaurarRespaldo')
     .addSeparator()
     .addItem('🔐 Configurar usuario y clave de la app SIGBE', 'configurarUsuarioApp')
+    .addItem('🩺 Diagnóstico del sistema', 'diagnosticoMenu')
     .addToUi();
 }
 
@@ -77,14 +78,14 @@ function desactivarAutomatico_() {
 }
 
 function sincronizarAhora() {
-  SpreadsheetApp.getUi().alert('Sincronización terminada\n\n' + sincronizar_(true, false).resumen);
+  SpreadsheetApp.getUi().alert('Sincronización terminada\n\n' + sincronizar_(true, false, 'manual').resumen);
 }
 
 function sincronizarAceptandoBorrado() {
   const ui = SpreadsheetApp.getUi();
   const ok = ui.alert('¿Seguro?', 'Se copiarán las hojas aunque en el origen se haya borrado mucha información ' +
     '(antes se guarda un respaldo).', ui.ButtonSet.YES_NO);
-  if (ok === ui.Button.YES) ui.alert('Sincronización terminada\n\n' + sincronizar_(true, true).resumen);
+  if (ok === ui.Button.YES) ui.alert('Sincronización terminada\n\n' + sincronizar_(true, true, 'manual').resumen);
 }
 
 function verUltimoResultado() {
@@ -96,22 +97,29 @@ function verUltimoResultado() {
 
 /** La llama el activador automático: si hay un error, Google le envía un correo al dueño. */
 function sincronizar() {
-  const r = sincronizar_(false, false);
+  const r = sincronizar_(false, false, 'automatica');
   if (r.error) throw new Error(r.resumen);
 }
 
 /**
  * forzar = true copia todas las hojas aunque no hayan cambiado.
  * aceptarBorrado = true desactiva el seguro contra borrados masivos.
+ * origenLlamada: 'manual' (menú), 'automatica' (activador) o 'app' (SIGBE).
+ * Deja el resultado en ULTIMO_RESULTADO (texto) y ULTIMO_RESULTADO_JSON (para la app).
  */
-function sincronizar_(forzar, aceptarBorrado) {
-  const lock = LockService.getDocumentLock();
-  if (!lock.tryLock(30000)) return { resumen: 'Ya había una sincronización en curso.', error: false };
+function sincronizar_(forzar, aceptarBorrado, origenLlamada) {
+  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return { resumen: 'Ya había una sincronización en curso.', error: false, enCurso: true };
+  const inicio = Date.now();
   const log = [];
   try {
     const destino = SpreadsheetApp.getActiveSpreadsheet();
     const origen = abrirOrigen_();
     const props = PropertiesService.getDocumentProperties();
+    if (origen.getSpreadsheetTimeZone() !== destino.getSpreadsheetTimeZone()) {
+      log.push('ℹ Zonas horarias distintas (origen: ' + origen.getSpreadsheetTimeZone() + ', 2.0: ' + destino.getSpreadsheetTimeZone() +
+        '). Las fechas podrían correrse un día; iguálalas en Archivo → Configuración.');
+    }
     limpiarCopiasDanadas_(destino);
     HOJAS_A_COPIAR.forEach(nombre => {
       try {
@@ -146,11 +154,38 @@ function sincronizar_(forzar, aceptarBorrado) {
   } finally {
     lock.releaseLock();
   }
-  const resumen = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') +
-    '\n' + log.join('\n');
-  PropertiesService.getDocumentProperties().setProperty('ULTIMO_RESULTADO', resumen);
+  const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  const resumen = fecha + '\n' + log.join('\n');
+  const error = log.some(l => l.startsWith('✖') || l.startsWith('⚠'));
+  const prefijos = [['✔', 'ok'], ['=', 'igual'], ['⚠', 'aviso'], ['✖', 'error'], ['💾', 'respaldo'], ['ℹ', 'info']];
+  const clasificar = l => {
+    const p = prefijos.find(x => l.indexOf(x[0]) === 0);
+    return p ? { tipo: p[1], texto: l.slice(p[0].length).trim() } : { tipo: 'info', texto: l };
+  };
+  const detalle = {
+    fecha: fecha,
+    duracionSeg: Math.round((Date.now() - inicio) / 1000),
+    origen: origenLlamada || 'manual',
+    error: error,
+    lineas: log.map(clasificar),
+  };
+  try {
+    const props = PropertiesService.getDocumentProperties();
+    props.setProperty('ULTIMO_RESULTADO', resumen);
+    props.setProperty('ULTIMO_RESULTADO_JSON', JSON.stringify(detalle));
+    if (!error) props.setProperty('ULTIMA_SYNC_OK', fecha);
+  } catch (e) { /* sin propiedades del documento (no debería pasar) */ }
   console.log(resumen);
-  return { resumen: resumen, error: log.some(l => l.startsWith('✖') || l.startsWith('⚠')) };
+  return { resumen: resumen, error: error, detalle: detalle };
+}
+
+/** Menú del 2.0: muestra el diagnóstico que también ve la app SIGBE. */
+function diagnosticoMenu() {
+  if (typeof diagnosticoSistema !== 'function') { SpreadsheetApp.getUi().alert('Falta el archivo SIGBE.gs en el proyecto.'); return; }
+  const d = diagnosticoSistema();
+  const icono = { ok: '✔', aviso: '⚠', error: '✖', info: 'ℹ' };
+  SpreadsheetApp.getUi().alert('Diagnóstico del sistema\n\n' + d.revisiones.map(r =>
+    icono[r.estado] + ' ' + r.titulo + (r.detalle ? ': ' + r.detalle : '') + (r.solucion && r.estado !== 'ok' ? '\n    → ' + r.solucion : '')).join('\n'));
 }
 
 function abrirOrigen_() {

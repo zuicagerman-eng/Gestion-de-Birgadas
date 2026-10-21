@@ -22,6 +22,9 @@
  *  - Cada cambio queda en la hoja "Bitácora SIGBE" del 2.0 (quién, cuándo, antes y después).
  */
 
+// Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
+const SIGBE_VERSION = '2.1.0';
+
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
 const SIGBE_HOJA_INDICADOR = 'Indicador';
@@ -65,6 +68,7 @@ function getContexto(token) {
   const inh = sigbeLeerInhouse_(ss);
   const sedes = sigbeUnicos_(h.personas.concat(inh).map(p => sigbeSede_(p.planta)));
   return {
+    version: SIGBE_VERSION,
     sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1),
     usuario: sigbeUsuarioSesion_(token),
     fuente: sigbeFuente_(ss),
@@ -124,7 +128,7 @@ function getBrigadistas(sede) {
   const ss = sigbeArchivoDatos_();
   const lista = sigbeLeerHolcim_(ss).personas.map(p => ({
     planta: p.planta, sede: sigbeSede_(p.planta), tipo: 'HOLCIM', contratista: 'HOLCIM', estado: p.estado,
-    nombre: p.nombre, cedula: p.cedula, certificado: p.certificado, cumplimiento: p.cumplimiento,
+    nombre: p.nombre, cedula: p.cedula, certificado: p.certificado, cumplimiento: p.cumplimiento, fechaIngreso: p.fechaIngreso,
   })).concat(sigbeLeerInhouse_(ss).map(p => ({
     planta: p.planta, sede: sigbeSede_(p.planta), tipo: 'INHOUSE', contratista: p.contratista, estado: p.estado || 'Activo',
     nombre: p.nombre, cedula: p.cedula, certificado: p.certificado, cumplimiento: '',
@@ -360,6 +364,313 @@ function getBitacora() {
   }));
 }
 
+// ───────────────────────────── FICHA Y EDICIÓN DE BRIGADISTA ─────────────────────────────
+
+/** Todo lo de una persona: datos, certificado y, si es HOLCIM, cada sesión con su fecha y asistencia. */
+function getFichaBrigadista(tipo, cedula, nombre) {
+  const ss = sigbeArchivoDatos_();
+  if (tipo === 'INHOUSE') {
+    const p = sigbeBuscarPersona_(sigbeLeerInhouse_(ss), cedula, nombre);
+    if (!p) throw new Error('No se encontró a ' + nombre + ' en la hoja INHOUSE.');
+    return { tipo: 'INHOUSE', nombre: p.nombre, cedula: p.cedula, planta: p.planta, sede: sigbeSede_(p.planta), contratista: p.contratista,
+      estado: p.estado || 'Activo', certificado: p.certificado, fila: p.fila, hoja: p.hoja.getName(), sesiones: [], fuente: sigbeFuente_(ss) };
+  }
+  const h = sigbeLeerHolcim_(ss);
+  const p = sigbeBuscarPersona_(h.personas, cedula, nombre);
+  if (!p) throw new Error('No se encontró a ' + nombre + ' en la hoja HOLCIM.');
+  const hoy = sigbeHoy_();
+  return {
+    tipo: 'HOLCIM', nombre: p.nombre, cedula: p.cedula, planta: p.planta, sede: sigbeSede_(p.planta), contratista: 'HOLCIM',
+    estado: p.estado, certificado: p.certificado, fechaIngreso: p.fechaIngreso, cumplimiento: p.cumplimiento,
+    cumplimientoTexto: p.cumplimientoTexto, fila: p.fila, hoja: h.hoja.getName(), fuente: sigbeFuente_(ss),
+    sesiones: h.asistencias.map(a => {
+      const fecha = sigbeTexto_(p.valores[a.colFecha - 1]);
+      const iso = sigbeIso_(fecha);
+      return { key: a.key, modulo: a.modulo, titulo: a.titulo, sesion: a.sesion, fecha: fecha,
+        marcada: p.valores[a.col - 1] === true, pasada: !!iso && iso < hoy };
+    }),
+  };
+}
+
+/**
+ * Cambia datos de una persona (solo estado, certificado, fecha de ingreso o contratista).
+ * data: { tipo, cedula, nombre, cambios: {campo: valorNuevo}, anteriores: {campo: valorQueMostrabaLaPantalla} }
+ * Si el valor en la hoja ya no es el que mostraba la pantalla, no se escribe (alguien lo cambió).
+ */
+function actualizarBrigadista(token, data) {
+  const lock = LockService.getScriptLock();
+  try {
+    const usuario = sigbeExigirSesion_(token);
+    if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
+    const ss = sigbeArchivoDatos_();
+    const esHolcim = data.tipo !== 'INHOUSE';
+    let p, sh, col;
+    if (esHolcim) {
+      const h = sigbeLeerHolcim_(ss);
+      p = sigbeBuscarPersona_(h.personas, data.cedula, data.nombre);
+      sh = h.hoja;
+      col = { estado: h.cols.estado, certificado: h.cols.certificado, fechaIngreso: h.cols.fechaIngreso };
+    } else {
+      p = sigbeBuscarPersona_(sigbeLeerInhouse_(ss), data.cedula, data.nombre);
+      if (p) { sh = p.hoja; col = { contratista: p.cols.contratista, certificado: p.cols.cert, estado: p.cols.estado }; }
+    }
+    if (!p) return { exito: false, mensaje: 'No se encontró a ' + data.nombre + ' (' + data.cedula + ') en la hoja.' };
+
+    const etiquetas = { estado: 'Estado', certificado: 'Certificado 0256', fechaIngreso: 'Fecha de ingreso', contratista: 'Contratista' };
+    const cambios = data.cambios || {};
+    const anteriores = data.anteriores || {};
+    const bitacora = [];
+    const escrituras = [];
+    const rechazos = [];
+    Object.keys(cambios).forEach(campo => {
+      const c = col[campo];
+      if (!c) { rechazos.push(etiquetas[campo] + ': esa columna no existe en la hoja'); return; }
+      const actual = sigbeTexto_(p.valores[c - 1]);
+      let nuevo = String(cambios[campo] === undefined ? '' : cambios[campo]).trim();
+      if (campo === 'contratista') nuevo = nuevo.toUpperCase();
+      if (nuevo === actual) return; // sin cambio real
+      if (anteriores[campo] !== undefined && sigbeTexto_(anteriores[campo]) !== actual) {
+        rechazos.push(etiquetas[campo] + ': cambió en la hoja mientras tanto (ahora es "' + actual + '")'); return;
+      }
+      const lista = sigbeListaValidacion_(sh.getRange(p.fila, c));
+      if (lista && nuevo && lista.indexOf(nuevo) === -1) {
+        rechazos.push(etiquetas[campo] + ': "' + nuevo + '" no está en las opciones de la hoja (' + lista.join(', ') + ')'); return;
+      }
+      let valor = nuevo;
+      if (campo === 'fechaIngreso') valor = nuevo ? sigbeFecha_(nuevo) : '';
+      if (campo === 'certificado') valor = sigbeNumOTexto_(nuevo);
+      escrituras.push({ c: c, valor: valor });
+      const nuevoTexto = campo === 'fechaIngreso' && /^\d{4}-\d{2}-\d{2}$/.test(nuevo) ? nuevo.split('-').reverse().join('/') : nuevo;
+      bitacora.push(['Edición de brigadista', sh.getName() + ' (' + sigbeFuente_(ss) + ')', p.fila, p.cedula, p.nombre, etiquetas[campo], actual, nuevoTexto]);
+    });
+    if (!escrituras.length) {
+      return { exito: !rechazos.length, mensaje: rechazos.length ? 'No se guardó: ' + rechazos.join('; ') : 'No había cambios.', rechazos: rechazos };
+    }
+    sigbeRespaldoOriginalDelDia_(ss);
+    escrituras.forEach(e => sh.getRange(p.fila, e.c).setValue(e.valor));
+    sigbeBitacora_(usuario, bitacora);
+    sigbeProgramarSincronizacion_(ss);
+    return { exito: true, mensaje: escrituras.length + ' dato(s) actualizado(s) de ' + p.nombre + (rechazos.length ? '. No se aplicó: ' + rechazos.join('; ') : '.'), rechazos: rechazos };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ───────────────────────────── ESTADO DEL SISTEMA Y DIAGNÓSTICO ─────────────────────────────
+
+/** Estado general para la pantalla "Estado del sistema". */
+function getEstadoSistema() {
+  const ss = sigbeArchivoDatos_();
+  const origen = sigbeOrigenOpcional_();
+  let detalle = null;
+  let ultimaOk = '';
+  try {
+    const props = PropertiesService.getDocumentProperties();
+    detalle = JSON.parse(props.getProperty('ULTIMO_RESULTADO_JSON') || 'null');
+    ultimaOk = props.getProperty('ULTIMA_SYNC_OK') || '';
+  } catch (e) { /* sin propiedades */ }
+  return {
+    version: SIGBE_VERSION,
+    fuente: sigbeFuente_(ss),
+    origen: origen ? { nombre: origen.getName(), url: origen.getUrl() } : null,
+    destino: { nombre: SpreadsheetApp.getActiveSpreadsheet().getName(), url: SpreadsheetApp.getActiveSpreadsheet().getUrl() },
+    ejecutaComo: sigbeCorreoEjecucion_(),
+    sync: Object.assign(getEstadoSincronizacion(), { detalle: detalle, ultimaOk: ultimaOk, automatica: sigbeActivadorAutomatico_() }),
+    respaldos: sigbeResumenRespaldos_(),
+    bitacora: sigbeConteoBitacora_(),
+    hojasSincronizadas: typeof HOJAS_A_COPIAR !== 'undefined' ? HOJAS_A_COPIAR : [],
+  };
+}
+
+/** Sincronización manual desde la app (exige sesión). Puede tardar hasta 1-2 minutos. */
+function sincronizarDesdeApp(token) {
+  try {
+    sigbeExigirSesion_(token);
+    if (typeof sincronizar_ !== 'function') return { exito: false, mensaje: 'Falta el archivo SincronizarBrigadas.gs en el proyecto.' };
+    const r = sincronizar_(true, false, 'app');
+    if (r.enCurso) return { exito: true, enCurso: true, mensaje: 'Ya había una sincronización en curso; espera un momento y revisa el estado.' };
+    return { exito: !r.error, mensaje: r.error ? 'Terminó con avisos o errores. Revisa el detalle.' : 'Sincronización completa.', detalle: r.detalle };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
+}
+
+/**
+ * Revisa todo lo que puede fallar en la sincronización y en la app, y dice qué hacer en cada caso.
+ * Lo usa la pantalla "Estado del sistema" y el menú 🩺 del 2.0.
+ */
+function diagnosticoSistema() {
+  const R = [];
+  const add = (clave, estado, titulo, detalle, solucion) => R.push({ clave: clave, estado: estado, titulo: titulo, detalle: detalle || '', solucion: solucion || '' });
+  const destino = SpreadsheetApp.getActiveSpreadsheet();
+  const origen = sigbeOrigenOpcional_();
+  const cadaHoras = typeof CADA_HORAS !== 'undefined' ? CADA_HORAS : 1;
+
+  // 1. Archivo original
+  if (origen) add('origen', 'ok', 'Archivo original', 'Accesible: "' + origen.getName() + '". La app lee y guarda ahí.');
+  else add('origen', 'aviso', 'Archivo original', 'No se puede abrir (borrado, en la papelera o sin acceso). La app está usando el 2.0.',
+    'Si el original ya no se usa, desactiva la actualización automática en el menú 🔄 del 2.0. Si debería existir, revisa Drive y los permisos de ' + sigbeCorreoEjecucion_() + '.');
+
+  // 2. Hojas en el original
+  if (origen) {
+    const hojas = (typeof HOJAS_A_COPIAR !== 'undefined' ? HOJAS_A_COPIAR : [SIGBE_HOJA_HOLCIM, SIGBE_HOJA_INHOUSE, SIGBE_HOJA_CRONOGRAMA]);
+    const faltan = hojas.filter(n => { try { sigbeHoja_(origen, n); return false; } catch (e) { return true; } });
+    if (faltan.length) add('hojasOrigen', 'error', 'Hojas en el original', 'No se encuentran: ' + faltan.join(', ') + '. La sincronización marcará "no existe en el archivo origen".',
+      'Alguien cambió el nombre de la pestaña en el original. Vuelve a ponerle el nombre exacto o actualiza HOJAS_A_COPIAR en SincronizarBrigadas.gs.');
+    else add('hojasOrigen', 'ok', 'Hojas en el original', 'Están todas las que se sincronizan (' + hojas.length + ').');
+  }
+
+  // 3. Estructura de HOLCIM e INHOUSE (en el archivo que usa la app)
+  const ss = sigbeArchivoDatos_();
+  let holcim = null, inhouse = null;
+  try {
+    holcim = sigbeLeerHolcim_(ss);
+    const faltan = ['planta', 'estado', 'nombre', 'cedula'].filter(k => !holcim.cols[k]).map(k => ({ planta: 'PLANTA', estado: 'ESTADO', nombre: 'NOMBRE Y APELLIDO', cedula: 'CÉDULA' })[k]);
+    if (faltan.length) add('estructuraHolcim', 'error', 'Columnas de la hoja HOLCIM', 'No se encuentran: ' + faltan.join(', ') + '.', 'Alguien cambió el texto del encabezado. Vuelve a escribirlo igual que antes.');
+    else if (!holcim.asistencias.length) add('estructuraHolcim', 'error', 'Columnas de la hoja HOLCIM', 'No se encontró ninguna columna "Asistencia" bajo los títulos "M1:", "M2:"…', 'Los encabezados de asistencia deben empezar por "Asistencia" y los de módulo por "M1:", "M2:", etc.');
+    else add('estructuraHolcim', 'ok', 'Columnas de la hoja HOLCIM', holcim.personas.length + ' personas, ' + holcim.asistencias.length + ' sesiones con casilla de asistencia' + (holcim.cols.certificado ? '' : ' (sin columna de certificado)') + '.');
+  } catch (e) { add('estructuraHolcim', 'error', 'Hoja HOLCIM', e.message, 'Revisa que la pestaña exista y tenga la fila de encabezados (PLANTA, ESTADO, NOMBRE Y APELLIDO, CÉDULA…).'); }
+  try {
+    inhouse = sigbeLeerInhouse_(ss);
+    add('estructuraInhouse', 'ok', 'Columnas de la hoja INHOUSE', inhouse.length + ' contratistas.');
+  } catch (e) { add('estructuraInhouse', 'error', 'Hoja INHOUSE', e.message, 'Revisa que la pestaña exista y tenga encabezados PLANTA, CONTRATISTA, NOMBRE Y APELLIDO, CÉDULA.'); }
+
+  // 4. Hojas del 2.0
+  const faltan20 = [SIGBE_HOJA_INDICADOR, SIGBE_HOJA_CRONOGRAMA, SIGBE_HOJA_HOLCIM, SIGBE_HOJA_INHOUSE].filter(n => { try { sigbeHoja_(destino, n); return false; } catch (e) { return true; } });
+  if (faltan20.length) add('hojas20', 'error', 'Hojas del archivo 2.0', 'Faltan: ' + faltan20.join(', ') + '.', 'Ejecuta "Sincronizar ahora" (trae HOLCIM, INHOUSE y Cronograma) o revisa el nombre de la pestaña Indicador.');
+  else add('hojas20', 'ok', 'Hojas del archivo 2.0', 'Indicador, Cronograma, HOLCIM e INHOUSE presentes.');
+
+  // 5. Zona horaria
+  if (origen) {
+    const a = origen.getSpreadsheetTimeZone(), b = destino.getSpreadsheetTimeZone();
+    if (a !== b) add('zonaHoraria', 'aviso', 'Zona horaria', 'Original: ' + a + ' · 2.0: ' + b + '. Las fechas pueden correrse un día al copiarse.', 'En cada archivo: Archivo → Configuración → Zona horaria, y deja la misma (America/Bogota).');
+    else add('zonaHoraria', 'ok', 'Zona horaria', 'Ambos archivos en ' + a + '.');
+  }
+
+  // 6. Activador automático
+  const auto = sigbeActivadorAutomatico_();
+  if (auto.desconocido) add('activador', 'info', 'Actualización automática', 'No se pudo consultar desde aquí.', 'Revísalo en el menú 🔄 Sincronización del 2.0.');
+  else if (auto.activa) add('activador', 'ok', 'Actualización automática', 'Activa: cada ' + cadaHoras + ' hora(s).');
+  else add('activador', 'aviso', 'Actualización automática', 'No está activa: el 2.0 solo se actualiza cuando alguien sincroniza a mano o guarda desde la app.', 'En el 2.0: menú 🔄 Sincronización → Activar actualización automática.');
+
+  // 7. Última sincronización
+  const est = getEstadoSincronizacion();
+  let detalle = null;
+  try { detalle = JSON.parse(PropertiesService.getDocumentProperties().getProperty('ULTIMO_RESULTADO_JSON') || 'null'); } catch (e) {}
+  if (!est.ultima) add('ultimaSync', 'aviso', 'Última sincronización', 'Nunca se ha sincronizado.', 'En el 2.0: menú 🔄 Sincronización → Sincronizar ahora.');
+  else {
+    const horas = sigbeHorasDesde_(est.ultima);
+    const errores = detalle && detalle.lineas ? detalle.lineas.filter(l => l.tipo === 'error' || l.tipo === 'aviso') : [];
+    if (errores.length) add('ultimaSync', 'error', 'Última sincronización', est.ultima + ': ' + errores.map(l => l.texto).join(' | '),
+      'Lee el mensaje: "no existe en el archivo origen" = pestaña renombrada; "posible borrado masivo" = se borró mucha información en el original (si es correcto, usa "Sincronizar aceptando un borrado grande"); "No se encontró la hoja" = Google no dejó copiar la pestaña (se reintenta celda por celda).');
+    else if (auto.activa && horas !== null && horas > cadaHoras * 2 + 0.5) add('ultimaSync', 'aviso', 'Última sincronización', est.ultima + ' (hace ' + Math.round(horas) + ' horas, más de lo esperado).',
+      'El activador puede haber fallado (Google avisa por correo al dueño). Prueba "Sincronizar ahora"; si falla, desactiva y vuelve a activar la actualización automática.');
+    else add('ultimaSync', 'ok', 'Última sincronización', est.ultima + (detalle ? ' · ' + detalle.duracionSeg + ' s · ' + ({ manual: 'desde el menú', automatica: 'automática', app: 'desde la app' })[detalle.origen] : '') + (est.pendiente ? ' · hay una actualización rápida en curso' : ''));
+    if (detalle && detalle.duracionSeg > 240) add('duracionSync', 'aviso', 'Duración de la sincronización', detalle.duracionSeg + ' segundos. Google corta los scripts a los 6 minutos.',
+      'Reduce filas/columnas vacías en las hojas del original (filas al final sin datos) o quita hojas de HOJAS_A_COPIAR que no necesites.');
+  }
+
+  // 8. Desfase entre original y 2.0
+  if (origen && holcim) {
+    try {
+      const h20 = sigbeLeerHolcim_(destino);
+      const clave = p => p.cedula + '|' + sigbeNorm_(p.nombre);
+      const a = holcim.personas.map(clave), b = h20.personas.map(clave);
+      const soloOrigen = a.filter(x => b.indexOf(x) === -1).length, solo20 = b.filter(x => a.indexOf(x) === -1).length;
+      let asisDif = 0;
+      holcim.personas.forEach(p => { const q = h20.personas.find(x => clave(x) === clave(p)); if (q) holcim.asistencias.forEach(x => { const y = h20.asistencias.find(z => z.key === x.key); if (y && (p.valores[x.col - 1] === true) !== (q.valores[y.col - 1] === true)) asisDif++; }); });
+      if (soloOrigen || solo20 || asisDif) add('desfase', 'aviso', 'Diferencias entre el original y el 2.0 (HOLCIM)', (soloOrigen ? soloOrigen + ' persona(s) solo en el original. ' : '') + (solo20 ? solo20 + ' solo en el 2.0. ' : '') + (asisDif ? asisDif + ' asistencia(s) distintas.' : ''),
+        'Es normal durante unos minutos tras un cambio. Si persiste, usa "Sincronizar ahora". Recuerda: lo que se escriba a mano en HOLCIM/INHOUSE del 2.0 se pierde al sincronizar.');
+      else add('desfase', 'ok', 'Original y 2.0 (HOLCIM)', 'Mismas personas y mismas asistencias.');
+    } catch (e) { add('desfase', 'info', 'Original y 2.0', 'No se pudo comparar: ' + e.message); }
+  }
+
+  // 9. Respaldos
+  const resp = sigbeResumenRespaldos_();
+  if (!resp.carpeta) add('respaldos', 'aviso', 'Respaldos', 'Todavía no existe la carpeta de respaldos (se crea con el primer cambio o sincronización).');
+  else add('respaldos', resp.ultimos.length || resp.ultimosOriginal.length ? 'ok' : 'aviso', 'Respaldos en Drive', resp.ultimos.length || resp.ultimosOriginal.length ? 'Último del 2.0: ' + (resp.ultimos[0] || 'ninguno aún') + ' · último del original: ' + (resp.ultimosOriginal[0] || 'ninguno aún') : 'La carpeta existe pero está vacía.',
+    'Se restaura desde el menú 🔄 Sincronización → Restaurar desde un respaldo, o abriendo la copia en Drive.');
+
+  // 10. Usuario y clave
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SIGBE_USUARIO') && props.getProperty('SIGBE_CLAVE_HASH')) add('credenciales', 'ok', 'Usuario y clave de la app', 'Configurados (usuario: ' + props.getProperty('SIGBE_USUARIO') + ').');
+  else add('credenciales', 'error', 'Usuario y clave de la app', 'No están configurados: nadie puede guardar desde la app.', 'En el 2.0: menú 🔄 Sincronización → 🔐 Configurar usuario y clave de la app SIGBE.');
+
+  // 11. Calidad de datos
+  if (holcim && inhouse) {
+    const todos = holcim.personas.concat(inhouse);
+    const porCed = {};
+    todos.forEach(p => { const c = p.cedula.replace(/\D/g, ''); if (c) (porCed[c] = porCed[c] || []).push(p.nombre + ' (' + p.planta + ')'); });
+    const dup = Object.keys(porCed).filter(c => porCed[c].length > 1);
+    if (dup.length) add('duplicados', 'aviso', 'Cédulas repetidas', dup.slice(0, 5).map(c => c + ': ' + porCed[c].join(' / ')).join(' · ') + (dup.length > 5 ? ' · y ' + (dup.length - 5) + ' más' : ''),
+      'La app distingue por nombre cuando la cédula se repite, pero conviene corregirlas en el original.');
+    else add('duplicados', 'ok', 'Cédulas repetidas', 'Ninguna.');
+    const sinCed = todos.filter(p => !p.cedula.replace(/\D/g, ''));
+    if (sinCed.length) add('sinCedula', 'aviso', 'Personas sin cédula', sinCed.slice(0, 8).map(p => p.nombre).join(', ') + (sinCed.length > 8 ? ' y ' + (sinCed.length - 8) + ' más' : ''), 'Agrega la cédula en el original; sin ella la app solo puede ubicarlas por nombre.');
+    const sedes = SIGBE_SEDES.map(x => x[0]);
+    const sinSede = sigbeUnicos_(todos.map(p => p.planta).filter(p => sedes.indexOf(sigbeSede_(p)) === -1));
+    if (sinSede.length) add('sedes', 'aviso', 'Plantas sin sede asignada', sinSede.join(', '), 'Esas personas solo aparecen en "Todas las sedes". Agrega la palabra clave de la planta en SIGBE_SEDES (SIGBE.gs).');
+    else add('sedes', 'ok', 'Plantas y sedes', 'Todas las plantas tienen sede.');
+  }
+
+  // 12. Ejecución y versión
+  add('ejecucion', 'info', 'La app se ejecuta como', sigbeCorreoEjecucion_() + '. Esa cuenta necesita editar el original y el 2.0.');
+  add('version', 'info', 'Versión instalada', 'SIGBE ' + SIGBE_VERSION + '. Si la app muestra otra versión, falta "Implementar → Nueva versión".');
+
+  return { fecha: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'), revisiones: R,
+    resumen: { ok: R.filter(r => r.estado === 'ok').length, aviso: R.filter(r => r.estado === 'aviso').length, error: R.filter(r => r.estado === 'error').length } };
+}
+
+function sigbeActivadorAutomatico_() {
+  try {
+    const t = ScriptApp.getProjectTriggers().filter(x => x.getHandlerFunction() === 'sincronizar');
+    return { activa: t.length > 0, cadaHoras: typeof CADA_HORAS !== 'undefined' ? CADA_HORAS : 1 };
+  } catch (e) {
+    return { activa: false, desconocido: true };
+  }
+}
+
+function sigbeResumenRespaldos_() {
+  try {
+    const nombre = typeof CARPETA_RESPALDOS !== 'undefined' ? CARPETA_RESPALDOS : 'Respaldos Gestion de Brigadas 2.0';
+    const it = DriveApp.getFoldersByName(nombre);
+    if (!it.hasNext()) return { carpeta: null, ultimos: [], ultimosOriginal: [] };
+    const carpeta = it.next();
+    const a = [], b = [];
+    const files = carpeta.getFiles();
+    while (files.hasNext()) {
+      const n = files.next().getName();
+      if (n.indexOf('Respaldo 2.0 ') === 0) a.push(n.replace('Respaldo 2.0 ', ''));
+      else if (n.indexOf('Respaldo ORIGINAL ') === 0) b.push(n.replace('Respaldo ORIGINAL ', ''));
+    }
+    a.sort().reverse(); b.sort().reverse();
+    return { carpeta: nombre, url: carpeta.getUrl(), ultimos: a.slice(0, 3), ultimosOriginal: b.slice(0, 3), total: a.length + b.length };
+  } catch (e) {
+    return { carpeta: null, ultimos: [], ultimosOriginal: [], error: e.message };
+  }
+}
+
+function sigbeConteoBitacora_() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SIGBE_HOJA_BITACORA);
+  return sh ? Math.max(sh.getLastRow() - 1, 0) : 0;
+}
+
+function sigbeCorreoEjecucion_() {
+  try { return Session.getEffectiveUser().getEmail() || '(cuenta del propietario)'; } catch (e) { return '(cuenta del propietario)'; }
+}
+
+/** Horas transcurridas desde una fecha "yyyy-MM-dd HH:mm" (hora del script); null si no se puede leer. */
+function sigbeHorasDesde_(txt) {
+  const m = String(txt).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
+  if (!m) return null;
+  const ahora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm').match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
+  const a = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  const b = Date.UTC(+ahora[1], +ahora[2] - 1, +ahora[3], +ahora[4], +ahora[5]);
+  return (b - a) / 3600000;
+}
+
 // ───────────────────────────── SESIÓN ─────────────────────────────
 
 function validarLoginAdmin(usuario, clave) {
@@ -560,6 +871,7 @@ function sigbeLeerHolcim_(ss) {
   const cols = {
     planta: t.col('PLANTA'), estado: t.col('ESTADO'), nombre: t.col('NOMBRE Y APELLIDO'),
     cedula: t.col('CEDULA'), certificado: t.col('CERTIFICADO'), cumplimiento: t.col('% DE CUMPLIMIENTO'),
+    cumplimientoTexto: t.col('CUMMPLIMIENTO') || t.col('CUMPLIMIENTO DEL'), fechaIngreso: t.col('FECHA DE INGRESO'),
   };
 
   // Casillas de asistencia: columnas cuyo encabezado empieza por "Asistencia".
@@ -588,6 +900,8 @@ function sigbeLeerHolcim_(ss) {
       cedula: sigbeTexto_(v[cols.cedula - 1]),
       certificado: cols.certificado ? sigbeTexto_(v[cols.certificado - 1]) : '',
       cumplimiento: typeof cumpl === 'number' ? Math.round(cumpl * 100) + '%' : '',
+      cumplimientoTexto: cols.cumplimientoTexto ? sigbeTexto_(v[cols.cumplimientoTexto - 1]) : '',
+      fechaIngreso: cols.fechaIngreso ? sigbeTexto_(v[cols.fechaIngreso - 1]) : '',
     });
   });
   return { hoja: sh, filaEncabezado: t.filaEncabezado, cols: cols, asistencias: asistencias, personas: personas };
@@ -601,6 +915,7 @@ function sigbeLeerInhouse_(ss) {
   return t.filas
     .filter(f => String(f.valores[c.nombre - 1] || '').trim())
     .map(f => ({
+      fila: f.fila, valores: f.valores, hoja: sh, cols: c,
       planta: String(f.valores[c.planta - 1] || '').trim(), tipo: 'INHOUSE',
       contratista: c.contratista ? String(f.valores[c.contratista - 1] || '').trim() : '',
       estado: c.estado ? String(f.valores[c.estado - 1] || '') : '',

@@ -41,6 +41,23 @@
     #loader { display: none; position: fixed; inset: 0; background: rgba(255,255,255,.7); z-index: 2000; justify-content: center; align-items: center; }
     #avisos { position: fixed; bottom: 16px; right: 16px; z-index: 2100; max-width: 420px; }
     .vista { display: none; }
+    .punto { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+    .punto-ok { background: #28a745; } .punto-aviso { background: #ffc107; } .punto-error { background: #dc3545; } .punto-info { background: #6c757d; }
+    .rev { border-left: 4px solid #dee2e6; padding: 10px 14px; margin-bottom: 8px; background: #fff; border-radius: 0 8px 8px 0; }
+    .rev-ok { border-color: #28a745; } .rev-aviso { border-color: #ffc107; background: #fffdf5; } .rev-error { border-color: #dc3545; background: #fff7f7; } .rev-info { border-color: #6c757d; }
+    .fila-click { cursor: pointer; }
+    .ayuda h2 { font-size: 1.1rem; margin-top: 1.4rem; }
+    .ayuda .paso { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+    .ayuda .paso .n { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--sigbe-azul); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+    #print-area { display: none; }
+    @media print {
+      body * { visibility: hidden; }
+      #print-area, #print-area * { visibility: visible; }
+      #print-area { display: block !important; position: absolute; left: 0; top: 0; width: 100%; padding: 10mm; font-size: 11pt; color: #000; }
+      #print-area table { width: 100%; border-collapse: collapse; }
+      #print-area th, #print-area td { border: 1px solid #000; padding: 5px 6px; text-align: left; }
+      #print-area .firma { width: 32%; height: 28px; }
+    }
   </style>
 </head>
 <body>
@@ -67,9 +84,12 @@
               <li><a href="#" class="nav-link" data-vista="temarios"><i class="fa-solid fa-book-open"></i> Temarios</a></li>
               <li><a href="#" class="nav-link" data-vista="indicadores"><i class="fa-solid fa-chart-column"></i> Cobertura</a></li>
               <li><a href="#" class="nav-link" data-vista="historial"><i class="fa-solid fa-clock-rotate-left"></i> Historial de cambios</a></li>
+              <li><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i> Estado del sistema</a></li>
+              <li><a href="#" class="nav-link" data-vista="ayuda"><i class="fa-solid fa-circle-question"></i> Ayuda</a></li>
             </ul>
             <hr class="text-secondary">
             <div class="small text-secondary" id="estado-sync"></div>
+            <div class="small text-secondary mt-2" id="txt-version"></div>
           </div>
         </div>
       </div>
@@ -88,6 +108,7 @@
           </div>
         </div>
 
+        <div id="banner-version" class="alert alert-warning rounded-0 mb-0 small" style="display:none;"></div>
         <main class="main">
 
           <!-- ═════════ INICIO ═════════ -->
@@ -133,7 +154,10 @@
           <section class="vista" id="v-brigadistas">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
               <h1 class="h3 fw-bold mb-0">Brigadistas</h1>
-              <button class="btn btn-success" id="btn-registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary" id="btn-brig-csv" title="Descargar la lista filtrada en Excel/CSV"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
+                <button class="btn btn-success" id="btn-registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
+              </div>
             </div>
             <div class="tarjeta p-3 mb-3">
               <div class="row g-2 align-items-center">
@@ -150,6 +174,7 @@
               </div>
             </div>
             <div class="small text-muted mb-2" id="brig-conteo"></div>
+            <p class="small text-muted mb-2"><i class="fa-solid fa-hand-pointer me-1"></i>Haz clic en una persona para ver su ficha completa (sesiones, certificado) y editar su estado o certificado.</p>
             <div class="tarjeta table-responsive">
               <table class="table table-hover align-middle mb-0">
                 <thead class="table-light"><tr><th>Nombre</th><th>Cédula</th><th>Planta</th><th>Empresa</th><th>Estado</th><th>Certificado 0256</th><th>Cumplimiento</th></tr></thead>
@@ -198,7 +223,97 @@
             </div>
           </section>
 
+          <!-- ═════════ ESTADO DEL SISTEMA ═════════ -->
+          <section class="vista" id="v-estado">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+              <h1 class="h3 fw-bold mb-0">Estado del sistema</h1>
+              <div class="d-flex gap-2">
+                <button class="btn btn-outline-primary" id="btn-diagnostico"><i class="fa-solid fa-stethoscope me-1"></i>Ejecutar diagnóstico</button>
+                <button class="btn btn-primary" id="btn-sync-ahora"><i class="fa-solid fa-rotate me-1"></i>Sincronizar ahora</button>
+              </div>
+            </div>
+            <p class="text-muted small mb-3">Aquí ves si la información está fluyendo bien entre el archivo original, la app y el archivo 2.0, y qué hacer si algo falla.</p>
+            <div id="sync-progreso" class="alert alert-info" style="display:none;"><div class="spinner-border spinner-border-sm me-2"></div><span></span></div>
+            <div class="row g-3 mb-3" id="estado-tarjetas"></div>
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <div class="tarjeta p-3 h-100">
+                  <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-rotate me-2 text-primary"></i>Última sincronización</h2>
+                  <div id="estado-sync-detalle" class="small"></div>
+                </div>
+              </div>
+              <div class="col-lg-6">
+                <div class="tarjeta p-3 h-100">
+                  <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-box-archive me-2 text-primary"></i>Respaldos y registro</h2>
+                  <div id="estado-respaldos" class="small"></div>
+                </div>
+              </div>
+            </div>
+            <div class="mt-4">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-stethoscope me-2 text-primary"></i>Diagnóstico</h2>
+                <span class="small text-muted" id="diag-fecha"></span>
+              </div>
+              <div id="diag-resumen" class="mb-2"></div>
+              <div id="diag-lista"></div>
+            </div>
+          </section>
+
+          <!-- ═════════ AYUDA ═════════ -->
+          <section class="vista ayuda" id="v-ayuda">
+            <h1 class="h3 fw-bold mb-1">Ayuda</h1>
+            <p class="text-muted small">SIGBE <span id="ayuda-version"></span> · Sistema de Gestión de Brigadas de Emergencia</p>
+            <div class="tarjeta p-4">
+              <h2 class="mt-0"><i class="fa-solid fa-diagram-project me-2 text-primary"></i>Cómo funciona</h2>
+              <div class="paso"><div class="n">1</div><div><b>Archivo original</b> (<i>Gestion de Brigadas</i>): ahí marcan los proveedores y el personal Holcim, como siempre. Es la fuente de la verdad.</div></div>
+              <div class="paso"><div class="n">2</div><div><b>Esta app</b> lee y guarda los brigadistas <u>directamente en el original</u>: lo que marques aquí lo ven los proveedores al instante, y lo que marquen ellos lo ves tú.</div></div>
+              <div class="paso"><div class="n">3</div><div><b>Archivo 2.0</b>: recibe una copia idéntica de las hojas cada hora y, cuando guardas desde la app, en 1 a 2 minutos. No edites a mano las hojas HOLCIM, INHOUSE ni Cronograma del 2.0: se sobrescriben.</div></div>
+              <div class="paso"><div class="n">4</div><div><b>Si el original desaparece</b>, la app pasa sola a usar el 2.0 y nada se pierde.</div></div>
+
+              <h2><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Qué protege tus datos</h2>
+              <ul class="small">
+                <li>Para guardar hay que iniciar sesión; sin sesión la app es solo de lectura.</li>
+                <li>Todo cambio se revisa en un resumen antes de guardarse y queda en el <b>Historial de cambios</b> (quién, cuándo, antes y después). La asistencia se puede <b>deshacer</b> justo después.</li>
+                <li>La app ubica a cada persona por su cédula y cada columna por su encabezado; solo escribe en casillas de asistencia y en los campos editables (estado, certificado, fecha de ingreso, contratista).</li>
+                <li>Si alguien cambió una casilla mientras tenías la pantalla abierta, tu cambio no la pisa: se avisa y vuelves a cargar.</li>
+                <li>Antes del primer cambio de cada día se guarda una copia completa del original y del 2.0 en Drive (carpeta <i>Respaldos Gestion de Brigadas 2.0</i>, últimos 30 días). Además está el historial de versiones de Google.</li>
+              </ul>
+
+              <h2><i class="fa-solid fa-triangle-exclamation me-2 text-warning"></i>Si algo falla</h2>
+              <table class="table table-sm small">
+                <thead class="table-light"><tr><th>Qué ves</th><th>Qué significa</th><th>Qué hacer</th></tr></thead>
+                <tbody>
+                  <tr><td>"La sesión no es válida o expiró"</td><td>La sesión dura 6 horas.</td><td>Inicia sesión otra vez (botón arriba a la derecha).</td></tr>
+                  <tr><td>"Usuario o clave incorrectos" / "Falta configurar el usuario y la clave"</td><td>No hay credenciales o están mal.</td><td>En el 2.0: menú 🔄 Sincronización → 🔐 Configurar usuario y clave.</td></tr>
+                  <tr><td>"alguien la cambió mientras tanto"</td><td>Un proveedor marcó esa casilla después de que abriste la lista.</td><td>Vuelve a abrir la sesión y revisa; tu otro cambio sí se guardó.</td></tr>
+                  <tr><td>"Datos de brigadistas: archivo 2.0"</td><td>El original no está accesible.</td><td>Revisa que exista y que la cuenta que ejecuta la app pueda editarlo (ver Estado del sistema).</td></tr>
+                  <tr><td>"no existe en el archivo origen" (en la sincronización)</td><td>Cambió el nombre de una pestaña en el original.</td><td>Vuelve a ponerle el nombre exacto.</td></tr>
+                  <tr><td>"posible borrado masivo"</td><td>En el original se borró más del 30 % de una hoja; por seguridad no se copió.</td><td>Si fue a propósito: 🔄 Sincronización → Sincronizar aceptando un borrado grande. Si no, restaura el original desde Drive.</td></tr>
+                  <tr><td>"No se encontró la hoja …" (en la sincronización)</td><td>Google no dejó copiar la pestaña completa.</td><td>Nada: se actualiza celda por celda automáticamente.</td></tr>
+                  <tr><td>El 2.0 no refleja un cambio</td><td>La actualización automática está apagada o aún no corre.</td><td>Estado del sistema → Sincronizar ahora; o activa la actualización automática en el 2.0.</td></tr>
+                  <tr><td>Las fechas aparecen un día corridas</td><td>Zona horaria distinta entre archivos.</td><td>Archivo → Configuración → misma zona horaria en ambos.</td></tr>
+                  <tr><td>La app se ve "vieja" o sin alguna pantalla</td><td>Se guardó el código pero no se implementó la nueva versión.</td><td>Apps Script → Implementar → Administrar implementaciones → ✏️ → Nueva versión → Implementar.</td></tr>
+                  <tr><td>Error inesperado</td><td>Algo en la hoja cambió de forma no prevista.</td><td>Ejecuta el diagnóstico en Estado del sistema: dice qué revisar y dónde.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
         </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- ZONA DE IMPRESIÓN (solo se ve al imprimir) -->
+  <div id="print-area"></div>
+
+  <!-- MODAL: ficha del brigadista -->
+  <div class="modal fade" id="modal-ficha" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa-solid fa-id-card text-primary me-2"></i><span id="ficha-titulo">Brigadista</span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body" id="ficha-cuerpo"></div>
+        <div class="modal-footer" id="ficha-pie"></div>
       </div>
     </div>
   </div>
@@ -261,9 +376,10 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     // ══════════ estado ══════════
+    const VERSION_HTML = '2.1.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const estado = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sede: leer('localStorage', 'sigbe_sede') || '', sedes: [] };
     const asis = { paso: 'sesiones', sesion: null, lista: null, cambios: {}, mostrarInactivos: false, buscar: '' };
-    let brigadistas = null, cronograma = null, catalogos = null, temariosCargados = false;
+    let brigadistas = null, brigadistasVisibles = [], cronograma = null, catalogos = null, temariosCargados = false, ultimoEstado = null;
     const modal = id => bootstrap.Modal.getOrCreateInstance(document.getElementById(id));
     const $ = id => document.getElementById(id);
 
@@ -318,6 +434,10 @@
       });
       $('crono-pasadas').onchange = pintarCronograma;
       $('tem-hoja').onchange = cargarTemario;
+      $('btn-brig-csv').onclick = descargarCsvBrigadistas;
+      $('btn-diagnostico').onclick = ejecutarDiagnostico;
+      $('btn-sync-ahora').onclick = sincronizarAhoraApp;
+      $('brig-tabla').onclick = e => { const tr = e.target.closest('tr[data-i]'); if (tr) abrirFicha(brigadistasVisibles[+tr.dataset.i]); };
       window.addEventListener('beforeunload', e => { if (hayCambios()) { e.preventDefault(); e.returnValue = ''; } });
 
       cargando(true);
@@ -325,6 +445,12 @@
         const ctx = await api('getContexto', estado.token);
         estado.sedes = ctx.sedes;
         estado.usuario = ctx.usuario;
+        $('txt-version').textContent = 'SIGBE v' + (ctx.version || '?');
+        $('ayuda-version').textContent = 'v' + (ctx.version || '?');
+        if (ctx.version && ctx.version !== VERSION_HTML) {
+          $('banner-version').style.display = 'block';
+          $('banner-version').innerHTML = '<i class="fa-solid fa-triangle-exclamation me-1"></i>Los archivos de la app tienen versiones distintas (pantallas ' + esc(VERSION_HTML) + ', servidor ' + esc(ctx.version) + '). Vuelve a pegar <b>SIGBE.gs</b> e <b>Index.html</b> y publica una nueva versión.';
+        }
         if (!estado.usuario) { estado.token = null; guardar('sessionStorage', 'sigbe_token', null); }
         if (estado.sede && estado.sedes.indexOf(estado.sede) === -1) estado.sede = '';
         $('sel-sede').innerHTML = '<option value="">Todas las sedes</option>' + estado.sedes.map(s => `<option ${s === estado.sede ? 'selected' : ''}>${esc(s)}</option>`).join('');
@@ -357,12 +483,20 @@
 
     function cargarVista() {
       ({ inicio: cargarInicio, asistencia: cargarAsistencia, brigadistas: cargarBrigadistas, cronograma: cargarCronograma,
-         temarios: cargarTemarios, indicadores: cargarIndicadores, historial: cargarHistorial })[estado.vista]();
+         temarios: cargarTemarios, indicadores: cargarIndicadores, historial: cargarHistorial, estado: cargarEstado, ayuda: () => {} })[estado.vista]();
     }
 
     function pintarSync(s) {
       $('estado-sync').innerHTML = s && s.ultima ? `<i class="fa-solid fa-rotate me-1"></i>Archivo 2.0 actualizado:<br>${esc(s.ultima)}` +
-        (s.pendiente ? '<br><span class="text-warning">Actualizando…</span>' : '') : '';
+        (s.pendiente ? '<br><span class="text-warning"><span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem"></span>Actualizando…</span>' : '') : '';
+    }
+
+    /** Descarga un CSV (con BOM para que Excel lo abra con tildes). */
+    function descargarCsv(nombre, filas) {
+      const csv = filas.map(f => f.map(v => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"').join(';')).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
     }
 
     // ══════════ sesión ══════════
@@ -492,7 +626,11 @@
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
             <div><div class="small text-muted">${esc(estado.sede)} · ${esc(L.modulo)} · ${esc(L.sesion)}</div><h2 class="h5 mb-1">${esc(L.titulo)}</h2>
               <div class="small"><i class="fa-regular fa-calendar me-1"></i>${esc(asis.sesion.fecha || 'Sin fecha programada')} · <b>${marcadosHoy}</b> de ${L.personas.filter(p => p.activo).length} con asistencia guardada</div></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="volverASesiones()"><i class="fa-solid fa-arrow-left me-1"></i>Otra sesión</button>
+            <div class="d-flex gap-1">
+              <button class="btn btn-sm btn-outline-secondary" onclick="imprimirLista()" title="Lista para firmar en la capacitación"><i class="fa-solid fa-print me-1"></i>Imprimir</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="descargarCsvAsistencia()" title="Descargar en Excel/CSV"><i class="fa-solid fa-file-csv me-1"></i>CSV</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="volverASesiones()"><i class="fa-solid fa-arrow-left me-1"></i>Otra sesión</button>
+            </div>
           </div>
           <div class="row g-2 mt-2 align-items-center">
             <div class="col-md-5"><input type="search" class="form-control form-control-sm" placeholder="Buscar nombre o cédula…" value="${esc(asis.buscar)}" oninput="asis.buscar=this.value;pintarAsistencia();this.focus();this.setSelectionRange(this.value.length,this.value.length)"></div>
@@ -519,6 +657,22 @@
     }
 
     function valorActual(i) { return i in asis.cambios ? asis.cambios[i] : asis.lista.personas[i].marcada; }
+    function imprimirLista() {
+      const L = asis.lista;
+      const personas = L.personas.filter(p => p.activo);
+      $('print-area').innerHTML = `<h2 style="margin:0 0 4px">Lista de asistencia · ${esc(estado.sede)}</h2>
+        <div><b>${esc(L.modulo)} · ${esc(L.sesion)}</b> — ${esc(L.titulo)}</div>
+        <div style="margin-bottom:10px">Fecha programada: ${esc(asis.sesion.fecha || '____/____/______')} &nbsp;&nbsp; Fecha real: ____/____/______ &nbsp;&nbsp; Instructor: ______________________</div>
+        <table><thead><tr><th>#</th><th>Nombre y apellido</th><th>Cédula</th><th>Planta</th><th>Asistió</th><th>Firma</th></tr></thead><tbody>` +
+        personas.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.nombre)}</td><td>${esc(p.cedula)}</td><td>${esc(p.planta)}</td><td style="text-align:center">${p.marcada ? '✔' : '☐'}</td><td class="firma"></td></tr>`).join('') +
+        `</tbody></table><div style="margin-top:12px;font-size:9pt">Generado por SIGBE el ${new Date().toLocaleDateString('es-CO')} · ${personas.length} brigadistas activos</div>`;
+      window.print();
+    }
+    function descargarCsvAsistencia() {
+      const L = asis.lista;
+      descargarCsv('asistencia_' + L.modulo + '_' + L.sesion.replace(/\s/g, '') + (estado.sede ? '_' + estado.sede : '') + '.csv',
+        [['Nombre', 'Cédula', 'Planta', 'Estado', 'Módulo', 'Sesión', 'Fecha', 'Asistió']].concat(L.personas.map(p => [p.nombre, p.cedula, p.planta, p.estado, L.modulo + ' ' + L.titulo, L.sesion, p.fecha, p.marcada ? 'SÍ' : 'NO'])));
+    }
     function elegirSede(s) { $('sel-sede').value = s; cambiarSede(s); }
     function volverASesiones() {
       if (hayCambios() && !confirm('Tienes cambios sin guardar. ¿Descartarlos?')) return;
@@ -603,13 +757,107 @@
       const lista = brigadistas.filter(p => (desv || esActivo(p)) && (!tipo || p.tipo === tipo) &&
         (!cert || (cert === 'si') === tieneCert(p.certificado)) &&
         (!q || [p.nombre, p.cedula, p.planta, p.contratista].join(' ').toUpperCase().includes(q)));
+      brigadistasVisibles = lista;
       $('brig-conteo').textContent = lista.length + ' brigadista(s)' + (estado.sede ? ' en ' + estado.sede : '');
-      $('brig-tabla').innerHTML = lista.map(p => `<tr class="${esActivo(p) ? '' : 'text-muted'}">
+      $('brig-tabla').innerHTML = lista.map((p, i) => `<tr class="fila-click ${esActivo(p) ? '' : 'text-muted'}" data-i="${i}" title="Ver ficha">
         <td class="fw-semibold">${esc(p.nombre)}</td><td>${esc(p.cedula)}</td><td class="small">${esc(p.planta)}</td>
         <td><span class="badge ${p.tipo === 'HOLCIM' ? 'bg-primary' : 'bg-info text-dark'}">${esc(p.tipo === 'HOLCIM' ? 'Holcim' : p.contratista || 'Contratista')}</span></td>
         <td><span class="badge ${esActivo(p) ? 'bg-success' : 'bg-secondary'}">${esc(p.estado || 'Activo')}</span></td>
         <td>${p.certificado ? `<span class="badge ${tieneCert(p.certificado) ? 'bg-success' : 'bg-warning text-dark'}">${esc(p.certificado)}</span>` : ''}</td>
         <td class="small">${esc(p.cumplimiento)}</td></tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center py-4">Sin resultados</td></tr>';
+    }
+
+    function descargarCsvBrigadistas() {
+      if (!brigadistasVisibles.length) return avisar('No hay brigadistas para descargar.', 'warning');
+      descargarCsv('brigadistas' + (estado.sede ? '_' + estado.sede : '') + '.csv',
+        [['Nombre', 'Cédula', 'Planta', 'Sede', 'Tipo', 'Contratista', 'Estado', 'Certificado 0256', 'Cumplimiento', 'Fecha ingreso']]
+          .concat(brigadistasVisibles.map(p => [p.nombre, p.cedula, p.planta, p.sede, p.tipo, p.contratista, p.estado, p.certificado, p.cumplimiento, p.fechaIngreso || ''])));
+    }
+
+    // ══════════ FICHA Y EDICIÓN ══════════
+    let ficha = null;
+    async function abrirFicha(p) {
+      cargando(true);
+      try {
+        ficha = await api('getFichaBrigadista', p.tipo, p.cedula, p.nombre);
+        cargando(false);
+        pintarFicha(false);
+        modal('modal-ficha').show();
+      } catch (e) { error(e); }
+    }
+    function pintarFicha(editando) {
+      const f = ficha;
+      $('ficha-titulo').textContent = f.nombre;
+      const dato = (k, v) => `<div class="col-sm-6 col-md-4"><div class="small text-muted">${k}</div><div class="fw-semibold">${v || '<span class="text-muted">—</span>'}</div></div>`;
+      const pasadas = f.sesiones.filter(s => s.pasada || s.marcada);
+      const asistio = f.sesiones.filter(s => s.marcada).length;
+      let html = `<div class="row g-3 mb-3">
+        ${dato('Cédula', esc(f.cedula))}${dato('Planta', esc(f.planta))}${dato('Empresa', esc(f.contratista))}
+        ${dato('Estado', `<span class="badge ${esActivo(f) ? 'bg-success' : 'bg-secondary'}">${esc(f.estado || 'Activo')}</span>`)}
+        ${dato('Certificado 0256', f.certificado ? `<span class="badge ${tieneCert(f.certificado) ? 'bg-success' : 'bg-warning text-dark'}">${esc(f.certificado)}</span>` : '')}
+        ${f.tipo === 'HOLCIM' ? dato('Fecha de ingreso', esc(f.fechaIngreso)) + dato('Cumplimiento', esc(f.cumplimiento) + (f.cumplimientoTexto ? ' <span class="text-muted small">(' + esc(f.cumplimientoTexto) + ')</span>' : '')) : ''}
+      </div>`;
+      if (editando) {
+        const op = (lista, v) => (v ? lista : [''].concat(lista)).map(x => `<option value="${esc(x)}" ${x === v ? 'selected' : ''}>${x ? esc(x) : '(vacío)'}</option>`).join('');
+        html += `<div class="border rounded p-3 bg-light"><h6 class="fw-bold mb-3"><i class="fa-solid fa-pen me-1"></i>Editar datos</h6><div class="row g-3">` +
+          (f.tipo === 'HOLCIM'
+            ? `<div class="col-md-4"><label class="form-label small">Estado</label><select id="ed-estado" class="form-select form-select-sm">${op(catalogos.estados, f.estado)}</select></div>
+               <div class="col-md-4"><label class="form-label small">Fecha de ingreso</label><input type="date" id="ed-fecha" class="form-control form-control-sm" value="${esc(fechaIsoDesdeTexto(f.fechaIngreso))}"></div>`
+            : `<div class="col-md-6"><label class="form-label small">Empresa contratista</label><input id="ed-contratista" class="form-control form-control-sm" list="reg-contratistas" value="${esc(f.contratista)}"></div>`) +
+          `<div class="col-md-4"><label class="form-label small">Certificado 0256</label><select id="ed-cert" class="form-select form-select-sm">${op(catalogos.certificados.indexOf(f.certificado) === -1 && f.certificado ? [f.certificado].concat(catalogos.certificados) : catalogos.certificados, f.certificado)}</select></div>
+          </div><p class="small text-muted mt-2 mb-0">La planta y el nombre no se editan desde la app (para no desordenar la hoja); hazlo en el archivo original.</p></div>`;
+      }
+      if (f.tipo === 'HOLCIM') {
+        html += `<h6 class="fw-bold mt-3 mb-2">Sesiones de capacitación <span class="badge bg-secondary">${asistio} asistidas</span></h6>
+          <div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead class="table-light"><tr><th>Módulo</th><th>Sesión</th><th>Fecha</th><th>Asistencia</th></tr></thead><tbody>` +
+          f.sesiones.map(s => `<tr class="${!s.fecha ? 'text-muted' : ''}"><td><span class="badge bg-dark me-1">${esc(s.modulo)}</span>${esc(s.titulo)}</td><td>${esc(s.sesion)}</td><td>${esc(s.fecha || 'sin fecha')}</td>
+            <td>${s.marcada ? '<span class="text-success"><i class="fa-solid fa-check me-1"></i>Asistió</span>' : s.pasada ? '<span class="text-danger"><i class="fa-solid fa-xmark me-1"></i>No asistió</span>' : '<span class="text-muted">pendiente</span>'}</td></tr>`).join('') +
+          '</tbody></table></div>';
+      }
+      html += `<p class="small text-muted mt-3 mb-0">Fila ${f.fila} de "${esc(f.hoja)}" · ${esc(f.fuente)}</p>`;
+      $('ficha-cuerpo').innerHTML = html;
+      $('ficha-pie').innerHTML = editando
+        ? '<button class="btn btn-outline-secondary" onclick="pintarFicha(false)">Cancelar</button><button class="btn btn-success" onclick="revisarEdicion()"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>'
+        : '<button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button class="btn btn-primary" onclick="editarFicha()"><i class="fa-solid fa-pen me-1"></i>Editar</button>';
+    }
+    async function editarFicha() {
+      if (!estado.usuario) return pedirSesion(editarFicha);
+      if (!catalogos) { cargando(true); try { catalogos = await api('getCatalogos'); cargando(false); } catch (e) { return error(e); } }
+      pintarFicha(true);
+    }
+    function fechaIsoDesdeTexto(t) { const m = String(t || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? m[3] + '-' + m[2] + '-' + m[1] : ''; }
+    function revisarEdicion() {
+      const f = ficha;
+      const cambios = {}, anteriores = {};
+      const poner = (campo, nuevo, actual) => { if (String(nuevo) !== String(actual)) { cambios[campo] = nuevo; anteriores[campo] = actual; } };
+      if (f.tipo === 'HOLCIM') {
+        poner('estado', $('ed-estado').value, f.estado);
+        const nuevaIso = $('ed-fecha').value;
+        if (nuevaIso !== fechaIsoDesdeTexto(f.fechaIngreso)) { cambios.fechaIngreso = nuevaIso; anteriores.fechaIngreso = f.fechaIngreso; }
+      } else poner('contratista', $('ed-contratista').value.trim().toUpperCase(), f.contratista);
+      poner('certificado', $('ed-cert').value, f.certificado);
+      if (!Object.keys(cambios).length) return avisar('No cambiaste nada.', 'info');
+      const etiquetas = { estado: 'Estado', certificado: 'Certificado 0256', fechaIngreso: 'Fecha de ingreso', contratista: 'Contratista' };
+      $('conf-titulo').textContent = 'Confirmar cambios de ' + f.nombre;
+      $('conf-cuerpo').innerHTML = '<table class="table table-sm mb-2"><thead class="table-light"><tr><th>Dato</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
+        Object.keys(cambios).map(k => `<tr><td>${etiquetas[k]}</td><td class="text-muted">${esc(anteriores[k] || '—')}</td><td class="fw-semibold">${esc(k === 'fechaIngreso' && cambios[k] ? cambios[k].split('-').reverse().join('/') : cambios[k] || '—')}</td></tr>`).join('') +
+        '</tbody></table><p class="small text-muted mb-0">Se guarda en el archivo original y queda en el historial.</p>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar cambios';
+      $('conf-ok').onclick = () => guardarEdicion(cambios, anteriores);
+      modal('modal-ficha').hide();
+      modal('modal-confirmar').show();
+    }
+    async function guardarEdicion(cambios, anteriores) {
+      modal('modal-confirmar').hide();
+      cargando(true);
+      try {
+        const r = await api('actualizarBrigadista', estado.token, { tipo: ficha.tipo, cedula: ficha.cedula, nombre: ficha.nombre, cambios, anteriores });
+        cargando(false);
+        if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? (r.rechazos && r.rechazos.length ? 'warning' : 'success') : 'danger', 9000);
+        if (r.exito) { brigadistas = null; if (estado.vista === 'brigadistas') cargarBrigadistas(); api('getEstadoSincronizacion').then(pintarSync).catch(() => {}); }
+        else modal('modal-ficha').show();
+      } catch (e) { error(e); }
     }
 
     async function abrirRegistro() {
@@ -736,6 +984,67 @@
             <td class="text-end">${f.gap > 0 ? `<span class="badge bg-danger-subtle text-danger">${n(f.gap)}</span>` : '<i class="fa-solid fa-check text-success"></i>'}</td></tr>`;
         }).join('') || '<tr><td colspan="7" class="text-muted text-center py-4">Sin datos para esta sede</td></tr>';
       } catch (e) { error(e); }
+    }
+
+    // ══════════ ESTADO DEL SISTEMA ══════════
+    async function cargarEstado() {
+      cargando(true);
+      try { ultimoEstado = await api('getEstadoSistema'); cargando(false); pintarEstado(); ejecutarDiagnostico(); }
+      catch (e) { error(e); }
+    }
+    function pintarEstado() {
+      const e = ultimoEstado, s = e.sync, d = s.detalle;
+      const tarjeta = (estado_, titulo, valor, sub) => `<div class="col-sm-6 col-xl-3"><div class="tarjeta p-3 h-100"><div class="small text-muted text-uppercase"><span class="punto punto-${estado_}"></span>${titulo}</div><div class="fs-5 fw-bold mt-1">${valor}</div><div class="small text-muted">${sub || ''}</div></div></div>`;
+      const horasDesde = txt => { const m = String(txt).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/); return m ? (Date.now() - new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime()) / 3600000 : null; };
+      const h = horasDesde(s.ultima);
+      const syncEstado = !s.ultima ? 'aviso' : (d && d.error) ? 'error' : (h !== null && s.automatica.activa && h > s.automatica.cadaHoras * 2 + 0.5) ? 'aviso' : 'ok';
+      $('estado-tarjetas').innerHTML =
+        tarjeta(e.fuente === 'archivo original' ? 'ok' : 'aviso', 'Fuente de datos', e.fuente === 'archivo original' ? 'Archivo original' : 'Archivo 2.0', e.origen ? `<a href="${esc(e.origen.url)}" target="_blank">${esc(e.origen.nombre)}</a>` : 'El original no está accesible') +
+        tarjeta(syncEstado, 'Última sincronización', s.ultima ? esc(s.ultima) : 'Nunca', s.pendiente ? '<span class="text-warning"><span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem"></span>Hay una actualización en curso</span>' : (d ? 'Duró ' + d.duracionSeg + ' s · ' + ({ manual: 'desde el menú', automatica: 'automática', app: 'desde la app' })[d.origen] : '')) +
+        tarjeta(s.automatica.desconocido ? 'info' : s.automatica.activa ? 'ok' : 'aviso', 'Actualización automática', s.automatica.desconocido ? 'Sin datos' : s.automatica.activa ? 'Activa' : 'Apagada', s.automatica.activa ? 'Cada ' + s.automatica.cadaHoras + ' hora(s)' : 'Actívala en el menú 🔄 del 2.0') +
+        tarjeta(e.respaldos.ultimos.length ? 'ok' : 'aviso', 'Respaldos', e.respaldos.ultimos.length ? 'Último: ' + esc(e.respaldos.ultimos[0]) : 'Ninguno aún', e.respaldos.url ? `<a href="${esc(e.respaldos.url)}" target="_blank">Abrir carpeta en Drive</a>` : '');
+      const icono = { ok: '<i class="fa-solid fa-check text-success"></i>', igual: '<i class="fa-solid fa-equals text-secondary"></i>', aviso: '<i class="fa-solid fa-triangle-exclamation text-warning"></i>', error: '<i class="fa-solid fa-xmark text-danger"></i>', respaldo: '<i class="fa-solid fa-floppy-disk text-primary"></i>', info: '<i class="fa-solid fa-circle-info text-secondary"></i>' };
+      $('estado-sync-detalle').innerHTML = d ? `<div class="mb-2">${esc(d.fecha)} · ${d.duracionSeg} s · ${({ manual: 'desde el menú del 2.0', automatica: 'automática', app: 'desde la app' })[d.origen]}${s.ultimaOk ? ' · última sin errores: ' + esc(s.ultimaOk) : ''}</div>` +
+        d.lineas.map(l => `<div class="d-flex gap-2 py-1 border-top"><div>${icono[l.tipo] || icono.info}</div><div class="${l.tipo === 'error' || l.tipo === 'aviso' ? 'fw-semibold' : ''}">${esc(l.texto)}</div></div>`).join('') +
+        `<div class="mt-2 text-muted">Hojas sincronizadas: ${e.hojasSincronizadas.map(esc).join(', ')}</div>`
+        : (s.ultima ? '<div>' + esc(s.ultima) + '</div><div class="text-muted">El detalle aparecerá en la próxima sincronización.</div>' : '<div class="text-muted">Todavía no se ha sincronizado. Usa <b>Sincronizar ahora</b>.</div>');
+      $('estado-respaldos').innerHTML = `<div><b>Archivo 2.0:</b> ${e.respaldos.ultimos.length ? e.respaldos.ultimos.map(esc).join(', ') : 'sin respaldos aún'}</div>
+        <div><b>Archivo original:</b> ${e.respaldos.ultimosOriginal.length ? e.respaldos.ultimosOriginal.map(esc).join(', ') : 'se crea con el primer cambio desde la app'}</div>
+        <div class="text-muted">Carpeta: ${esc(e.respaldos.carpeta || '—')} (se guardan 30 días)</div>
+        <div class="mt-2"><b>Historial de cambios:</b> ${e.bitacora} registro(s) en la hoja <i>Bitácora SIGBE</i></div>
+        <div class="mt-2"><b>La app se ejecuta como:</b> ${esc(e.ejecutaComo)}</div>
+        <div><b>Versión:</b> SIGBE ${esc(e.version)} (pantallas ${VERSION_HTML})</div>`;
+    }
+    async function sincronizarAhoraApp() {
+      if (!estado.usuario) return pedirSesion(sincronizarAhoraApp);
+      const prog = $('sync-progreso');
+      prog.style.display = 'block'; prog.querySelector('span').textContent = 'Sincronizando el archivo 2.0 con el original… esto puede tardar entre 20 segundos y 2 minutos. No cierres la página.';
+      $('btn-sync-ahora').disabled = true;
+      try {
+        const r = await api('sincronizarDesdeApp', estado.token);
+        prog.style.display = 'none'; $('btn-sync-ahora').disabled = false;
+        if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? (r.enCurso ? 'info' : 'success') : 'warning', 9000);
+        cargarEstado();
+      } catch (e) { prog.style.display = 'none'; $('btn-sync-ahora').disabled = false; error(e); }
+    }
+    let diagnosticoEnCurso = false;
+    async function ejecutarDiagnostico() {
+      if (diagnosticoEnCurso) return;
+      diagnosticoEnCurso = true;
+      $('btn-diagnostico').disabled = true;
+      $('diag-lista').innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2"></span>Revisando accesos, hojas, columnas, activador, respaldos y datos… (unos segundos)</div>';
+      try {
+        const d = await api('diagnosticoSistema');
+        diagnosticoEnCurso = false; $('btn-diagnostico').disabled = false;
+        $('diag-fecha').textContent = 'Revisado: ' + d.fecha;
+        $('diag-resumen').innerHTML = `<span class="badge bg-success me-1">${d.resumen.ok} bien</span><span class="badge bg-warning text-dark me-1">${d.resumen.aviso} avisos</span><span class="badge bg-danger">${d.resumen.error} errores</span>`;
+        const icono = { ok: 'fa-circle-check text-success', aviso: 'fa-triangle-exclamation text-warning', error: 'fa-circle-xmark text-danger', info: 'fa-circle-info text-secondary' };
+        const orden = { error: 0, aviso: 1, ok: 2, info: 3 };
+        $('diag-lista').innerHTML = d.revisiones.slice().sort((a, b) => orden[a.estado] - orden[b.estado]).map(r => `<div class="rev rev-${r.estado}">
+          <div class="d-flex gap-2"><i class="fa-solid ${icono[r.estado]} mt-1"></i><div><div class="fw-semibold">${esc(r.titulo)}</div><div class="small">${esc(r.detalle)}</div>
+          ${r.solucion && r.estado !== 'ok' ? `<div class="small mt-1"><i class="fa-solid fa-arrow-right me-1 text-primary"></i><b>Qué hacer:</b> ${esc(r.solucion)}</div>` : ''}</div></div></div>`).join('');
+      } catch (e) { diagnosticoEnCurso = false; $('btn-diagnostico').disabled = false; $('diag-lista').innerHTML = ''; error(e); }
     }
 
     // ══════════ HISTORIAL ══════════
