@@ -136,7 +136,9 @@ function libroNuevoPendiente() {
     .filter(t => ['libroNuevoPendiente', 'sincronizarPendiente'].indexOf(t.getHandlerFunction()) !== -1)
     .forEach(t => ScriptApp.deleteTrigger(t));
   props_().deleteProperty('SIGBE_SYNC_PENDIENTE');
-  if (!lnIdLibro_() || props_().getProperty('LIBRO_NUEVO_CORTE')) return 'Nada que actualizar.';
+  if (!lnIdLibro_()) return 'Nada que actualizar.';
+  // Después del corte: la app cambió el cronograma o los módulos → la lista se reorganiza ya, sin esperar la hora
+  if (props_().getProperty('LIBRO_NUEVO_CORTE')) return lnMostrar_(lnReorganizarTrasCorte_() || 'La lista ya estaba de acuerdo con el cronograma.');
   return lnMostrar_(lnActualizar_(false).resumen);
 }
 
@@ -482,10 +484,19 @@ function lnPlanta_(planta) {
 /** Fila del cronograma que corresponde a una unidad (módulo o parte de M8) para una línea de negocio. */
 function lnFilaModulo_(crono, u, linea) {
   const clave = LN_MODULOS[u.modulo];
-  if (!clave) return undefined; // módulo sin regla: no se toca
-  const filas = crono.filas.filter(f => f.texto.indexOf(clave) !== -1);
+  // Las filas con etiqueta "(M12)" son de ese módulo y de ningún otro (aunque su nombre tenga la palabra de otro)
+  const propia = f => { const t = lnEtiquetaModulo_(f.texto); return !t || t === u.modulo; };
+  const filas = clave ? crono.filas.filter(f => f.texto.indexOf(clave) !== -1 && propia(f))
+    : crono.filas.filter(f => lnEtiquetaModulo_(f.texto) === u.modulo);
+  if (!clave && !filas.length) return undefined; // módulo sin regla: no se toca
   if (u.parte) return filas[u.parte - 1] || null;
   return filas.find(f => !f.lineas || f.lineas.indexOf(linea) !== -1) || null;
+}
+
+/** "RESCATE EN ESPACIOS CONFINADOS (M12)" → "M12" (módulos creados desde la app); '' si no tiene. */
+function lnEtiquetaModulo_(texto) {
+  const m = String(texto || '').toUpperCase().match(/\(M(\d+)\)/);
+  return m ? 'M' + m[1] : '';
 }
 
 function lnEsNota_(v) {

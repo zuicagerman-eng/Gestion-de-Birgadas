@@ -46,13 +46,34 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   desplegables y fechas y guarda todo junto (con confirmación). Si la hoja no tiene la columna de un dato, la app la
   crea al final de los encabezados al guardar el primero. Ficha con sus sesiones y registro de personas nuevas.
   Grupo sanguíneo: O+, O-, A+, A-, B+, B-, AB+, AB-. Clase I: la lista de la hoja si tiene desplegable; si no, Sí / No / En formación.
-- **Cronograma**: próximas / pasadas / por definir, filtros por mes, tema y estado; botón para abrir la asistencia.
+- **Cronograma**: próximas / pasadas / por definir / no aplican, filtros por mes, tema y estado; botón para abrir la asistencia.
+  **Programar / Editar** cambia la fecha (Holcim), la fecha Ambipar, el estado, # brigadistas y observaciones de una planta,
+  y puede pasar la fecha y el estado a otras plantas de la misma fila. "No aplica" pone `-`; desde **No aplican** se habilita.
+  **Nuevo módulo** crea 4 columnas en la lista de asistencia (Sesión 1 y 2 con casilla, antes del cumplimiento) y su fila en
+  el cronograma (en su mes, con prefijo de líneas si no es para todas) con la etiqueta `(M12)`, que es la que los une.
+  También convierte en módulo un entrenamiento que ya está en el cronograma sin columnas (p. ej. Espacios confinados).
 - **Cobertura**: pestaña *Indicador.* con avance a la meta y comparación con las listas.
 - **Sede** (arriba): se pueden elegir varias a la vez (o "solo" una); todas las vistas filtran por esas sedes.
 - **Revisión de datos**: posibles errores con filtros por gravedad y tipo (ver abajo).
 - **Historial de cambios**: lo hecho desde la app y lo detectado en el Excel, con filtros y CSV.
 - **Temarios** y **Otras hojas** (Seguimiento, Datos de contacto, Evacuadores…): consulta con buscador y filtros.
 - **Estado del sistema** (archivos, tarea, respaldos, diagnóstico, "Actualizar ahora") y **Configuración**.
+
+## Usuarios (Holcim, Ambipar…)
+
+El usuario principal es el de la configuración inicial (`SIGBE_USUARIO`). En **Configuración → Usuarios administradores**
+crea los demás (usuario, nombre, organización y clave inicial generada), les pone una clave nueva, los desactiva o los
+elimina. Las claves se guardan cifradas con sal en `SIGBE_USUARIOS` (Propiedades del script). Todos pueden tomar
+asistencia, editar brigadistas, programar el cronograma y crear módulos; el historial muestra quién fue
+(`ambipar (Ambipar)`). Solo el principal cambia archivos, acceso, tarea automática y usuarios. Cada uno cambia su clave
+en **Mi usuario y clave**. Un usuario desactivado o eliminado pierde la sesión al instante.
+
+## Dónde queda lo que se programa
+
+En las mismas pestañas de siempre: el cronograma y la lista "2026 Brigadistas HOLCIM". Hasta el corte se escribe en
+el 1.0 (cronograma) y el 2.0 (lista) y el libro nuevo lo copia ~1 minuto después; después del corte, en el libro nuevo,
+y la lista se reorganiza sola (fechas y "No aplica") ~1 minuto después. Así el Excel sigue siendo un reflejo fiel y no
+hay una segunda base de datos que pueda quedar distinta. Antes del primer cambio del día se guarda un respaldo.
 
 ## Rapidez
 

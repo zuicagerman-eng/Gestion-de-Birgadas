@@ -19,6 +19,10 @@
  * CAMBIOS HECHOS EN EL EXCEL: la tarea de cada hora (libroNuevoActualizar) llama a sigbeVigilar_, que compara
  * los datos con la pasada anterior y anota en el historial, como "Excel (detectado)", lo que no se hizo desde la app.
  *
+ * PROGRAMACIÓN Y MÓDULOS: guardarCronograma escribe fechas/estado/observaciones en el cronograma y crearModulo agrega
+ * las columnas del módulo a la lista y su fila "(M12)" al cronograma (ver la sección PROGRAMACIÓN).
+ * USUARIOS: el principal (SIGBE_USUARIO) y los que él cree (SIGBE_USUARIOS, p. ej. Ambipar); ver la sección USUARIOS.
+ *
  * SEGUROS AL ESCRIBIR: sesión obligatoria; personas por cédula (+ nombre) y columnas por encabezado; solo
  * casillas de asistencia y campos editables; si la celda cambió desde que se cargó la pantalla no se pisa;
  * no se marca asistencia en sesiones que el cronograma dice que no aplican; respaldo del archivo antes del
@@ -26,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.0.3';
+const SIGBE_VERSION = '4.1.0';
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -101,7 +105,7 @@ function getCodigoApp() {
 function getContexto(token) {
   const setup = sigbeEstadoSetup_();
   return {
-    version: SIGBE_VERSION, setup: setup, usuario: sigbeUsuarioSesion_(token),
+    version: SIGBE_VERSION, setup: setup, usuario: sigbeUsuarioSesion_(token), perfil: sigbePerfil_(sigbeUsuarioSesion_(token)),
     lecturaPublica: sigbeLecturaPublica_(), corte: !!prop_('LIBRO_NUEVO_CORTE'),
   };
 }
@@ -166,12 +170,13 @@ function sigbeConstruirModelo_() {
 
   const lista = [];
   crono.filas.forEach(f => {
-    if (!f.celdas.some(c => c.tipo === 'fecha' || c.estado)) return; // fila sin ninguna fecha (p. ej. la parte combinada de otra)
+    // fila sin ninguna fecha (p. ej. la parte combinada de otra), salvo los módulos creados desde la app que aún no tienen fechas
+    if (!f.celdas.some(c => c.tipo === 'fecha' || c.estado) && !f.tag) return;
     crono.bloques.forEach((b, i) => {
       const c = f.celdas[i];
-      if (c.tipo === 'noaplica') return;
       lista.push({ sede: b.sede, pl: b.nombre, n: b.n, ses: b.sesion, mes: f.mes, ent: f.nombre, pre: f.prefijo, cl: f.clave,
-        f: c.fecha ? sigbeTexto_(c.fecha) : '', i: c.iso || '', amb: c.ambipar, e: c.estado, obs: c.obs, br: c.brig });
+        f: c.fecha ? sigbeTexto_(c.fecha) : '', i: c.iso || '', amb: c.ambipar, e: c.estado, obs: c.obs, br: c.brig,
+        fila: f.fila, b: i, na: c.tipo === 'noaplica' ? 1 : 0 });
     });
   });
 
@@ -191,7 +196,8 @@ function sigbeConstruirModelo_() {
     plantas: plantas,
     holcim: holcim,
     inhouse: inhouse.map(p => Object.assign(p, { sede: sigbeSede_(p.p) })),
-    crono: lista,
+    crono: lista,  // na = 1: "-" o gris (no aplica); las pantallas las muestran solo en el cronograma
+    cronoFilas: crono.filas.map(f => ({ fila: f.fila, mes: f.mes, nombre: f.nombre, pre: f.prefijo, cl: f.clave })),
     indicador: indicador,
     seguimiento: seguimiento,
     sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1).concat(sedes.filter(s => !SIGBE_SEDES.some(x => x[0] === s))),
@@ -545,19 +551,251 @@ function getCatalogos(token) {
       try { ind = sigbeLeerIndicador_(sigbeHoja_(F.datos, SIGBE_HOJA_INDICADOR)).filter(f => !f.tot).map(f => f.emp); } catch (e) { ind = []; }
       return sigbeUnicos_(['HOLCIM'].concat(h.personas.map(p => p.empresa), inhouse.map(p => p.k), ind.map(x => String(x).toUpperCase())));
     })(),
+    estadosCrono: (() => { // el desplegable de ESTADO del cronograma, si lo tiene
+      try {
+        const shC = sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA), c = sigbeLeerCronograma_(shC);
+        const b = c.bloques.find(x => x.col.ESTADO !== undefined), f = c.filas[0];
+        return (b && f && sigbeListaValidacion_(shC.getRange(f.fila, b.col.ESTADO + 1))) || SIGBE_ESTADOS_CRONO;
+      } catch (e) { return SIGBE_ESTADOS_CRONO; }
+    })(),
+    lineas: SIGBE_LINEAS,
   };
 }
 
-/** Después de guardar: historial, caché nueva y actualización rápida del libro nuevo. */
-function sigbeTrasGuardar_(F, usuario, filas) {
-  sigbeBitacora_(usuario, filas);
-  sigbeInvalidar_();
-  sigbeProgramarActualizacion_(F);
+// ═════════════════════════════ PROGRAMACIÓN: CRONOGRAMA Y MÓDULOS ═════════════════════════════
+// La app escribe en las mismas pestañas del libro (hasta el corte en el 1.0 / 2.0, que el libro nuevo copia;
+// después del corte en el libro nuevo). Así el Excel sigue siendo un reflejo fiel y todo lo demás
+// (sesiones que aplican, fechas de la lista, cumplimiento) sale de un solo lugar.
+
+const SIGBE_ESTADOS_CRONO = ['Programada', 'Realizada', 'Reprogramada', 'Pendiente Ambipar', 'Cancelada'];
+const SIGBE_LINEAS = ['AGG', 'CEM', 'GEO', 'RMX', 'TQC', 'COR'];
+const SIGBE_MESES = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+// Dato del formulario → encabezado de la columna dentro del bloque de cada planta (fila 3 del cronograma)
+const SIGBE_CAMPOS_CRONO = {
+  fecha: { col: 'FECHA HOLCIM', etiqueta: 'Fecha', fecha: true },
+  ambipar: { col: 'FECHA AMBIPAR', etiqueta: 'Fecha Ambipar', fecha: true },
+  estado: { col: 'ESTADO', etiqueta: 'Estado' },
+  obs: { col: 'OBSERVACIONES', etiqueta: 'Observaciones' },
+  brig: { col: '# BRIGADISTAS', etiqueta: '# Brigadistas' },
+};
+
+/**
+ * Cambia sesiones del cronograma. lista: [{ fila, b, ent, pl, ses, cambios: {campo: valor}, anteriores: {campo: valor} }]
+ *  fila = fila de la hoja; b = número de bloque (planta y sesión); ent/pl/ses confirman que es la misma celda.
+ *  fecha: 'yyyy-MM-dd', '' (sin fecha) o '-' (no aplica en esa planta). ambipar: 'yyyy-MM-dd' o ''.
+ */
+function guardarCronograma(token, lista) {
+  const lock = LockService.getScriptLock();
+  try {
+    const usuario = sigbeExigirSesion_(token);
+    if (!lista || !lista.length) return { exito: true, guardados: 0, resultados: [], mensaje: 'No había cambios.' };
+    if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    const F = sigbeFuentes_();
+    sigbeExigirEscritura_(F, 'datos');
+    const sh = sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA);
+    const crono = sigbeLeerCronograma_(sh);
+    const bitacora = [], resultados = [];
+    let total = 0, respaldo = false;
+    lista.forEach(x => {
+      const f = crono.filas.find(r => r.fila === Number(x.fila)), b = crono.bloques[Number(x.b)];
+      const donde = (x.ent || '') + ' · ' + (x.pl || '') + ' ' + (x.ses || '');
+      if (!f || !b || f.nombre !== x.ent || b.nombre !== x.pl || b.sesion !== x.ses) {
+        resultados.push({ exito: false, rechazos: [], mensaje: donde + ': el cronograma cambió mientras tanto. Actualiza los datos (↻) y vuelve a intentarlo.' });
+        return;
+      }
+      const r = f.fila - 1;
+      const cols = Object.keys(b.col).map(k => b.col[k]);
+      const texto = c => c === undefined ? '' : crono.v[r][c] instanceof Date ? sigbeTexto_(crono.v[r][c]) : String(crono.d[r][c]).trim();
+      const actualDe = campo => {
+        const c = b.col[SIGBE_CAMPOS_CRONO[campo].col];
+        if (campo === 'fecha' && c !== undefined && (texto(c) === '-' || sigbeEsGris_(crono.bg[r][c]))) return '-';
+        return texto(c) === '-' && campo !== 'fecha' ? '' : texto(c);
+      };
+      const escrituras = [], rechazos = [];
+      Object.keys(x.cambios || {}).forEach(campo => {
+        const def = SIGBE_CAMPOS_CRONO[campo];
+        if (!def) return;
+        const c = b.col[def.col];
+        if (c === undefined) { rechazos.push(def.etiqueta + ': el bloque de ' + b.nombre + ' no tiene esa columna'); return; }
+        let nuevo = String(x.cambios[campo] === null || x.cambios[campo] === undefined ? '' : x.cambios[campo]).trim();
+        if (def.fecha && nuevo && nuevo !== '-' && !/^\d{4}-\d{2}-\d{2}$/.test(nuevo)) { rechazos.push(def.etiqueta + ': fecha no válida'); return; }
+        if (nuevo === '-' && campo !== 'fecha') nuevo = '';
+        if (campo === 'brig' && nuevo && !/^\d{1,4}$/.test(nuevo)) { rechazos.push('# Brigadistas: debe ser un número'); return; }
+        if (campo === 'obs') nuevo = nuevo.slice(0, 300);
+        const nuevoTexto = /^\d{4}-\d{2}-\d{2}$/.test(nuevo) ? nuevo.split('-').reverse().join('/') : nuevo;
+        const actual = actualDe(campo);
+        if (nuevoTexto === actual) return;
+        const ant = (x.anteriores || {})[campo];
+        if (ant !== undefined && sigbeNorm_(ant) !== sigbeNorm_(actual)) { rechazos.push(def.etiqueta + ': cambió en la hoja mientras tanto (ahora es "' + (actual || 'vacío') + '")'); return; }
+        if (campo === 'estado' && nuevo) {
+          const opciones = sigbeListaValidacion_(sh.getRange(f.fila, c + 1));
+          if (opciones && opciones.indexOf(nuevo) === -1) { rechazos.push('Estado: "' + nuevo + '" no está en las opciones de la hoja (' + opciones.join(', ') + ')'); return; }
+        }
+        escrituras.push({ c: c, valor: def.fecha && nuevoTexto && nuevoTexto !== '-' ? sigbeFecha_(nuevo) : nuevo, fecha: def.fecha && nuevoTexto && nuevoTexto !== '-' });
+        // Mismos textos que usa la revisión de cambios del Excel, para que no los anote como hechos en el Excel
+        if (campo === 'fecha') {
+          if (nuevo === '-') bitacora.push(['Cronograma', sh.getName(), f.fila, '', '', 'No aplica · ' + donde, actual || '(sin fecha)', 'No aplica']);
+          else bitacora.push(['Cronograma', sh.getName(), f.fila, '', '', 'Fecha · ' + donde, actual === '-' ? 'No aplica' : actual || '(sin fecha)', nuevoTexto || '(sin fecha)']);
+        } else if (campo === 'estado') bitacora.push(['Cronograma', sh.getName(), f.fila, '', '', 'Estado · ' + donde, actual || '(vacío)', nuevo || '(vacío)']);
+        else bitacora.push(['Cronograma', sh.getName(), f.fila, '', '', def.etiqueta + ' · ' + donde, actual, nuevoTexto]);
+        // Una sesión que no aplicaba (en gris) y ahora tiene fecha: el bloque vuelve a blanco
+        if (campo === 'fecha' && nuevo !== '-' && actual === '-') escrituras.push({ blanco: true });
+      });
+      if (escrituras.length) {
+        if (!respaldo) { try { respaldoDelDia_(F.datos); } catch (e) { /* sigue */ } respaldo = true; }
+        escrituras.forEach(e => {
+          if (e.blanco) {
+            const c0 = Math.min.apply(null, cols), c1 = Math.max.apply(null, cols);
+            try { sh.getRange(f.fila, c0 + 1, 1, c1 - c0 + 1).setBackground('#ffffff'); } catch (err) { /* el color no es esencial */ }
+            cols.forEach(c => { if (texto(c) === '-' && c !== b.col['FECHA HOLCIM']) { sh.getRange(f.fila, c + 1).setValue(''); } });
+            return;
+          }
+          const celda = sh.getRange(f.fila, e.c + 1);
+          celda.setValue(e.valor);
+          if (e.fecha) { try { celda.setNumberFormat('dd/mm/yyyy'); } catch (err) { /* columna con formato fijo */ } }
+        });
+        total += escrituras.filter(e => !e.blanco).length;
+      }
+      resultados.push({ exito: escrituras.length > 0 || !rechazos.length, rechazos: rechazos,
+        mensaje: escrituras.length ? donde + ': guardado' + (rechazos.length ? '. No se aplicó: ' + rechazos.join('; ') : '.') : (rechazos.length ? donde + ': ' + rechazos.join('; ') : donde + ': no había cambios.') });
+    });
+    if (bitacora.length) sigbeTrasGuardar_(F, usuario, bitacora, true);
+    const conRechazos = resultados.filter(r => !r.exito || (r.rechazos && r.rechazos.length));
+    return { exito: true, guardados: total, resultados: resultados,
+      mensaje: total + ' dato(s) del cronograma guardado(s)' + (conRechazos.length ? '; ' + conRechazos.length + ' sesión(es) con algo que no se aplicó.' : '.') };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
-/** Hasta el corte, programa la actualización del libro nuevo en ~1 minuto (si no hay una pendiente). */
-function sigbeProgramarActualizacion_(F) {
-  if (F.corte || !F.libro) return false;
+/**
+ * Crea un módulo nuevo: 4 columnas en la lista de asistencia (Sesión 1 y 2 con su casilla, antes del cumplimiento)
+ * y su fila en el cronograma con la etiqueta "(M12)", que es la que une las dos cosas.
+ * d: { nombre, mes, lineas: ['AGG', …] (vacío = todas) }  o  { fila } para usar un entrenamiento que ya está en
+ * el cronograma pero no tiene columnas en la lista (p. ej. "Espacios confinados").
+ */
+function crearModulo(token, d) {
+  const lock = LockService.getScriptLock();
+  try {
+    const usuario = sigbeExigirSesion_(token);
+    if (!lock.tryLock(30000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    const F = sigbeFuentes_();
+    sigbeExigirEscritura_(F, 'datos');
+    sigbeExigirEscritura_(F, 'asistencia');
+    const shC = sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA), shL = sigbeHoja_(F.asistencia, SIGBE_HOJA_HOLCIM);
+    const crono = sigbeLeerCronograma_(shC), h = sigbeLeerHolcim_(shL);
+    const numeros = h.sesiones.map(s => Number(s.modulo.slice(1))).concat(Object.keys(LN_MODULOS).map(k => Number(k.slice(1))),
+      crono.filas.map(f => f.tag ? Number(f.tag.slice(1)) : 0));
+    const clave = 'M' + (Math.max.apply(null, numeros.concat([0])) + 1);
+
+    // Qué fila del cronograma
+    let existente = null, nombre = '', lineas = [], mes = '';
+    if (d.fila) {
+      existente = crono.filas.find(f => f.fila === Number(d.fila));
+      if (!existente) return { exito: false, mensaje: 'Esa fila ya no está en el cronograma. Actualiza los datos (↻).' };
+      if (existente.clave) return { exito: false, mensaje: '"' + existente.nombre + '" ya es el módulo ' + existente.clave + '.' };
+      nombre = existente.nombre;
+    } else {
+      nombre = String(d.nombre || '').replace(/\s+/g, ' ').trim().toUpperCase().replace(/\(M\d+\)/g, '').trim();
+      if (nombre.length < 4) return { exito: false, mensaje: 'Escribe el nombre del entrenamiento.' };
+      const igual = crono.filas.find(f => sigbeNorm_(f.nombre) === sigbeNorm_(nombre));
+      if (igual) return { exito: false, mensaje: 'Ya hay una fila "' + igual.nombre + '" en el cronograma' + (igual.clave ? ' (módulo ' + igual.clave + ')' : ': elígela en "Usar uno del cronograma"') + '.' };
+      lineas = (d.lineas || []).map(sigbeNorm_).filter(x => SIGBE_LINEAS.indexOf(x) !== -1);
+      if (lineas.length === SIGBE_LINEAS.length) lineas = [];
+      mes = sigbeNorm_(d.mes);
+      if (SIGBE_MESES.indexOf(mes) === -1) return { exito: false, mensaje: 'Elige el mes.' };
+    }
+
+    // 1) Lista de asistencia: 4 columnas después del último módulo (quedan antes del cumplimiento)
+    const avisos = [];
+    const ultima = Math.max.apply(null, h.sesiones.map(s => s.colAsis));
+    const fe = h.filaEncabezado, c0 = ultima + 1;
+    try { respaldoDelDia_(F.asistencia); } catch (e) { /* sigue */ }
+    if (F.datos.getId() !== F.asistencia.getId()) { try { respaldoDelDia_(F.datos); } catch (e) { /* sigue */ } }
+    try { shL.insertColumnsAfter(ultima, 4); }
+    catch (e) { return { exito: false, mensaje: 'Google no dejó agregar columnas en "' + shL.getName() + '" (' + e.message + '). No se cambió nada.' }; }
+    try { shL.getRange(1, ultima - 3, fe, 4).copyTo(shL.getRange(1, c0, fe, 4), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); } catch (e) { /* solo apariencia */ }
+    shL.getRange(fe, c0, 1, 4).setValues([[clave + '_Sesión_1', 'Asistencia ' + clave + '_1', clave + '_Sesión_2', 'Asistencia ' + clave + '_2']]);
+    if (fe > 1) {
+      shL.getRange(fe - 1, c0, 1, 4).setValues([[clave + ': ' + nombre, '', '', '']]);
+      try { shL.getRange(fe - 1, c0, 1, 4).merge(); } catch (e) { /* ya combinada o en una tabla */ }
+    }
+    const ultimaFila = shL.getLastRow();
+    if (ultimaFila > fe) {
+      const personas = {};
+      h.personas.forEach(p => { personas[p.fila] = true; });
+      const casilla = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+      const rango = shL.getRange(fe + 1, c0, ultimaFila - fe, 4);
+      const fondos = rango.getBackgrounds(), valores = [], dvs = [], formatos = [];
+      for (let r = fe + 1; r <= ultimaFila; r++) {
+        const es = !!personas[r];
+        if (es) fondos[r - fe - 1] = ['#ffffff', '#ffffff', '#ffffff', '#ffffff'];
+        valores.push(es ? ['', false, '', false] : ['', '', '', '']);
+        dvs.push(es ? [null, casilla, null, casilla] : [null, null, null, null]);
+        formatos.push(['dd/mm/yyyy', 'General', 'dd/mm/yyyy', 'General']);
+      }
+      try { rango.setBackgrounds(fondos); } catch (e) { /* solo apariencia */ }
+      try { rango.setNumberFormats(formatos); } catch (e) { /* columna con tipo fijo */ }
+      try { rango.setDataValidations(dvs); } catch (e) { avisos.push('No se pudieron poner las casillas en la hoja (' + e.message + '); la asistencia igual se puede tomar desde la app.'); }
+      try { rango.setValues(valores); } catch (e) { /* quedan vacías: también cuentan como "no asistió" */ }
+    }
+
+    // 2) Cronograma: la fila del módulo con su etiqueta
+    let fila;
+    try {
+      if (existente) {
+        const celda = shC.getRange(existente.fila, 2);
+        const lineasTexto = String(celda.getValue()).split('\n');
+        lineasTexto[0] = lineasTexto[0].replace(/\s+$/, '') + ' (' + clave + ')';
+        celda.setValue(lineasTexto.join('\n'));
+        fila = existente.fila;
+      } else {
+        const im = SIGBE_MESES.indexOf(mes);
+        const delMes = crono.filas.filter(f => sigbeNorm_(f.mes) === mes);
+        const antes = crono.filas.filter(f => SIGBE_MESES.indexOf(sigbeNorm_(f.mes)) !== -1 && SIGBE_MESES.indexOf(sigbeNorm_(f.mes)) < im);
+        const tras = delMes.length ? delMes[delMes.length - 1].fila : antes.length ? antes[antes.length - 1].fila : 3;
+        shC.insertRowAfter(tras);
+        fila = tras + 1;
+        const ancho = Math.max(shC.getLastColumn(), 3);
+        const valores = [delMes.length ? '' : mes.charAt(0) + mes.slice(1).toLowerCase(), (lineas.length ? lineas.join(' & ') : 'TODOS') + ': ' + nombre + ' (' + clave + ')'];
+        for (let c = 2; c < ancho; c++) valores.push('');
+        crono.bloques.forEach(b => {
+          const cfg = lnPlanta_(b.nombre);
+          if (!lineas.length || !cfg || lineas.indexOf(cfg.linea) !== -1) return;
+          Object.keys(b.col).forEach(k => { valores[b.col[k]] = '-'; }); // esta planta no es de esas líneas
+        });
+        shC.getRange(fila, 1, 1, ancho).setValues([valores]);
+        try { shC.getRange(fila, 3, 1, ancho - 2).setBackground('#ffffff'); } catch (e) { /* solo apariencia */ }
+      }
+    } catch (e) {
+      sigbeTrasGuardar_(F, usuario, [['Nuevo módulo', shL.getName(), '', '', '', clave + ': ' + nombre, '', 'Columnas creadas; falló la fila del cronograma']], true);
+      return { exito: false, mensaje: 'Se crearon las columnas de ' + clave + ' en la lista, pero no la fila del cronograma (' + e.message + '). Agrégala a mano con el texto "' + nombre + ' (' + clave + ')".' };
+    }
+    sigbeTrasGuardar_(F, usuario, [['Nuevo módulo', shL.getName() + ' / ' + shC.getName(), fila, '', '', clave + ': ' + nombre + ' (' + (lineas.length ? lineas.join(', ') : existente ? existente.prefijo : 'todas las líneas') + ')', '', 'Creado']], true);
+    return { exito: true, clave: clave, nombre: nombre, avisos: avisos,
+      mensaje: 'Módulo ' + clave + ' creado: "' + nombre + '". Ahora ponle las fechas por planta en el Cronograma.' + (avisos.length ? ' ' + avisos.join(' ') : '') };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Después de guardar: historial, caché nueva y actualización rápida del libro nuevo. */
+function sigbeTrasGuardar_(F, usuario, filas, cambioCronograma) {
+  sigbeBitacora_(usuario, filas);
+  sigbeInvalidar_();
+  sigbeProgramarActualizacion_(F, cambioCronograma);
+}
+
+/**
+ * Programa la actualización del libro nuevo en ~1 minuto (si no hay una pendiente): hasta el corte, para copiar
+ * lo guardado; después del corte, solo si cambió el cronograma o los módulos (para reorganizar la lista).
+ */
+function sigbeProgramarActualizacion_(F, cambioCronograma) {
+  if (!F.libro || (F.corte && !cambioCronograma)) return false;
   try {
     const props = props_();
     const pendiente = Number(props.getProperty('SIGBE_SYNC_PENDIENTE')) || 0;
@@ -711,7 +949,7 @@ function sigbeFoto_(m) {
   const h = {}, i = {}, cr = {};
   m.holcim.forEach(p => { h[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, e: p.e, fi: p.fi, ce: p.ce, m: p.m, em: p.em, gs: p.gs, c1: p.c1, fr: p.fr }; });
   m.inhouse.forEach(p => { i[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, k: p.k, ce: p.ce, e: p.e, fi: p.fi, gs: p.gs, c1: p.c1, fr: p.fr }; });
-  m.crono.forEach(x => { cr[x.pl + '|' + x.ses + '|' + x.ent] = { f: x.f, e: x.e }; });
+  m.crono.forEach(x => { if (!x.na) cr[x.pl + '|' + x.ses + '|' + x.ent] = { f: x.f, e: x.e }; });
   return { v: 1, origen: m.fuentes.asistencia.id + '|' + m.fuentes.datos.id, ses: m.sesiones.map(s => s.key), h: h, i: i, cr: cr };
 }
 
@@ -746,14 +984,14 @@ function sigbeDiferencias_(a, b) {
   Object.keys(b.cr || {}).forEach(k => {
     const x = (a.cr || {})[k], y = b.cr[k];
     const [pl, ses, ent] = k.split('|');
-    if (!x) { out.push([A, SIGBE_HOJA_CRONOGRAMA, '', '', '', 'Sesión nueva · ' + ent + ' · ' + pl + ' ' + ses, '', y.f || '(sin fecha)']); return; }
+    if (!x) { if (y.f) out.push([A, SIGBE_HOJA_CRONOGRAMA, '', '', '', 'Fecha · ' + ent + ' · ' + pl + ' ' + ses, '(sin fecha)', y.f]); return; }
     if (x.f !== y.f) out.push([A, SIGBE_HOJA_CRONOGRAMA, '', '', '', 'Fecha · ' + ent + ' · ' + pl + ' ' + ses, x.f || '(sin fecha)', y.f || '(sin fecha)']);
     if (x.e !== y.e) out.push([A, SIGBE_HOJA_CRONOGRAMA, '', '', '', 'Estado · ' + ent + ' · ' + pl + ' ' + ses, x.e || '(vacío)', y.e || '(vacío)']);
   });
   Object.keys(a.cr || {}).forEach(k => {
     if ((b.cr || {})[k]) return;
     const [pl, ses, ent] = k.split('|');
-    out.push([A, SIGBE_HOJA_CRONOGRAMA, '', '', '', 'Sesión quitada (ahora "-" o sin fila) · ' + ent + ' · ' + pl + ' ' + ses, a.cr[k].f || '(sin fecha)', 'No aplica']);
+    out.push([A, SIGBE_HOJA_CRONOGRAMA, '', '', '', 'No aplica · ' + ent + ' · ' + pl + ' ' + ses, a.cr[k].f || '(sin fecha)', 'No aplica']);
   });
   return out;
 }
@@ -925,11 +1163,18 @@ function validarLoginAdmin(usuario, clave) {
   const u = props.getProperty('SIGBE_USUARIO');
   const hash = props.getProperty('SIGBE_CLAVE_HASH');
   if (!u || !hash) return { exito: false, mensaje: 'Falta configurar el usuario y la clave (Propiedades del script SIGBE_USUARIO y SIGBE_CLAVE_INICIAL).' };
-  if (String(usuario).trim() === u && sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash) {
+  const escrito = String(usuario || '').trim();
+  let quien = null;
+  if (escrito === u && sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash) quien = u;
+  else {
+    const x = sigbeUsuarios_()[escrito.toLowerCase()];
+    if (x && x.activo !== false && sigbeHash_(clave, x.sal) === x.hash) quien = escrito.toLowerCase();
+  }
+  if (quien) {
     cache.remove('sigbe_intentos');
     const token = Utilities.getUuid();
-    cache.put('sigbe_sesion_' + token, u, SIGBE_HORAS_SESION * 3600);
-    return { exito: true, token: token, usuario: u, mensaje: 'Acceso autorizado' };
+    cache.put('sigbe_sesion_' + token, quien, SIGBE_HORAS_SESION * 3600);
+    return { exito: true, token: token, usuario: quien, perfil: sigbePerfil_(quien), mensaje: 'Acceso autorizado' };
   }
   cache.put('sigbe_intentos', String(intentos + 1), 600);
   return { exito: false, mensaje: 'Usuario o clave incorrectos' };
@@ -965,7 +1210,97 @@ function sigbeExigirSesion_(token) {
 }
 
 function sigbeUsuarioSesion_(token) {
-  return token ? CacheService.getScriptCache().get('sigbe_sesion_' + token) : null;
+  const u = token ? CacheService.getScriptCache().get('sigbe_sesion_' + token) : null;
+  return u && sigbePerfil_(u) ? u : null; // un usuario quitado o desactivado pierde la sesión al instante
+}
+
+// ═════════════════════════════ USUARIOS ═════════════════════════════
+// El usuario principal es el de la configuración inicial (SIGBE_USUARIO): administra a los demás.
+// Los demás (p. ej. uno de Ambipar) van en SIGBE_USUARIOS como JSON { usuario: { n, org, sal, hash, activo } };
+// las claves nunca se guardan en texto, solo su huella con sal.
+const SIGBE_ORGS = ['Holcim', 'Ambipar', 'Otra'];
+
+function sigbeUsuarios_() {
+  try { return JSON.parse(prop_('SIGBE_USUARIOS') || '{}') || {}; } catch (e) { return {}; }
+}
+
+function sigbePerfil_(usuario) {
+  if (!usuario) return null;
+  const principal = prop_('SIGBE_USUARIO');
+  if (usuario === principal) return { usuario: principal, nombre: prop_('SIGBE_NOMBRE') || principal, org: prop_('SIGBE_ORG') || 'Holcim', principal: true };
+  const x = sigbeUsuarios_()[usuario];
+  if (!x || x.activo === false) return null;
+  return { usuario: usuario, nombre: x.n || usuario, org: x.org || '', principal: false };
+}
+
+/** Cómo aparece quien hizo el cambio en el historial: "usuario (Organización)". */
+function sigbeEtiquetaUsuario_(usuario) {
+  const p = sigbePerfil_(usuario);
+  return p && p.org ? usuario + ' (' + p.org + ')' : usuario;
+}
+
+function getUsuarios(token) {
+  const yo = sigbePerfil_(sigbeExigirSesion_(token));
+  const lista = sigbeUsuarios_();
+  return {
+    yo: yo, orgs: SIGBE_ORGS,
+    usuarios: [{ usuario: prop_('SIGBE_USUARIO'), nombre: prop_('SIGBE_NOMBRE') || '', org: prop_('SIGBE_ORG') || 'Holcim', activo: true, principal: true }]
+      .concat(Object.keys(lista).sort().map(k => ({ usuario: k, nombre: lista[k].n || '', org: lista[k].org || '', activo: lista[k].activo !== false, principal: false }))),
+  };
+}
+
+/** Crea o edita un usuario (solo el principal). d: { usuario, nombre, org, clave (obligatoria al crear), activo, nuevo } */
+function guardarUsuario(token, d) {
+  const lock = LockService.getScriptLock();
+  try {
+    const yo = sigbePerfil_(sigbeExigirSesion_(token));
+    if (!yo.principal) return { exito: false, mensaje: 'Solo el usuario principal (' + prop_('SIGBE_USUARIO') + ') administra los usuarios.' };
+    if (!lock.tryLock(10000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
+    const org = SIGBE_ORGS.indexOf(d.org) !== -1 ? d.org : 'Otra';
+    const nombre = String(d.nombre || '').trim().slice(0, 60);
+    if (d.usuario === yo.usuario) { // el principal solo cambia su nombre y organización aquí
+      props_().setProperties({ SIGBE_NOMBRE: nombre, SIGBE_ORG: org });
+      sigbeBitacora_(yo.usuario, [['Usuarios', 'Propiedades del script', '', '', '', 'Datos de ' + yo.usuario, '', nombre + ' · ' + org]]);
+      return { exito: true, mensaje: 'Datos actualizados.' };
+    }
+    const u = String(d.usuario || '').trim().toLowerCase();
+    if (!/^[a-z0-9._-]{3,30}$/.test(u)) return { exito: false, mensaje: 'El usuario debe tener de 3 a 30 letras, números, punto, guion o guion bajo (sin espacios ni tildes).' };
+    if (u === String(prop_('SIGBE_USUARIO') || '').toLowerCase()) return { exito: false, mensaje: 'Ese usuario ya es el principal.' };
+    const lista = sigbeUsuarios_();
+    if (d.nuevo && lista[u]) return { exito: false, mensaje: 'El usuario "' + u + '" ya existe.' };
+    if (!d.nuevo && !lista[u]) return { exito: false, mensaje: 'El usuario "' + u + '" no existe.' };
+    const x = lista[u] || {};
+    const cambios = [];
+    if (d.clave) {
+      if (String(d.clave).length < 8) return { exito: false, mensaje: 'La clave debe tener al menos 8 caracteres.' };
+      x.sal = Utilities.getUuid(); x.hash = sigbeHash_(d.clave, x.sal);
+      cambios.push(d.nuevo ? 'Usuario creado' : 'Clave restablecida');
+    } else if (d.nuevo) return { exito: false, mensaje: 'Ponle una clave inicial (mínimo 8 caracteres).' };
+    if ((x.n || '') !== nombre) { cambios.push('Nombre: ' + nombre); x.n = nombre; }
+    if ((x.org || '') !== org) { cambios.push('Organización: ' + org); x.org = org; }
+    const activo = d.activo !== false;
+    if ((x.activo !== false) !== activo || d.nuevo) { if (!d.nuevo) cambios.push(activo ? 'Activado' : 'Desactivado'); x.activo = activo; }
+    lista[u] = x;
+    props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
+    if (cambios.length) sigbeBitacora_(yo.usuario, [['Usuarios', 'Propiedades del script', '', '', '', 'Usuario ' + u + ' (' + org + ')', '', cambios.join(' · ')]]);
+    return { exito: true, mensaje: d.nuevo ? 'Usuario "' + u + '" creado. Pásale la clave por un medio privado y pídele que la cambie al entrar.' : (cambios.length ? 'Guardado: ' + cambios.join(' · ') : 'No había cambios.') };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function quitarUsuario(token, usuario) {
+  const yo = sigbePerfil_(sigbeExigirSesion_(token));
+  if (!yo.principal) return { exito: false, mensaje: 'Solo el usuario principal administra los usuarios.' };
+  const lista = sigbeUsuarios_();
+  if (!lista[usuario]) return { exito: false, mensaje: 'Ese usuario no existe.' };
+  const org = lista[usuario].org || '';
+  delete lista[usuario];
+  props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
+  sigbeBitacora_(yo.usuario, [['Usuarios', 'Propiedades del script', '', '', '', 'Usuario ' + usuario + (org ? ' (' + org + ')' : ''), 'Activo', 'Eliminado']]);
+  return { exito: true, mensaje: 'Usuario "' + usuario + '" eliminado: ya no puede entrar.' };
 }
 
 function sigbeHash_(texto, sal) {
@@ -1059,6 +1394,7 @@ function getConfiguracion(token) {
 /** Guarda archivos y lectura pública. Comprueba que los archivos abran antes de guardarlos. */
 function guardarConfiguracion(token, cfg) {
   const usuario = sigbeExigirSesion_(token);
+  if (!sigbePerfil_(usuario).principal) return { exito: false, mensaje: 'Solo el usuario principal cambia los archivos y el acceso.' };
   const props = PropertiesService.getScriptProperties();
   const cambios = [];
   let reiniciarEspejo = false;
@@ -1099,6 +1435,7 @@ function guardarConfiguracion(token, cfg) {
 /** Activa o desactiva la tarea automática (actualizar el libro nuevo + anotar cambios del Excel). */
 function configurarAutomatico(token, activar, cadaHoras) {
   const usuario = sigbeExigirSesion_(token);
+  if (!sigbePerfil_(usuario).principal) return { exito: false, mensaje: 'Solo el usuario principal cambia la tarea automática.' };
   try {
     if (activar) {
       if (!lnIdLibro_()) return { exito: false, mensaje: 'Primero crea el libro nuevo (libroNuevoCrear desde el editor) o pon su URL en Archivos.' };
@@ -1115,8 +1452,18 @@ function configurarAutomatico(token, activar, cadaHoras) {
 }
 
 function cambiarClave(token, claveActual, usuarioNuevo, claveNueva) {
-  sigbeExigirSesion_(token);
+  const yo = sigbeExigirSesion_(token);
   const props = PropertiesService.getScriptProperties();
+  if (yo !== props.getProperty('SIGBE_USUARIO')) { // otro usuario: solo su clave (el nombre de usuario no cambia)
+    const lista = sigbeUsuarios_(), x = lista[yo];
+    if (!x || sigbeHash_(claveActual, x.sal) !== x.hash) return { exito: false, mensaje: 'La clave actual no es correcta.' };
+    if (String(claveNueva || '').length < 8) return { exito: false, mensaje: 'La clave debe tener al menos 8 caracteres.' };
+    x.sal = Utilities.getUuid(); x.hash = sigbeHash_(claveNueva, x.sal);
+    props.setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
+    sigbeBitacora_(yo, [['Usuarios', 'Propiedades del script', '', '', '', 'Usuario ' + yo, '', 'Cambió su clave']]);
+    CacheService.getScriptCache().remove('sigbe_sesion_' + token);
+    return { exito: true, mensaje: 'Clave actualizada. Vuelve a iniciar sesión.' };
+  }
   sigbeConsumirClaveInicial_(props);
   if (sigbeHash_(claveActual, props.getProperty('SIGBE_SAL')) !== props.getProperty('SIGBE_CLAVE_HASH')) return { exito: false, mensaje: 'La clave actual no es correcta.' };
   try {
@@ -1222,7 +1569,8 @@ function sigbeBitacora_(usuario, filas) {
       try { sh.protect().setDescription('Historial de la app SIGBE (solo la app escribe aquí)').setWarningOnly(true); } catch (e) { /* sin permiso */ }
     }
     const ahora = new Date();
-    sh.getRange(sh.getLastRow() + 1, 1, filas.length, 10).setValues(filas.map(f => [ahora, usuario].concat(f)));
+    const quien = /^EXCEL/i.test(String(usuario)) ? usuario : sigbeEtiquetaUsuario_(usuario);
+    sh.getRange(sh.getLastRow() + 1, 1, filas.length, 10).setValues(filas.map(f => [ahora, quien].concat(f)));
   } catch (e) {
     console.log('No se pudo escribir el historial: ' + e.message);
   }
@@ -1411,11 +1759,12 @@ function sigbeLeerCronograma_(sh) {
     const m = linea1.match(/^([^:]{1,20}):\s*(.*)$/);
     const pref = m ? sigbeNorm_(m[1]) : 'TODOS';
     const texto = sigbeNorm_(linea1);
-    let clave = '';
-    if (texto.indexOf('0256') !== -1) clave = 'M8-' + (++k0256);
-    else Object.keys(LN_MODULOS).some(x => x !== 'M8' && texto.indexOf(LN_MODULOS[x]) !== -1 && (clave = x));
+    const tag = lnEtiquetaModulo_(texto); // módulos creados desde la app: "NOMBRE (M12)"
+    let clave = tag;
+    if (!clave && texto.indexOf('0256') !== -1) clave = 'M8-' + (++k0256);
+    else if (!clave) Object.keys(LN_MODULOS).some(x => x !== 'M8' && texto.indexOf(LN_MODULOS[x]) !== -1 && (clave = x));
     filas.push({
-      fila: r + 1, mes: mes, nombre: m ? m[2].trim() : linea1, prefijo: m ? m[1].trim() : 'TODOS', texto: texto, clave: clave,
+      fila: r + 1, mes: mes, nombre: (m ? m[2] : linea1).replace(/\s*\(M\d+\)\s*/i, ' ').trim(), prefijo: m ? m[1].trim() : 'TODOS', texto: texto, clave: clave, tag: tag,
       lineas: pref === 'TODOS' ? null : pref.split(/\s*(?:&|,|\/|\bY\b)\s*/).filter(String),
       celdas: bloques.map(x => {
         const extra = campo => { const c = x.col[campo]; if (c === undefined) return ''; if (v[r][c] instanceof Date) return sigbeTexto_(v[r][c]); const t = String(d[r][c]).trim(); return t === '-' ? '' : t; };
@@ -1428,7 +1777,7 @@ function sigbeLeerCronograma_(sh) {
       }),
     });
   }
-  return { bloques: bloques, filas: filas };
+  return { bloques: bloques, filas: filas, v: v, d: d, bg: bg };
 }
 
 function sigbeBuscarPersona_(personas, cedula, nombre) {

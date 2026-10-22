@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.0.3'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.1.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -93,6 +93,12 @@
       $('form-registro').onsubmit = revisarRegistro;
       $('form-setup').onsubmit = enviarSetup;
       $('form-clave').onsubmit = cambiarClaveApp;
+      $('form-crono').onsubmit = revisarCrono;
+      $('cr-na').onchange = () => { $('cr-fecha').disabled = $('cr-na').checked; };
+      $('form-modulo').onsubmit = revisarModulo;
+      $('form-modulo').addEventListener('input', ajustarModulo);
+      $('form-modulo').addEventListener('change', ajustarModulo);
+      $('form-usuario').onsubmit = nuevoUsuario;
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
       ['brig-buscar', 'brig-planta', 'brig-estado', 'brig-empresa', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
@@ -151,7 +157,7 @@
       pasoArranque('Conectando con el servidor…');
       try {
         const ctx = await api('getContexto', E.token);
-        E.usuario = ctx.usuario; E.lecturaPublica = !!ctx.lecturaPublica; E.listo = !!(ctx.setup && ctx.setup.listo); E.setup = ctx.setup;
+        E.usuario = ctx.usuario; E.perfil = ctx.perfil || null; E.lecturaPublica = !!ctx.lecturaPublica; E.listo = !!(ctx.setup && ctx.setup.listo); E.setup = ctx.setup;
         $('txt-version').textContent = 'SIGBE v' + (ctx.version || '?');
         $('ayuda-version').textContent = 'v' + (ctx.version || '?');
         if (ctx.version && ctx.version !== VERSION_HTML) banner('Los archivos de la app tienen versiones distintas (pantallas ' + esc(VERSION_HTML) + ', servidor ' + esc(ctx.version) + '). Vuelve a pegar <b>SIGBE.gs</b>, <b>Index.html</b> y <b>App.html</b> y publica una nueva versión.');
@@ -183,6 +189,11 @@
     /** Prepara los datos para filtrar rápido en el navegador. */
     function preparar() {
       D.sesiones.forEach((s, i) => { s.i = i; });
+      // Las sesiones "no aplica" solo se ven (y se habilitan) en el Cronograma; el resto de pantallas usa D.crono
+      D.cronoTodo = D.cronoTodo || D.crono;
+      D.cronoTodo.forEach((c, k) => { c.k = k; });
+      D.crono = D.cronoTodo.filter(c => !c.na);
+      D.cronoFilas = D.cronoFilas || [];
       D.unidades = [];
       D.sesiones.forEach(s => { let u = D.unidades.find(x => x.clave === s.clave); if (!u) D.unidades.push(u = { clave: s.clave, modulo: s.modulo, parte: s.parte, titulo: s.titulo, ses: [] }); u.ses.push(s.i); });
       P = D.holcim.map((p, j) => { const o = Object.assign({}, p, { j: j, tipo: 'HOLCIM', sede: (D.plantas[p.p] || {}).sede || p.p, activo: !/desvinculado/i.test(p.e), emp: 'Holcim' }); o.cump = cumplimiento(o); return o; });
@@ -263,6 +274,15 @@
         'csv-brig': csvBrigadistas, 'csv-matriz': csvMatriz, 'csv-cambios': csvCambios, 'csv-hoja': csvHoja,
         ficha: () => abrirFicha(d.tipo, +d.j),
         completar: () => abrirFicha(d.tipo, +d.j, true, d.campo),
+        'crono-editar': () => editarCrono(d.k),
+        'nuevo-modulo': abrirModulo,
+        'cr-todas': () => document.querySelectorAll('#cr-otras input').forEach(x => { x.checked = true; }),
+        'cr-ninguna': () => document.querySelectorAll('#cr-otras input').forEach(x => { x.checked = false; }),
+        'usr-nuevo': nuevoUsuario,
+        'usr-clave': () => restablecerClave(d.u),
+        'usr-activo': () => activarUsuario(d.u, d.v === '1'),
+        'usr-quitar': () => eliminarUsuario(d.u),
+        'usr-generar': () => { $('usr-clave').value = claveAleatoria(); },
         'brig-modo': modoEdicionTabla,
         'brig-guardar': confirmarTabla,
         'brig-descartar': () => { brig.cambios = {}; pintarBrigadistas(); },
@@ -299,9 +319,10 @@
     function pintarSesion() {
       $('btn-sesion').innerHTML = E.usuario ? '<i class="fa-solid fa-right-from-bracket me-1"></i>Salir' : '<i class="fa-solid fa-lock me-1"></i>Iniciar sesión';
       $('btn-sesion').className = 'btn btn-sm ' + (E.usuario ? 'btn-outline-secondary' : 'btn-primary');
-      $('txt-usuario').innerHTML = E.usuario ? '<i class="fa-solid fa-circle-check text-success me-1"></i>' + esc(E.usuario) : 'Solo lectura';
+      $('txt-usuario').innerHTML = E.usuario ? '<i class="fa-solid fa-circle-check text-success me-1"></i>' + esc(E.usuario) + (E.perfil && E.perfil.org ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">' + esc(E.perfil.org) + '</span>' : '') : 'Solo lectura';
+      document.querySelectorAll('.solo-admin').forEach(el => { el.style.display = E.usuario ? '' : 'none'; });
     }
-    function olvidarSesion(silencio) { E.token = null; E.usuario = null; guardar('sessionStorage', 'sigbe_token', null); if (!silencio) pintarSesion(); }
+    function olvidarSesion(silencio) { E.token = null; E.usuario = null; E.perfil = null; guardar('sessionStorage', 'sigbe_token', null); if (!silencio) pintarSesion(); }
     function bloqueo(si) {
       let b = $('bloqueo');
       if (!b) { b = document.createElement('div'); b.id = 'bloqueo'; b.className = 'alert alert-info m-4'; b.innerHTML = '<i class="fa-solid fa-lock me-2"></i>Esta aplicación exige iniciar sesión para ver la información. <a href="#" data-accion="login">Iniciar sesión</a>'; $('contenido').prepend(b); }
@@ -317,7 +338,7 @@
         const r = await api('validarLoginAdmin', $('login-usuario').value, $('login-clave').value);
         ocupado(false);
         if (!r.exito) { $('login-error').textContent = r.mensaje; return; }
-        E.token = r.token; E.usuario = r.usuario; guardar('sessionStorage', 'sigbe_token', r.token);
+        E.token = r.token; E.usuario = r.usuario; E.perfil = r.perfil || null; guardar('sessionStorage', 'sigbe_token', r.token);
         modal('modal-login').hide(); pintarSesion();
         avisar('Sesión iniciada.', 'success', 3000);
         if (trasLogin) { const f = trasLogin; trasLogin = null; await f(); } else if (!D) await arrancar(); else cargarVista();
@@ -974,33 +995,153 @@
 
     // ══════════ CRONOGRAMA ══════════
     function prepararCronograma() {
-      const base = D.crono.filter(enSede);
+      const base = D.cronoTodo.filter(c => enSede(c) && !c.na);
       const meses = unicos(base.map(c => c.i ? c.i.slice(0, 7) : '')).sort();
       const mesAct = $('crono-mes').value, modAct = $('crono-modulo').value, estAct = $('crono-estado').value;
       $('crono-mes').innerHTML = '<option value="">Todos los meses</option>' + meses.map(m => `<option value="${m}" ${m === mesAct ? 'selected' : ''}>${MESES_L[+m.slice(5) - 1]} ${m.slice(0, 4)}</option>`).join('');
-      $('crono-modulo').innerHTML = opciones(unicos(base.map(c => c.ent)), modAct, 'Todos los temas');
+      $('crono-modulo').innerHTML = opciones(unicos(D.cronoTodo.filter(enSede).map(c => c.ent)), modAct, 'Todos los temas');
       $('crono-estado').innerHTML = opciones(unicos(base.map(c => c.e)), estAct, 'Todos los estados');
       pintarCronograma();
     }
     function pintarCronograma() {
       const q = norm($('crono-buscar').value), mes = $('crono-mes').value, mod = $('crono-modulo').value, est = $('crono-estado').value;
-      const lista = D.crono.filter(c => enSede(c) && (!mes || (c.i || '').startsWith(mes)) && (!mod || c.ent === mod) && (!est || c.e === est) &&
-        (!crono.cuando || (crono.cuando === 'proximas' && c.i && c.i >= D.hoy) || (crono.cuando === 'pasadas' && c.i && c.i < D.hoy) || (crono.cuando === 'sinfecha' && !c.i)) &&
-        (!q || norm([c.ent, c.pl, c.obs, c.e, c.pre].join(' ')).includes(q)))
-        .sort((a, b) => crono.cuando === 'pasadas' ? ((a.i || '') < (b.i || '') ? 1 : -1) : ((a.i || '9') < (b.i || '9') ? -1 : 1));
+      const na = crono.cuando === 'noaplica';
+      const lista = D.cronoTodo.filter(c => enSede(c) && (na ? c.na : !c.na) && (!mes || (c.i || '').startsWith(mes)) && (!mod || c.ent === mod) && (!est || c.e === est) &&
+        (!crono.cuando || na || (crono.cuando === 'proximas' && c.i && c.i >= D.hoy) || (crono.cuando === 'pasadas' && c.i && c.i < D.hoy) || (crono.cuando === 'sinfecha' && !c.i)) &&
+        (!q || norm([c.ent, c.pl, c.obs, c.e, c.pre, c.cl].join(' ')).includes(q)))
+        .sort((a, b) => crono.cuando === 'pasadas' ? ((a.i || '') < (b.i || '') ? 1 : -1) : ((a.i || '9') < (b.i || '9') ? -1 : (a.i || '9') > (b.i || '9') ? 1 : a.fila - b.fila || a.b - b.b));
       $('crono-conteo').textContent = lista.length + ' sesión(es)';
       const grupos = {};
-      lista.forEach(c => { const k = c.i ? c.i.slice(0, 7) : 'sin'; (grupos[k] = grupos[k] || []).push(c); });
-      const nombreMes = k => k === 'sin' ? 'Por definir' : MESES_L[+k.slice(5) - 1] + ' ' + k.slice(0, 4);
+      lista.forEach(c => { const k = na ? 'na' : c.i ? c.i.slice(0, 7) : 'sin'; (grupos[k] = grupos[k] || []).push(c); });
+      const nombreMes = k => k === 'na' ? 'No aplican (con "-" o en gris)' : k === 'sin' ? 'Por definir' : MESES_L[+k.slice(5) - 1] + ' ' + k.slice(0, 4);
       $('crono-lista').innerHTML = Object.keys(grupos).map(k => `<div class="mes-titulo mt-3 mb-2">${nombreMes(k)} <span class="text-muted fw-normal">(${grupos[k].length})</span></div><div class="tarjeta">` +
         grupos[k].map(c => {
           const key = c.cl ? c.cl + '|' + c.n : '';
-          const hay = key && D.sesiones.some(s => s.key === key) && Object.keys(D.plantas).some(pl => D.plantas[pl].bloques.indexOf(c.pl + ' · ' + c.ses) !== -1);
-          return `<div class="d-flex flex-wrap align-items-center gap-3 p-3 border-bottom ${c.i && c.i < D.hoy ? 'opacity-75' : ''}">${chipFecha(c.i, c.f)}
+          const hay = !c.na && key && D.sesiones.some(s => s.key === key) && Object.keys(D.plantas).some(pl => D.plantas[pl].bloques.indexOf(c.pl + ' · ' + c.ses) !== -1);
+          return `<div class="d-flex flex-wrap align-items-center gap-3 p-3 border-bottom ${c.na || (c.i && c.i < D.hoy) ? 'opacity-75' : ''}">${c.na ? '<div class="fecha-chip gris"><div class="mes">no aplica</div></div>' : chipFecha(c.i, c.f)}
             <div class="flex-grow-1" style="min-width:220px"><div class="fw-semibold small">${c.cl ? '<span class="badge text-bg-dark me-1">' + esc(c.cl) + '</span>' : ''}${esc(c.ent)}${c.pre && c.pre !== 'TODOS' ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">' + esc(c.pre) + '</span>' : ''}</div>
               <div class="small text-muted"><i class="fa-solid fa-location-dot me-1"></i>${esc(c.pl)} · ${esc(c.ses)}${c.amb && c.amb !== c.f ? ' · Ambipar: ' + esc(c.amb) : ''}${c.br ? ' · ' + esc(c.br) + ' brigadistas' : ''}${c.obs ? ' · ' + esc(c.obs) : ''}</div></div>
-            ${badgeEstadoCrono(c.e)}${hay ? `<button class="btn btn-sm btn-outline-primary" data-accion="ir-asistencia" data-sede="${esc(c.sede)}" data-key="${esc(key)}"><i class="fa-solid fa-clipboard-check me-1"></i>Asistencia</button>` : ''}</div>`;
+            ${badgeEstadoCrono(c.e)}${hay ? `<button class="btn btn-sm btn-outline-primary" data-accion="ir-asistencia" data-sede="${esc(c.sede)}" data-key="${esc(key)}"><i class="fa-solid fa-clipboard-check me-1"></i>Asistencia</button>` : ''}
+            <button class="btn btn-sm btn-outline-secondary" data-accion="crono-editar" data-k="${c.k}" title="Cambiar fecha, estado u observaciones"><i class="fa-solid fa-pen"></i><span class="ms-1">${c.na ? 'Habilitar' : c.i ? 'Editar' : 'Programar'}</span></button></div>`;
         }).join('') + '</div>').join('') || '<p class="text-muted mt-3">No hay sesiones con ese filtro.</p>';
+    }
+
+    // Editar una sesión del cronograma (y, si se quiere, las de otras plantas en la misma fila)
+    let cronoEd = null;
+    async function editarCrono(k) {
+      if (!E.usuario) return pedirSesion(() => editarCrono(k));
+      if (!(await cargarCatalogos())) return;
+      const c = D.cronoTodo[+k];
+      if (!c) return;
+      cronoEd = c;
+      $('crono-titulo').textContent = (c.cl ? c.cl + ' · ' : '') + c.ent;
+      $('crono-sub').innerHTML = `<i class="fa-solid fa-location-dot me-1"></i>${esc(c.pl)} · ${esc(c.ses)}${c.pre && c.pre !== 'TODOS' ? ' · solo ' + esc(c.pre) : ''}`;
+      $('cr-fecha').value = c.i || ''; $('cr-na').checked = !!c.na; $('cr-fecha').disabled = !!c.na;
+      $('cr-ambipar').value = isoDe(c.amb) || '';
+      $('cr-estado').innerHTML = '<option value="">—</option>' + (c.e && catalogos.estadosCrono.indexOf(c.e) === -1 ? [c.e] : []).concat(catalogos.estadosCrono).map(x => `<option ${x === c.e ? 'selected' : ''}>${esc(x)}</option>`).join('');
+      $('cr-brig').value = /^\d+$/.test(c.br || '') ? c.br : '';
+      $('cr-obs').value = c.obs || '';
+      const otras = D.cronoTodo.filter(x => x.fila === c.fila && x !== c);
+      $('cr-otras-box').style.display = otras.length ? '' : 'none';
+      $('cr-otras').innerHTML = otras.map(x => `<div class="col-sm-6"><div class="form-check"><input class="form-check-input" type="checkbox" id="cr-o-${x.k}" data-k="${x.k}">
+        <label class="form-check-label" for="cr-o-${x.k}">${esc(x.pl)} · ${esc(x.ses)} <span class="text-muted">(${x.na ? 'no aplica' : esc(x.f || 'sin fecha')})</span></label></div></div>`).join('');
+      modal('modal-crono').show();
+    }
+    function revisarCrono(ev) {
+      ev.preventDefault();
+      const c = cronoEd, fmt = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split('-').reverse().join('/') : v;
+      const final = { fecha: $('cr-na').checked ? '-' : $('cr-fecha').value, ambipar: $('cr-ambipar').value, estado: $('cr-estado').value, brig: $('cr-brig').value.trim(), obs: $('cr-obs').value.trim() };
+      const actuales = x => ({ fecha: x.na ? '-' : x.i || '', ambipar: isoDe(x.amb) || x.amb || '', estado: x.e || '', brig: x.br || '', obs: x.obs || '' });
+      const textoAnt = (x, k) => k === 'fecha' ? (x.na ? '-' : x.f || '') : k === 'ambipar' ? x.amb || '' : actuales(x)[k];
+      const lote = [];
+      const agregar = (x, campos) => {
+        const a = actuales(x), cambios = {}, anteriores = {};
+        campos.forEach(k => { if (String(final[k]) !== String(a[k]) && !(k === 'ambipar' && !final[k] && !isoDe(x.amb) && x.amb)) { cambios[k] = final[k]; anteriores[k] = textoAnt(x, k); } });
+        if (Object.keys(cambios).length) lote.push({ x: x, item: { fila: x.fila, b: x.b, ent: x.ent, pl: x.pl, ses: x.ses, cambios: cambios, anteriores: anteriores } });
+      };
+      agregar(c, ['fecha', 'ambipar', 'estado', 'brig', 'obs']);
+      // A las otras plantas solo pasa lo que se cambió aquí (fecha, fecha Ambipar o estado), no lo que ya estaba
+      const cambiados = lote.length ? ['fecha', 'ambipar', 'estado'].filter(k => k in lote[0].item.cambios) : [];
+      const marcadas = document.querySelectorAll('#cr-otras input:checked');
+      if (marcadas.length && !cambiados.length) return avisar('Para pasarlo a otras plantas, primero cambia aquí la fecha, la fecha Ambipar o el estado.', 'info', 8000);
+      marcadas.forEach(el => agregar(D.cronoTodo[+el.dataset.k], cambiados));
+      if (!lote.length) return avisar('No cambiaste nada.', 'info');
+      const etiqueta = { fecha: 'Fecha', ambipar: 'Fecha Ambipar', estado: 'Estado', brig: '# Brigadistas', obs: 'Observaciones' };
+      const ver = v => v === '-' ? 'No aplica' : esc(fmt(v)) || '—';
+      $('conf-titulo').textContent = 'Guardar cambios del cronograma (' + lote.length + ' sesión(es))';
+      $('conf-cuerpo').innerHTML = `<p class="small mb-2"><b>${esc(c.ent)}</b></p><table class="table table-sm small mb-2"><thead><tr><th>Planta y sesión</th><th>Dato</th><th>Antes</th><th>Después</th></tr></thead><tbody>` +
+        lote.map(l => Object.keys(l.item.cambios).map((k, i) => `<tr><td>${i ? '' : esc(l.x.pl + ' · ' + l.x.ses)}</td><td>${etiqueta[k]}</td><td class="text-muted">${ver(l.item.anteriores[k])}</td><td class="fw-semibold">${ver(l.item.cambios[k])}</td></tr>`).join('')).join('') +
+        '</tbody></table><p class="small text-muted mb-0">Queda en el historial con tu usuario. La lista de asistencia toma las fechas nuevas sola.</p>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar';
+      $('conf-ok').onclick = () => guardarCrono(lote.map(l => l.item));
+      modal('modal-crono').hide(); modal('modal-confirmar').show();
+    }
+    async function guardarCrono(lote) {
+      modal('modal-confirmar').hide(); ocupado(true);
+      try {
+        const r = await api('guardarCronograma', E.token, lote);
+        ocupado(false);
+        if (revisarSesion(r)) return;
+        if (!r.exito) return avisar(esc(r.mensaje), 'danger', 12000);
+        const malos = r.resultados.filter(x => !x.exito || (x.rechazos && x.rechazos.length));
+        avisar('<b>' + esc(r.mensaje) + '</b>' + (malos.length ? '<ul class="small mb-0 mt-1">' + malos.map(x => '<li>' + esc(x.mensaje) + '</li>').join('') + '</ul>' : ''), malos.length ? 'warning' : 'success', 12000);
+        await cargarDatos(false); cargarVista();
+      } catch (e) { error(e); }
+    }
+
+    // Módulo nuevo (columnas en la lista + fila en el cronograma)
+    function siguienteModulo() {
+      const n = D.sesiones.map(s => +s.modulo.slice(1)).concat(D.cronoFilas.map(f => /^M(\d+)$/.test(f.cl) ? +f.cl.slice(1) : 0), [11]);
+      return 'M' + (Math.max.apply(null, n) + 1);
+    }
+    async function abrirModulo() {
+      if (!E.usuario) return pedirSesion(abrirModulo);
+      if (!(await cargarCatalogos())) return;
+      $('form-modulo').reset();
+      const sinModulo = D.cronoFilas.filter(f => !f.cl);
+      $('mod-fila').innerHTML = sinModulo.map(f => `<option value="${f.fila}">${esc(f.nombre)}${f.pre && f.pre !== 'TODOS' ? ' (' + esc(f.pre) + ')' : ''} · ${esc(f.mes)}</option>`).join('');
+      $('mod-tipo-crono').disabled = !sinModulo.length;
+      $('mod-tipo-crono-l').title = sinModulo.length ? '' : 'Todos los entrenamientos del cronograma ya tienen módulo';
+      $('mod-mes').innerHTML = MESES_L.map((m, i) => `<option ${i === new Date().getMonth() ? 'selected' : ''}>${m}</option>`).join('');
+      $('mod-lineas').innerHTML = catalogos.lineas.map(l => `<div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" id="mod-l-${l}" value="${l}"><label class="form-check-label" for="mod-l-${l}">${l}</label></div>`).join('');
+      ajustarModulo();
+      modal('modal-modulo').show();
+    }
+    function ajustarModulo() {
+      const crono = $('mod-tipo-crono').checked;
+      document.querySelectorAll('.mod-nuevo').forEach(e => e.style.display = crono ? 'none' : '');
+      document.querySelectorAll('.mod-crono').forEach(e => e.style.display = crono ? '' : 'none');
+      $('mod-nombre').required = !crono;
+      const lineas = [...document.querySelectorAll('#mod-lineas input:checked')].map(x => x.value);
+      const nombre = crono ? ($('mod-fila').selectedOptions[0] || {}).textContent || '' : $('mod-nombre').value.trim().toUpperCase();
+      $('mod-resumen').innerHTML = `Quedará como <b>${siguienteModulo()}</b>${nombre ? ': ' + esc(nombre) : ''}${!crono ? ' · ' + (lineas.length ? 'solo ' + esc(lineas.join(', ')) : 'todas las líneas') : ''}.<br>
+        Se agregan 4 columnas a la lista de asistencia (Sesión 1 y 2 con su casilla)${crono ? ' y se marca esa fila del cronograma' : ' y una fila en el cronograma'}. Después le pones las fechas por planta en el Cronograma.`;
+    }
+    function revisarModulo(ev) {
+      ev.preventDefault();
+      const crono = $('mod-tipo-crono').checked;
+      const d = crono ? { fila: +$('mod-fila').value } : { nombre: $('mod-nombre').value.trim(), mes: $('mod-mes').value, lineas: [...document.querySelectorAll('#mod-lineas input:checked')].map(x => x.value) };
+      if (!crono && d.nombre.length < 4) return avisar('Escribe el nombre del entrenamiento.', 'warning');
+      $('conf-titulo').textContent = 'Crear módulo';
+      $('conf-cuerpo').innerHTML = '<p class="mb-2">' + $('mod-resumen').innerHTML + '</p><p class="small text-muted mb-0">Cambia la estructura de la lista de asistencia y del cronograma (antes se guarda un respaldo del día). Queda en el historial.</p>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-plus me-1"></i>Crear módulo';
+      $('conf-ok').onclick = () => crearModuloApp(d);
+      modal('modal-modulo').hide(); modal('modal-confirmar').show();
+    }
+    async function crearModuloApp(d) {
+      modal('modal-confirmar').hide(); ocupado(true);
+      try {
+        const r = await api('crearModulo', E.token, d);
+        ocupado(false);
+        if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? (r.avisos && r.avisos.length ? 'warning' : 'success') : 'danger', 15000);
+        if (!r.exito) return;
+        await cargarDatos(false);
+        crono.cuando = ''; document.querySelectorAll('#crono-cuando .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cuando === '')));
+        ir('cronograma');
+        const tema = D.cronoTodo.find(c => c.cl === r.clave);
+        if (tema) { $('crono-modulo').value = tema.ent; pintarCronograma(); }
+      } catch (e) { error(e); }
     }
 
     // ══════════ COBERTURA ══════════
@@ -1335,7 +1476,12 @@
         $('conf-lectura').checked = !!conf.lecturaPublica;
         $('conf-horas').value = String(conf.automatica.cadaHoras || 1);
         $('conf-auto-estado').innerHTML = conf.automatica.activa ? `<span class="punto punto-ok"></span>Activa cada ${conf.automatica.cadaHoras} hora(s).` : '<span class="punto punto-aviso"></span>Apagada.';
-        $('clave-usuario').value = conf.usuario;
+        const principal = !!(E.perfil && E.perfil.principal);
+        $('clave-usuario').value = principal ? conf.usuario : E.usuario; $('clave-usuario').disabled = !principal;
+        document.querySelectorAll('.solo-principal').forEach(el => { el.style.display = principal ? '' : 'none'; });
+        document.querySelectorAll('#v-configuracion .conf-principal input, #v-configuracion .conf-principal select, #v-configuracion .conf-principal button').forEach(el => { el.disabled = !principal; });
+        $('conf-no-principal').style.display = principal ? 'none' : '';
+        cargarUsuarios();
         $('conf-carpeta').textContent = conf.carpetaRespaldos;
         $('conf-respaldos').innerHTML = conf.respaldos.length ? conf.respaldos.map(r => `<tr><td>${esc(r.fecha)}</td><td>${esc(r.archivo)}</td><td class="text-end"><a href="${esc(r.url)}" target="_blank" rel="noopener">Abrir</a></td></tr>`).join('') : '<tr><td colspan="3" class="text-muted">Todavía no hay respaldos.</td></tr>';
       } catch (e) { error(e); } finally { leyendo(false); }
@@ -1362,6 +1508,59 @@
         avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000);
         if (r.exito) { $('form-clave').reset(); olvidarSesion(); pedirSesion(cargarConfiguracion); }
       } catch (e) { error(e); }
+    }
+
+    // Usuarios administradores (el principal crea, desactiva o quita a los demás, p. ej. Ambipar)
+    let USUARIOS = null;
+    async function cargarUsuarios() {
+      try {
+        USUARIOS = await api('getUsuarios', E.token);
+        const yo = USUARIOS.yo || {};
+        $('usr-org').innerHTML = USUARIOS.orgs.map(o => `<option>${esc(o)}</option>`).join('');
+        $('usr-tabla').innerHTML = USUARIOS.usuarios.map(u => `<tr class="${u.activo ? '' : 'text-muted'}"><td class="fw-semibold">${esc(u.usuario)}${u.usuario === yo.usuario ? ' <span class="small text-muted">(tú)</span>' : ''}</td><td>${esc(u.nombre || '—')}</td>
+          <td><span class="badge ${u.org === 'Ambipar' ? 'bg-warning-subtle text-warning-emphasis' : u.org === 'Holcim' ? 'bg-primary-subtle text-primary-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'}">${esc(u.org || '—')}</span></td>
+          <td>${u.principal ? '<span class="badge text-bg-dark">Principal</span>' : u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}</td>
+          <td class="text-end text-nowrap">${yo.principal && !u.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button><button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
+        $('form-usuario').style.display = yo.principal ? '' : 'none';
+        if (!$('usr-clave').value) $('usr-clave').value = claveAleatoria();
+      } catch (e) { error(e); }
+    }
+    function claveAleatoria() {
+      const a = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789', r = new Uint32Array(12);
+      crypto.getRandomValues(r);
+      return Array.from(r, x => a[x % a.length]).join('');
+    }
+    async function usuarioApi(d, mostrarClave) {
+      ocupado(true);
+      try {
+        const r = await api('guardarUsuario', E.token, d);
+        ocupado(false); if (revisarSesion(r)) return false;
+        avisar(esc(r.mensaje) + (r.exito && mostrarClave ? `<div class="mt-2">Clave de <b>${esc(d.usuario)}</b>: <code class="fs-6 user-select-all">${esc(d.clave)}</code><div class="small">Cópiala ahora: no se vuelve a mostrar.</div></div>` : ''), r.exito ? 'success' : 'danger', r.exito && mostrarClave ? 60000 : 9000);
+        if (r.exito) cargarUsuarios();
+        return r.exito;
+      } catch (e) { error(e); return false; }
+    }
+    async function nuevoUsuario(ev) {
+      if (ev && ev.preventDefault) ev.preventDefault();
+      const d = { nuevo: true, usuario: $('usr-usuario').value.trim().toLowerCase(), nombre: $('usr-nombre').value.trim(), org: $('usr-org').value, clave: $('usr-clave').value };
+      if (await usuarioApi(d, true)) { $('form-usuario').reset(); $('usr-clave').value = claveAleatoria(); }
+    }
+    function buscarUsuario(u) { return (USUARIOS && USUARIOS.usuarios.find(x => x.usuario === u)) || {}; }
+    function restablecerClave(u) {
+      if (!confirm('¿Generar una clave nueva para "' + u + '"? La anterior deja de servir.')) return;
+      const x = buscarUsuario(u);
+      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, activo: x.activo, clave: claveAleatoria() }, true);
+    }
+    function activarUsuario(u, activo) {
+      if (!activo && !confirm('¿Desactivar a "' + u + '"? No podrá entrar hasta que lo actives de nuevo.')) return;
+      const x = buscarUsuario(u);
+      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, activo: activo });
+    }
+    async function eliminarUsuario(u) {
+      if (!confirm('¿Eliminar al usuario "' + u + '"? Lo que hizo sigue en el historial.')) return;
+      ocupado(true);
+      try { const r = await api('quitarUsuario', E.token, u); ocupado(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 8000); cargarUsuarios(); }
+      catch (e) { error(e); }
     }
 
     // ══════════ CONFIGURACIÓN INICIAL ══════════

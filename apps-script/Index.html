@@ -376,14 +376,18 @@
 
           <!-- CRONOGRAMA -->
           <section class="vista" id="v-cronograma" aria-labelledby="t-crono">
-            <h1 class="titulo-vista" id="t-crono">Cronograma de capacitaciones</h1>
-            <p class="sub-vista">Fuente: pestaña del cronograma. Las sesiones con "-" o en gris no aparecen porque no aplican.</p>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <h1 class="titulo-vista mb-0" id="t-crono">Cronograma de capacitaciones</h1>
+              <button class="btn btn-success btn-sm" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-1"></i>Nuevo módulo</button>
+            </div>
+            <p class="sub-vista">Programa desde aquí: <b>Programar / Editar</b> cambia la fecha, la fecha Ambipar, el estado y las observaciones de cada planta (también de varias plantas a la vez). Lo que no aplica ("-" o gris) está en <b>No aplican</b>, desde donde se puede habilitar.</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros mb-2" role="group" aria-label="Cuándo" id="crono-cuando">
                 <button class="chip" data-cuando="proximas" aria-pressed="true">Próximas</button>
                 <button class="chip" data-cuando="pasadas" aria-pressed="false">Pasadas</button>
                 <button class="chip" data-cuando="sinfecha" aria-pressed="false">Por definir</button>
                 <button class="chip" data-cuando="" aria-pressed="false">Todas</button>
+                <button class="chip" data-cuando="noaplica" aria-pressed="false">No aplican</button>
               </div>
               <div class="filtros">
                 <input type="search" id="crono-buscar" class="form-control form-control-sm" placeholder="Buscar tema, planta u observación…" aria-label="Buscar en el cronograma">
@@ -547,8 +551,21 @@
             <p class="sub-vista">Archivos, acceso, tarea automática, usuario y respaldos. Todo queda en el historial.</p>
             <div id="conf-sin-sesion" class="alert alert-info" style="display:none;"><i class="fa-solid fa-lock me-1"></i>Inicia sesión para ver y cambiar la configuración. <a href="#" data-accion="login">Iniciar sesión</a></div>
             <div id="conf-contenido" style="display:none;">
+              <div class="alert alert-secondary small" id="conf-no-principal" style="display:none;"><i class="fa-solid fa-circle-info me-1"></i>Los archivos, el acceso, la tarea automática y los usuarios los cambia solo el usuario principal. Aquí puedes cambiar tu clave.</div>
+              <div class="tarjeta p-3 mb-3">
+                <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-users-gear me-2 text-primary"></i>Usuarios administradores</h2>
+                <p class="small text-muted mb-2">Cada administrador entra con su propio usuario (por ejemplo, uno para Holcim y otro para Ambipar). Todos pueden tomar asistencia, editar brigadistas, programar el cronograma y crear módulos; en el historial queda quién hizo cada cambio.</p>
+                <div class="table-responsive"><table class="table table-sm small align-middle mb-2"><thead><tr><th>Usuario</th><th>Nombre</th><th>Organización</th><th>Estado</th><th></th></tr></thead><tbody id="usr-tabla"></tbody></table></div>
+                <form id="form-usuario" class="row g-2 align-items-end" style="display:none;"><div class="col-12 small fw-semibold">Agregar usuario</div>
+                  <div class="col-sm-6 col-lg-2"><label class="form-label small mb-0" for="usr-usuario">Usuario *</label><input id="usr-usuario" class="form-control form-control-sm" required pattern="[A-Za-z0-9._\-]{3,30}" title="3 a 30 letras o números, sin espacios" placeholder="ambipar" autocomplete="off"></div>
+                  <div class="col-sm-6 col-lg-3"><label class="form-label small mb-0" for="usr-nombre">Nombre</label><input id="usr-nombre" class="form-control form-control-sm" maxlength="60" placeholder="Coordinador Ambipar"></div>
+                  <div class="col-sm-4 col-lg-2"><label class="form-label small mb-0" for="usr-org">Organización</label><select id="usr-org" class="form-select form-select-sm"></select></div>
+                  <div class="col-sm-8 col-lg-3"><label class="form-label small mb-0" for="usr-clave">Clave inicial *</label><div class="input-group input-group-sm"><input id="usr-clave" class="form-control" required minlength="8" autocomplete="new-password"><button type="button" class="btn btn-outline-secondary" data-accion="usr-generar" title="Generar otra">↻</button></div></div>
+                  <div class="col-lg-2"><button class="btn btn-sm btn-success w-100" type="submit"><i class="fa-solid fa-user-plus me-1"></i>Agregar</button></div>
+                </form>
+              </div>
               <div class="row g-3">
-                <div class="col-lg-6"><div class="tarjeta p-3 h-100">
+                <div class="col-lg-6 conf-principal"><div class="tarjeta p-3 h-100">
                   <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-table me-2 text-primary"></i>Archivos</h2>
                   <div class="mb-2"><label class="form-label small mb-0" for="conf-origen">1.0 · archivo original (URL o NINGUNO)</label><input id="conf-origen" class="form-control form-control-sm"><div class="form-text" id="conf-origen-nombre"></div></div>
                   <div class="mb-2"><label class="form-label small mb-0" for="conf-destino">2.0 · lista de asistencia (URL)</label><input id="conf-destino" class="form-control form-control-sm"><div class="form-text" id="conf-destino-nombre"></div></div>
@@ -556,7 +573,7 @@
                   <button class="btn btn-sm btn-primary" data-accion="guardar-archivos"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar archivos</button>
                   <div class="small text-muted mt-2" id="conf-corte"></div>
                 </div></div>
-                <div class="col-lg-6">
+                <div class="col-lg-6 conf-principal">
                   <div class="tarjeta p-3 mb-3">
                     <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-eye me-2 text-primary"></i>Acceso</h2>
                     <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="conf-lectura"><label class="form-check-label small" for="conf-lectura">Permitir <b>ver</b> sin iniciar sesión (guardar siempre la exige)</label></div>
@@ -575,7 +592,7 @@
                   </div>
                 </div>
                 <div class="col-lg-6"><div class="tarjeta p-3 h-100">
-                  <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-key me-2 text-primary"></i>Usuario y clave</h2>
+                  <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-key me-2 text-primary"></i>Mi usuario y clave</h2>
                   <form id="form-clave">
                     <div class="row g-2">
                       <div class="col-sm-6"><label class="form-label small mb-0" for="clave-usuario">Usuario</label><input id="clave-usuario" class="form-control form-control-sm" autocomplete="username"></div>
@@ -678,6 +695,44 @@
         <div class="col-md-6" id="reg-cert-box"><label class="form-label" for="reg-cert">Certificado 0256</label><select id="reg-cert" class="form-select"></select></div>
       </div><p class="small text-muted mt-3 mb-0">Se agrega al final de su planta con el mismo formato. Antes de guardar podrás revisar los datos.</p></div>
       <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Revisar y guardar</button></div>
+    </form></div>
+  </div>
+
+  <!-- MODAL: sesión del cronograma -->
+  <div class="modal fade" id="modal-crono" tabindex="-1" aria-labelledby="crono-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"><form class="modal-content" id="form-crono">
+      <div class="modal-header"><div><h2 class="modal-title h5" id="crono-titulo"></h2><div class="small text-muted" id="crono-sub"></div></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body"><div class="row g-3">
+        <div class="col-md-6"><label class="form-label" for="cr-fecha">Fecha (Holcim)</label><input type="date" id="cr-fecha" class="form-control">
+          <div class="form-check mt-1"><input class="form-check-input" type="checkbox" id="cr-na"><label class="form-check-label small" for="cr-na">No aplica en esta planta (queda con "-")</label></div></div>
+        <div class="col-md-6"><label class="form-label" for="cr-ambipar">Fecha Ambipar</label><input type="date" id="cr-ambipar" class="form-control"></div>
+        <div class="col-md-6"><label class="form-label" for="cr-estado">Estado</label><select id="cr-estado" class="form-select"></select></div>
+        <div class="col-md-6"><label class="form-label" for="cr-brig"># Brigadistas</label><input type="number" min="0" max="9999" id="cr-brig" class="form-control"></div>
+        <div class="col-12"><label class="form-label" for="cr-obs">Observaciones</label><input id="cr-obs" class="form-control" maxlength="300" placeholder="Lugar, motivo de la reprogramación…"></div>
+        <div class="col-12" id="cr-otras-box"><div class="border rounded p-2 bg-light">
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-1"><span class="fw-semibold small">Pasar lo que cambies (fecha, fecha Ambipar o estado) también a:</span>
+            <button type="button" class="btn btn-sm btn-link p-0" data-accion="cr-todas">Todas</button><span class="text-muted">·</span><button type="button" class="btn btn-sm btn-link p-0" data-accion="cr-ninguna">Ninguna</button></div>
+          <div id="cr-otras" class="row g-1 small"></div></div></div>
+      </div></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Revisar y guardar</button></div>
+    </form></div>
+  </div>
+  <!-- MODAL: módulo nuevo -->
+  <div class="modal fade" id="modal-modulo" tabindex="-1" aria-labelledby="mod-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg"><form class="modal-content" id="form-modulo">
+      <div class="modal-header"><h2 class="modal-title h5" id="mod-titulo"><i class="fa-solid fa-layer-group text-success me-2"></i>Nuevo módulo de capacitación</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body"><div class="row g-3">
+        <div class="col-12"><div class="btn-group w-100" role="group" aria-label="De dónde sale el módulo">
+          <input type="radio" class="btn-check" name="mod-tipo" id="mod-tipo-nuevo" value="nuevo" checked><label class="btn btn-outline-primary" for="mod-tipo-nuevo">Entrenamiento nuevo</label>
+          <input type="radio" class="btn-check" name="mod-tipo" id="mod-tipo-crono" value="crono"><label class="btn btn-outline-primary" id="mod-tipo-crono-l" for="mod-tipo-crono">Uno que ya está en el cronograma</label>
+        </div></div>
+        <div class="col-md-8 mod-nuevo"><label class="form-label" for="mod-nombre">Nombre del entrenamiento *</label><input id="mod-nombre" class="form-control" maxlength="150" placeholder="Ej.: RESCATE Y ATENCIÓN DE INCIDENTE EN ESPACIOS CONFINADOS"></div>
+        <div class="col-md-4 mod-nuevo"><label class="form-label" for="mod-mes">Mes</label><select id="mod-mes" class="form-select"></select></div>
+        <div class="col-12 mod-nuevo"><div class="form-label mb-1">¿Para qué líneas? <span class="small text-muted">(ninguna marcada = todas)</span></div><div id="mod-lineas"></div></div>
+        <div class="col-12 mod-crono"><label class="form-label" for="mod-fila">Entrenamiento del cronograma que aún no tiene columnas en la lista</label><select id="mod-fila" class="form-select"></select></div>
+        <div class="col-12"><div class="alert alert-info small mb-0" id="mod-resumen" role="status"></div></div>
+      </div></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Revisar y crear</button></div>
     </form></div>
   </div>
 
