@@ -40,8 +40,12 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   → lista con buscador, planta, marcar todos, imprimir para firmar, CSV y deshacer.
 - **Avance por persona**: tabla persona × módulo (✓ asistió, ✗ ya pasó y no asistió, · pendiente, — no aplica,
   ! marcada sin aplicar) con filtros por planta, estado y "con módulos vencidos", y CSV.
-- **Brigadistas**: buscador, tipo, planta, estado, certificado, cumplimiento, orden por columna, ficha con sus sesiones,
-  edición (estado, fecha de ingreso, certificado, contratista) y registro de personas nuevas.
+- **Brigadistas**: columnas Planta, Nombres y apellidos, Cédula, Grupo sanguíneo, Fecha de ingreso, Empresa,
+  Brigadista Clase I, Estado y Fecha de retiro (solo si no está activo). Filtros por tipo, planta, estado, empresa y
+  "datos por completar"; lo que falta aparece como **Completar**. **Editar en la tabla** convierte las celdas en
+  desplegables y fechas y guarda todo junto (con confirmación). Si la hoja no tiene la columna de un dato, la app la
+  crea al final de los encabezados al guardar el primero. Ficha con sus sesiones y registro de personas nuevas.
+  Grupo sanguíneo: O+, O-, A+, A-, B+, B-, AB+, AB-. Clase I: la lista de la hoja si tiene desplegable; si no, Sí / No / En formación.
 - **Cronograma**: próximas / pasadas / por definir, filtros por mes, tema y estado; botón para abrir la asistencia.
 - **Cobertura**: pestaña *Indicador.* con avance a la meta y comparación con las listas.
 - **Revisión de datos**: posibles errores con filtros por gravedad y tipo (ver abajo).
@@ -68,8 +72,8 @@ aplica: si sí se dictó, se corrige el cronograma.
 | Tipo | Gravedad |
 |---|---|
 | Asistencia marcada en una sesión que no aplica · cédula repetida | error |
-| Sesión pasada sin ninguna asistencia · Seguimiento dice que se dictó y la lista no tiene asistentes · asistencia en fecha futura · asistencia antes de la fecha de ingreso · fecha de la lista distinta al cronograma · cédula vacía o rara · planta sin cronograma · Indicador distinto a las listas | aviso |
-| Mismo nombre con cédulas distintas · activo sin asistencias · sin fecha de ingreso · contratista sin certificado · sesión pasada que sigue "Programada" · sesión sin fecha · Seguimiento con otra cantidad de asistentes | para saber |
+| Datos incompletos del brigadista (botón Completar) · sesión pasada sin ninguna asistencia · Seguimiento dice que se dictó y la lista no tiene asistentes · asistencia en fecha futura · asistencia antes de la fecha de ingreso · fecha de la lista distinta al cronograma · cédula vacía o rara · planta sin cronograma · Indicador distinto a las listas | aviso |
+| Mismo nombre con cédulas distintas · activo sin asistencias · contratista sin certificado · sesión pasada que sigue "Programada" · sesión sin fecha · Seguimiento con otra cantidad de asistentes | para saber |
 
 El cruce con **2026 Seguimiento** se hace por tema y fecha (los nombres de planta no coinciden entre pestañas).
 

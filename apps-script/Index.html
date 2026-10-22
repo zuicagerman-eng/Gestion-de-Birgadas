@@ -119,6 +119,9 @@
     th.ordenable[aria-sort="ascending"]::after { content: " ▲"; font-size: .7em; }
     th.ordenable[aria-sort="descending"]::after { content: " ▼"; font-size: .7em; }
     .fila-click { cursor: pointer; }
+    .btn-completar { padding: 0 .4rem; font-size: .72rem; color: #8a5a00; background: #fff4d6; border: 1px dashed #f0b429; border-radius: 999px; white-space: nowrap; }
+    .btn-completar:hover, .btn-completar:focus { background: #ffe8a8; color: #5c3c00; }
+    .celda-cambiada { background: #fff8e1 !important; box-shadow: inset 3px 0 0 #f59f00; }
     .tabla-compacta { font-size: .86rem; } .tabla-compacta td, .tabla-compacta th { padding: 5px 8px; } .tabla-compacta .barrita { height: 4px; margin-top: 3px; }
     .fila-click:hover td { background: #f6f9ff; }
     pre.registro { white-space: pre-wrap; font-size: .8rem; background: #f8fafc; border-radius: 8px; padding: 10px; max-height: 300px; overflow: auto; }
@@ -324,6 +327,7 @@
               <h1 class="titulo-vista mb-0" id="t-brig">Brigadistas</h1>
               <div class="d-flex gap-2">
                 <button class="btn btn-outline-secondary btn-sm" data-accion="csv-brig"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
+                <button class="btn btn-outline-primary btn-sm" id="brig-modo" data-accion="brig-modo"><i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla</button>
                 <button class="btn btn-success btn-sm" data-accion="registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
               </div>
             </div>
@@ -339,8 +343,8 @@
               <div class="filtros">
                 <select id="brig-planta" class="form-select form-select-sm" aria-label="Planta"></select>
                 <select id="brig-estado" class="form-select form-select-sm" aria-label="Estado"><option value="act">Activos</option><option value="des">Desvinculados</option><option value="">Todos los estados</option></select>
-                <select id="brig-cert" class="form-select form-select-sm" aria-label="Certificado"><option value="">Certificado: todos</option><option value="si">Con certificado</option><option value="no">Sin certificado</option></select>
-                <select id="brig-cump" class="form-select form-select-sm" aria-label="Cumplimiento"><option value="">Cumplimiento: todos</option><option value="100">Al día (100 %)</option><option value="parcial">Parcial</option><option value="0">0 %</option><option value="nd">Sin módulos vencidos aún</option></select>
+                <select id="brig-empresa" class="form-select form-select-sm" aria-label="Empresa"></select>
+                <select id="brig-datos" class="form-select form-select-sm" aria-label="Datos"><option value="">Datos: todos</option><option value="incompletos">Con datos por completar</option><option value="completos">Datos completos</option></select>
                 <span class="contador ms-auto" id="brig-conteo"></span>
               </div>
             </div>
@@ -348,12 +352,19 @@
               <table class="table table-sm table-hover align-middle mb-0 tabla-compacta">
                 <caption class="visually-hidden">Lista de brigadistas filtrada</caption>
                 <thead><tr id="brig-cab">
-                  <th scope="col" class="ordenable" data-orden="n">Nombre</th><th scope="col" class="ordenable" data-orden="c">Cédula</th><th scope="col" class="ordenable" data-orden="p">Planta</th>
-                  <th scope="col" class="ordenable" data-orden="emp">Empresa</th><th scope="col" class="ordenable" data-orden="e">Estado</th><th scope="col" class="ordenable" data-orden="ce">Certificado</th><th scope="col" class="ordenable" data-orden="pct">Cumplimiento</th>
+                  <th scope="col" class="ordenable" data-orden="p">Planta</th><th scope="col" class="ordenable" data-orden="n">Nombres y apellidos</th><th scope="col" class="ordenable" data-orden="c">Cédula</th>
+                  <th scope="col" class="ordenable" data-orden="grupo">Grupo sanguíneo</th><th scope="col" class="ordenable" data-orden="fechaIngreso">Fecha de ingreso</th><th scope="col" class="ordenable" data-orden="empresa">Empresa</th>
+                  <th scope="col" class="ordenable" data-orden="clase1">Brigadista Clase I</th><th scope="col" class="ordenable" data-orden="estado">Estado</th><th scope="col" class="ordenable" data-orden="fechaRetiro">Fecha de retiro</th>
                 </tr></thead>
                 <tbody id="brig-tabla"></tbody>
               </table>
             </div>
+            <div class="barra-guardar rounded-bottom p-2 mt-2 flex-wrap align-items-center gap-2" id="brig-guardar" style="display:none" role="region" aria-label="Cambios sin guardar">
+              <span class="fw-semibold"><i class="fa-solid fa-pen text-warning me-1"></i><span id="brig-guardar-n">0</span> dato(s) sin guardar</span>
+              <button class="btn btn-outline-secondary btn-sm" data-accion="brig-descartar">Descartar</button>
+              <button class="btn btn-success btn-sm" data-accion="brig-guardar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>
+            </div>
+            <datalist id="dl-empresas"></datalist>
           </section>
 
           <!-- CRONOGRAMA -->
@@ -653,7 +664,10 @@
         <div class="col-md-6"><label class="form-label" for="reg-nombre">Nombre y apellido *</label><input id="reg-nombre" class="form-control" required></div>
         <div class="col-md-6"><label class="form-label" for="reg-cedula">Cédula *</label><input id="reg-cedula" class="form-control" inputmode="numeric" pattern="[0-9.]{5,15}" title="Solo números" required><div class="form-text" id="reg-cedula-aviso" role="status"></div></div>
         <div class="col-md-6 solo-holcim"><label class="form-label" for="reg-estado">Estado</label><select id="reg-estado" class="form-select"></select></div>
-        <div class="col-md-6 solo-holcim"><label class="form-label" for="reg-fecha">Fecha de ingreso a la brigada</label><input type="date" id="reg-fecha" class="form-control"></div>
+        <div class="col-md-6"><label class="form-label" for="reg-fecha">Fecha de ingreso a la brigada</label><input type="date" id="reg-fecha" class="form-control"></div>
+        <div class="col-md-6 solo-holcim"><label class="form-label" for="reg-empresa">Empresa</label><input id="reg-empresa" class="form-control" list="dl-empresas" placeholder="HOLCIM"></div>
+        <div class="col-md-3"><label class="form-label" for="reg-grupo">Grupo sanguíneo</label><select id="reg-grupo" class="form-select"></select></div>
+        <div class="col-md-3"><label class="form-label" for="reg-clase1">Brigadista Clase I</label><select id="reg-clase1" class="form-select"></select></div>
         <div class="col-md-6" id="reg-cert-box"><label class="form-label" for="reg-cert">Certificado 0256</label><select id="reg-cert" class="form-select"></select></div>
       </div><p class="small text-muted mt-3 mb-0">Se agrega al final de su planta con el mismo formato. Antes de guardar podrás revisar los datos.</p></div>
       <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Revisar y guardar</button></div>

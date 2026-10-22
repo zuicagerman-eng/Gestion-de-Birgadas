@@ -26,7 +26,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.0.2';
+const SIGBE_VERSION = '4.0.3';
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -38,6 +38,21 @@ const SIGBE_HORAS_SESION = 6;
 const SIGBE_MINUTOS_CACHE = 10;
 const SIGBE_MAX_CAMBIOS = 300;       // máximo de cambios del Excel que se anotan uno por uno en cada pasada
 const SIGBE_FILAS_CRONOGRAMA = 120;  // el cronograma tiene ~20 filas de entrenamientos; no se leen las 1.000 vacías
+
+// Datos del brigadista que se pueden diligenciar desde la app. Si la columna no existe en la hoja, se crea al
+// guardar el primer dato (con el título "titulo", al final de la fila de encabezados).
+const SIGBE_CAMPOS = {
+  cedula: { etiqueta: 'Cédula', titulo: 'CÉDULA', buscar: ['CEDULA'] },
+  grupo: { etiqueta: 'Grupo sanguíneo', titulo: 'GRUPO SANGUÍNEO', buscar: ['GRUPO SANGUINEO', 'GRUPO SANGUINEO Y RH', 'RH'] },
+  fechaIngreso: { etiqueta: 'Fecha de ingreso', titulo: 'FECHA DE INGRESO A LA BRIGADA', buscar: ['FECHA DE INGRESO'], fecha: true },
+  empresa: { etiqueta: 'Empresa', titulo: 'EMPRESA', buscar: ['EMPRESA'], buscarInhouse: ['CONTRATISTA', 'EMPRESA'] },
+  clase1: { etiqueta: 'Brigadista Clase I', titulo: 'BRIGADISTA CLASE I', buscar: ['BRIGADISTA CLASE I', 'CLASE I'] },
+  estado: { etiqueta: 'Estado', titulo: 'ESTADO', buscar: ['ESTADO'] },
+  fechaRetiro: { etiqueta: 'Fecha de retiro', titulo: 'FECHA DE RETIRO', buscar: ['FECHA DE RETIRO', 'FECHA RETIRO'], fecha: true },
+  certificado: { etiqueta: 'Certificado 0256', titulo: 'CERTIFICADO 0256', buscar: ['CERTIFICADO'] },
+};
+const SIGBE_GRUPOS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
+const SIGBE_CLASE_I = ['Sí', 'No', 'En formación']; // si la columna tiene desplegable en la hoja, se usan esas opciones
 
 // Sede: [nombre a mostrar, palabras que la identifican en cualquier hoja]
 const SIGBE_SEDES = [
@@ -144,6 +159,7 @@ function sigbeConstruirModelo_() {
     });
     return {
       r: p.fila, p: p.planta, e: p.estado, n: p.nombre, c: p.cedula, ce: p.certificado, fi: p.fechaIngreso, em: p.empresa,
+      gs: p.grupo, c1: p.clase1, fr: p.fechaRetiro,
       m: h.sesiones.map(s => p.valores[s.colAsis - 1] === true ? '1' : '0').join(''), x: x,
     };
   });
@@ -365,9 +381,15 @@ function registrarBrigadistaNuevo(token, data) {
     poner('NOMBRE Y APELLIDO', nombre);
     poner('CEDULA', Number(cedula));
     poner('CERTIFICADO', sigbeNumOTexto_(data.certificado));
+    ['grupo', 'clase1', 'empresa', 'fechaIngreso'].forEach(campo => {
+      let v = String(data[campo] || '').trim();
+      if (!v || (campo === 'empresa' && !esHolcim)) return; // la empresa del contratista va en CONTRATISTA
+      if (campo === 'grupo') { v = v.toUpperCase().replace(/\s+/g, '').replace('0', 'O'); if (SIGBE_GRUPOS.indexOf(v) === -1) return; }
+      const c = sigbeColCampo_(t, campo, !esHolcim) || sigbeCrearColumna_(sh, t, campo);
+      sh.getRange(nueva, c).setValue(SIGBE_CAMPOS[campo].fecha ? sigbeFecha_(v) : v);
+    });
     if (esHolcim) {
       poner('ESTADO', data.estado || 'Activo');
-      if (data.fechaIngreso) poner('FECHA DE INGRESO', sigbeFecha_(data.fechaIngreso));
       // Después del corte nadie más organiza la lista: se aplica el cronograma a la fila nueva aquí mismo
       if (F.corte) { try { lnOrganizarAsistencia_(sh, sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA)); } catch (e) { /* queda sin fechas hasta la próxima */ } }
     } else {
@@ -383,69 +405,116 @@ function registrarBrigadistaNuevo(token, data) {
 }
 
 /**
- * Cambia datos de una persona (estado, certificado, fecha de ingreso o contratista).
+ * Cambia datos de una persona: grupo, fecha de ingreso, empresa, Clase I, estado, fecha de retiro, certificado
+ * y la cédula (solo si está vacía). Si la columna no existe en la hoja, se crea.
  * data: { tipo, cedula, nombre, cambios: {campo: valorNuevo}, anteriores: {campo: valorQueMostrabaLaPantalla} }
  */
 function actualizarBrigadista(token, data) {
+  const r = actualizarBrigadistasLote(token, [data]);
+  if (!r.exito) return r;
+  const x = r.resultados[0] || {};
+  return { exito: x.exito, mensaje: x.mensaje, rechazos: x.rechazos || [] };
+}
+
+/** Varios a la vez (edición en la tabla). lista: [data como en actualizarBrigadista] */
+function actualizarBrigadistasLote(token, lista) {
   const lock = LockService.getScriptLock();
   try {
     const usuario = sigbeExigirSesion_(token);
+    if (!lista || !lista.length) return { exito: true, mensaje: 'No había cambios.', resultados: [] };
     if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
     const F = sigbeFuentes_();
-    const esHolcim = data.tipo !== 'INHOUSE';
-    sigbeExigirEscritura_(F, esHolcim ? 'asistencia' : 'datos');
-    const ss = esHolcim ? F.asistencia : F.datos;
-    let p, sh, col;
-    if (esHolcim) {
-      sh = sigbeHoja_(ss, SIGBE_HOJA_HOLCIM);
-      const h = sigbeLeerHolcim_(sh);
-      p = sigbeBuscarPersona_(h.personas, data.cedula, data.nombre);
-      col = { estado: h.cols.estado, certificado: h.cols.certificado, fechaIngreso: h.cols.fechaIngreso };
-    } else {
-      sh = sigbeHoja_(ss, SIGBE_HOJA_INHOUSE);
-      const lista = sigbeLeerInhouse_(sh, true);
-      p = sigbeBuscarPersona_(lista, data.cedula, data.nombre);
-      if (p) col = { contratista: p.cols.contratista, certificado: p.cols.cert, estado: p.cols.estado };
-    }
-    if (!p) return { exito: false, mensaje: 'No se encontró a ' + data.nombre + ' (' + data.cedula + ') en la hoja.' };
-
-    const etiquetas = { estado: 'Estado', certificado: 'Certificado 0256', fechaIngreso: 'Fecha de ingreso', contratista: 'Contratista' };
-    const cambios = data.cambios || {}, anteriores = data.anteriores || {};
-    const bitacora = [], escrituras = [], rechazos = [];
-    Object.keys(cambios).forEach(campo => {
-      if (!etiquetas[campo]) return;
-      const c = col[campo];
-      if (!c) { rechazos.push(etiquetas[campo] + ': esa columna no existe en la hoja'); return; }
-      const actual = sigbeTexto_(p.valores[c - 1]);
-      let nuevo = String(cambios[campo] === undefined ? '' : cambios[campo]).trim();
-      if (campo === 'contratista') nuevo = nuevo.toUpperCase();
-      const nuevoTexto = campo === 'fechaIngreso' && /^\d{4}-\d{2}-\d{2}$/.test(nuevo) ? nuevo.split('-').reverse().join('/') : nuevo;
-      if (nuevoTexto === actual) return;
-      if (anteriores[campo] !== undefined && sigbeTexto_(anteriores[campo]) !== actual) {
-        rechazos.push(etiquetas[campo] + ': cambió en la hoja mientras tanto (ahora es "' + actual + '")'); return;
+    const hojas = {}; // tipo → { sh, t, personas, inhouse, ss, respaldo }
+    const hoja = tipo => {
+      if (hojas[tipo]) return hojas[tipo];
+      const inhouse = tipo === 'INHOUSE';
+      sigbeExigirEscritura_(F, inhouse ? 'datos' : 'asistencia');
+      const ss = inhouse ? F.datos : F.asistencia;
+      const sh = sigbeHoja_(ss, inhouse ? SIGBE_HOJA_INHOUSE : SIGBE_HOJA_HOLCIM);
+      const t = sigbeTabla_(sh, ['PLANTA', 'CEDULA']);
+      const cN = t.col('NOMBRE Y APELLIDO'), cC = t.col('CEDULA');
+      const personas = t.filas.filter(f => String(f.valores[cN - 1] || '').trim())
+        .map(f => ({ fila: f.fila, valores: f.valores, nombre: String(f.valores[cN - 1]).trim(), cedula: sigbeTexto_(f.valores[cC - 1]) }));
+      return (hojas[tipo] = { sh: sh, t: t, personas: personas, inhouse: inhouse, ss: ss, respaldo: false });
+    };
+    const bitacora = [], resultados = [];
+    let total = 0;
+    lista.forEach(data => {
+      const H = hoja(data.tipo === 'INHOUSE' ? 'INHOUSE' : 'HOLCIM');
+      const p = sigbeBuscarPersona_(H.personas, data.cedula, data.nombre);
+      if (!p) { resultados.push({ exito: false, nombre: data.nombre, mensaje: 'No se encontró a ' + data.nombre + ' en la hoja.', rechazos: [] }); return; }
+      const cambios = data.cambios || {}, anteriores = data.anteriores || {};
+      const escrituras = [], rechazos = [];
+      Object.keys(cambios).forEach(campo => {
+        const def = SIGBE_CAMPOS[campo];
+        if (!def) return;
+        let nuevo = String(cambios[campo] === undefined || cambios[campo] === null ? '' : cambios[campo]).trim();
+        const nuevoTexto = def.fecha && /^\d{4}-\d{2}-\d{2}$/.test(nuevo) ? nuevo.split('-').reverse().join('/') : nuevo;
+        let c = sigbeColCampo_(H.t, campo, H.inhouse);
+        const actual = c ? sigbeTexto_(p.valores[c - 1]) : '';
+        if (nuevoTexto === actual) return;
+        if (anteriores[campo] !== undefined && sigbeTexto_(anteriores[campo]) !== actual) {
+          rechazos.push(def.etiqueta + ': cambió en la hoja mientras tanto (ahora es "' + actual + '")'); return;
+        }
+        if (campo === 'cedula') {
+          if (actual) { rechazos.push('Cédula: ya tiene una; para corregirla hazlo en la hoja'); return; }
+          nuevo = nuevo.replace(/\D/g, '');
+          if (nuevo.length < 5 || nuevo.length > 12) { rechazos.push('Cédula: debe tener entre 5 y 12 números'); return; }
+          if (Object.keys(hojas).some(k => hojas[k].personas.some(x => String(x.cedula).replace(/\D/g, '') === nuevo))) { rechazos.push('Cédula: ' + nuevo + ' ya está registrada'); return; }
+        }
+        if (campo === 'grupo' && nuevo) {
+          nuevo = nuevo.toUpperCase().replace(/\s+/g, '').replace('0', 'O');
+          if (SIGBE_GRUPOS.indexOf(nuevo) === -1) { rechazos.push('Grupo sanguíneo: "' + nuevo + '" no es válido (' + SIGBE_GRUPOS.join(', ') + ')'); return; }
+        }
+        if (campo === 'empresa' && H.inhouse) nuevo = nuevo.toUpperCase();
+        if (c) {
+          const opciones = sigbeListaValidacion_(H.sh.getRange(p.fila, c));
+          if (opciones && nuevo && opciones.indexOf(nuevo) === -1) { rechazos.push(def.etiqueta + ': "' + nuevo + '" no está en las opciones de la hoja (' + opciones.join(', ') + ')'); return; }
+        } else {
+          c = sigbeCrearColumna_(H.sh, H.t, campo); // la columna no existía: se crea al final
+        }
+        let valor = nuevo;
+        if (def.fecha) valor = nuevo ? sigbeFecha_(nuevo) : '';
+        else if (campo === 'certificado' || campo === 'cedula') valor = sigbeNumOTexto_(nuevo);
+        escrituras.push({ c: c, valor: valor });
+        bitacora.push(['Edición de brigadista', H.sh.getName(), p.fila, p.cedula || nuevo, p.nombre, def.etiqueta, actual, nuevoTexto]);
+      });
+      if (escrituras.length) {
+        if (!H.respaldo) { try { respaldoDelDia_(H.ss); } catch (e) { /* sigue */ } H.respaldo = true; }
+        escrituras.forEach(e => { H.sh.getRange(p.fila, e.c).setValue(e.valor); p.valores[e.c - 1] = e.valor; });
+        total += escrituras.length;
       }
-      const lista = sigbeListaValidacion_(sh.getRange(p.fila, c));
-      if (lista && nuevo && lista.indexOf(nuevo) === -1) {
-        rechazos.push(etiquetas[campo] + ': "' + nuevo + '" no está en las opciones de la hoja (' + lista.join(', ') + ')'); return;
-      }
-      let valor = nuevo;
-      if (campo === 'fechaIngreso') valor = nuevo ? sigbeFecha_(nuevo) : '';
-      if (campo === 'certificado') valor = sigbeNumOTexto_(nuevo);
-      escrituras.push({ c: c, valor: valor });
-      bitacora.push(['Edición de brigadista', sh.getName(), p.fila, p.cedula, p.nombre, etiquetas[campo], actual, nuevoTexto]);
+      resultados.push({ exito: !!escrituras.length || !rechazos.length, nombre: p.nombre, rechazos: rechazos,
+        mensaje: escrituras.length ? escrituras.length + ' dato(s) actualizado(s) de ' + p.nombre + (rechazos.length ? '. No se aplicó: ' + rechazos.join('; ') : '.')
+          : (rechazos.length ? 'No se guardó: ' + rechazos.join('; ') : 'No había cambios.') });
     });
-    if (!escrituras.length) {
-      return { exito: !rechazos.length, mensaje: rechazos.length ? 'No se guardó: ' + rechazos.join('; ') : 'No había cambios.', rechazos: rechazos };
-    }
-    try { respaldoDelDia_(ss); } catch (e) { /* sigue */ }
-    escrituras.forEach(e => sh.getRange(p.fila, e.c).setValue(e.valor));
-    sigbeTrasGuardar_(F, usuario, bitacora);
-    return { exito: true, mensaje: escrituras.length + ' dato(s) actualizado(s) de ' + p.nombre + (rechazos.length ? '. No se aplicó: ' + rechazos.join('; ') : '.'), rechazos: rechazos };
+    if (bitacora.length) sigbeTrasGuardar_(F, usuario, bitacora);
+    const conRechazos = resultados.filter(r => r.rechazos && r.rechazos.length);
+    return { exito: true, guardados: total, resultados: resultados,
+      mensaje: total + ' dato(s) guardado(s)' + (conRechazos.length ? '; ' + conRechazos.length + ' persona(s) con datos que no se aplicaron.' : '.') };
   } catch (e) {
     return { exito: false, mensaje: e.message };
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Columna (1-based) de un campo del brigadista en esa tabla, o 0 si no existe. */
+function sigbeColCampo_(t, campo, inhouse) {
+  const def = SIGBE_CAMPOS[campo];
+  const lista = (inhouse && def.buscarInhouse) || def.buscar;
+  for (let i = 0; i < lista.length; i++) { const c = t.col(lista[i]); if (c) return c; }
+  return 0;
+}
+
+/** Crea la columna de un campo al final de la fila de encabezados y la registra en la tabla leída. */
+function sigbeCrearColumna_(sh, t, campo) {
+  const c = Math.max(sh.getLastColumn(), t.encabezados.length) + 1;
+  if (sh.getMaxColumns() < c) sh.insertColumnsAfter(sh.getMaxColumns(), c - sh.getMaxColumns());
+  sh.getRange(t.filaEncabezado, c).setValue(SIGBE_CAMPOS[campo].titulo).setFontWeight('bold');
+  while (t.encabezados.length < c) t.encabezados.push('');
+  t.encabezados[c - 1] = sigbeNorm_(SIGBE_CAMPOS[campo].titulo);
+  return c;
 }
 
 /** Opciones de los formularios tal como las aceptan las hojas. */
@@ -469,6 +538,13 @@ function getCatalogos(token) {
     certificados: certificados,
     contratistas: sigbeUnicos_(inhouse.map(p => p.k)),
     holcimTieneCertificado: !!h.cols.certificado,
+    grupos: SIGBE_GRUPOS,
+    clases: lista(sh, h.cols.clase1, SIGBE_CLASE_I),
+    empresas: (() => {
+      let ind = [];
+      try { ind = sigbeLeerIndicador_(sigbeHoja_(F.datos, SIGBE_HOJA_INDICADOR)).filter(f => !f.tot).map(f => f.emp); } catch (e) { ind = []; }
+      return sigbeUnicos_(['HOLCIM'].concat(h.personas.map(p => p.empresa), inhouse.map(p => p.k), ind.map(x => String(x).toUpperCase())));
+    })(),
   };
 }
 
@@ -633,8 +709,8 @@ function sigbeClavePersona_(c, n) {
 
 function sigbeFoto_(m) {
   const h = {}, i = {}, cr = {};
-  m.holcim.forEach(p => { h[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, e: p.e, fi: p.fi, ce: p.ce, m: p.m }; });
-  m.inhouse.forEach(p => { i[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, k: p.k, ce: p.ce, e: p.e }; });
+  m.holcim.forEach(p => { h[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, e: p.e, fi: p.fi, ce: p.ce, m: p.m, em: p.em, gs: p.gs, c1: p.c1, fr: p.fr }; });
+  m.inhouse.forEach(p => { i[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, k: p.k, ce: p.ce, e: p.e, fi: p.fi, gs: p.gs, c1: p.c1, fr: p.fr }; });
   m.crono.forEach(x => { cr[x.pl + '|' + x.ses + '|' + x.ent] = { f: x.f, e: x.e }; });
   return { v: 1, origen: m.fuentes.asistencia.id + '|' + m.fuentes.datos.id, ses: m.sesiones.map(s => s.key), h: h, i: i, cr: cr };
 }
@@ -648,13 +724,15 @@ function sigbeDiferencias_(a, b) {
       const n = y[k], v = x[k];
       if (!v) { out.push([A, hoja, '', n.c, n.n, 'Alta en la lista (' + n.p + ')', '', 'Alta']); return; }
       campos.forEach(([c, etiqueta]) => {
+        if (!(c in v)) return; // la foto anterior no tenía ese dato (versión anterior)
         if (String(v[c] || '') !== String(n[c] || '')) out.push([A, hoja, '', n.c, n.n, etiqueta, v[c] || '', n[c] || '']);
       });
     });
     Object.keys(x).forEach(k => { if (!y[k]) out.push([A, hoja, '', x[k].c, x[k].n, 'Baja de la lista (' + x[k].p + ')', 'En la lista', 'Ya no está']); });
   };
-  personas(SIGBE_HOJA_HOLCIM, a.h || {}, b.h || {}, [['e', 'Estado'], ['fi', 'Fecha de ingreso'], ['ce', 'Certificado 0256'], ['p', 'Planta']]);
-  personas(SIGBE_HOJA_INHOUSE, a.i || {}, b.i || {}, [['k', 'Contratista'], ['ce', 'Certificado 0256'], ['e', 'Estado'], ['p', 'Planta']]);
+  const extra = [['gs', 'Grupo sanguíneo'], ['c1', 'Brigadista Clase I'], ['fr', 'Fecha de retiro']];
+  personas(SIGBE_HOJA_HOLCIM, a.h || {}, b.h || {}, [['e', 'Estado'], ['fi', 'Fecha de ingreso'], ['ce', 'Certificado 0256'], ['p', 'Planta'], ['em', 'Empresa']].concat(extra));
+  personas(SIGBE_HOJA_INHOUSE, a.i || {}, b.i || {}, [['k', 'Empresa'], ['ce', 'Certificado 0256'], ['e', 'Estado'], ['p', 'Planta'], ['fi', 'Fecha de ingreso']].concat(extra));
   Object.keys(b.h || {}).forEach(k => {
     const x = (a.h || {})[k], y = b.h[k];
     if (!x) return;
@@ -1198,6 +1276,7 @@ function sigbeLeerHolcim_(sh) {
   const cols = {
     planta: t.col('PLANTA'), estado: t.col('ESTADO'), nombre: t.col('NOMBRE Y APELLIDO'), cedula: t.col('CEDULA'),
     certificado: t.col('CERTIFICADO'), fechaIngreso: t.col('FECHA DE INGRESO'), empresa: t.col('EMPRESA'),
+    grupo: sigbeColCampo_(t, 'grupo'), clase1: sigbeColCampo_(t, 'clase1'), fechaRetiro: sigbeColCampo_(t, 'fechaRetiro'),
   };
   const titulos = {};
   const sesiones = [];
@@ -1224,6 +1303,9 @@ function sigbeLeerHolcim_(sh) {
       certificado: cols.certificado ? sigbeTexto_(v[cols.certificado - 1]) : '',
       fechaIngreso: cols.fechaIngreso ? sigbeTexto_(v[cols.fechaIngreso - 1]) : '',
       empresa: cols.empresa ? sigbeTexto_(v[cols.empresa - 1]) : '',
+      grupo: cols.grupo ? sigbeTexto_(v[cols.grupo - 1]) : '',
+      clase1: cols.clase1 ? sigbeTexto_(v[cols.clase1 - 1]) : '',
+      fechaRetiro: cols.fechaRetiro ? sigbeTexto_(v[cols.fechaRetiro - 1]) : '',
     });
   });
   return { hoja: sh, filaEncabezado: t.filaEncabezado, cols: cols, sesiones: sesiones, personas: personas };
@@ -1233,7 +1315,9 @@ function sigbeLeerHolcim_(sh) {
 function sigbeLeerInhouse_(sh, completo) {
   const t = sigbeTabla_(sh, ['PLANTA', 'CEDULA']);
   const c = { planta: t.col('PLANTA'), contratista: t.col('CONTRATISTA') || t.col('EMPRESA'),
-    nombre: t.col('NOMBRE Y APELLIDO'), cedula: t.col('CEDULA'), cert: t.col('CERTIFICADO'), estado: t.col('ESTADO') };
+    nombre: t.col('NOMBRE Y APELLIDO'), cedula: t.col('CEDULA'), cert: t.col('CERTIFICADO'), estado: t.col('ESTADO'),
+    fi: sigbeColCampo_(t, 'fechaIngreso'), gs: sigbeColCampo_(t, 'grupo'), c1: sigbeColCampo_(t, 'clase1'), fr: sigbeColCampo_(t, 'fechaRetiro') };
+  const txt = (v, col) => col ? sigbeTexto_(v[col - 1]) : '';
   return t.filas
     .filter(f => c.nombre && String(f.valores[c.nombre - 1] || '').trim() && sigbeNorm_(f.valores[c.planta - 1]).indexOf('TOTAL') !== 0)
     .map(f => {
@@ -1242,6 +1326,7 @@ function sigbeLeerInhouse_(sh, completo) {
         r: f.fila, p: String(v[c.planta - 1] || '').trim(), k: c.contratista ? String(v[c.contratista - 1] || '').trim() : '',
         n: String(v[c.nombre - 1]).trim(), c: sigbeTexto_(v[c.cedula - 1]), ce: c.cert ? sigbeTexto_(v[c.cert - 1]) : '',
         e: c.estado ? String(v[c.estado - 1] || '').trim() : '',
+        fi: txt(v, c.fi), gs: txt(v, c.gs), c1: txt(v, c.c1), fr: txt(v, c.fr),
       };
       if (completo) Object.assign(p, { fila: f.fila, valores: v, cols: c, nombre: p.n, cedula: p.c, planta: p.p });
       return p;

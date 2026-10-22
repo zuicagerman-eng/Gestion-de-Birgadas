@@ -1,11 +1,11 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.0.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.0.3'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sede: leer('localStorage', 'sigbe_sede') || '', listo: false, lecturaPublica: false, setup: null };
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
     const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', planta: '', inactivos: false, filtro: '' };
-    const brig = { tipo: '', orden: 'n', dir: 1, visibles: [] };
+    const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {} };
     const crono = { cuando: 'proximas' };
     const rev = { g: '', tipo: '' };
     const cam = { o: '', limite: 200, visibles: [] };
@@ -81,7 +81,9 @@
       $('form-clave').onsubmit = cambiarClaveApp;
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
-      ['brig-buscar', 'brig-planta', 'brig-estado', 'brig-cert', 'brig-cump'].forEach(id => $(id).oninput = pintarBrigadistas);
+      ['brig-buscar', 'brig-planta', 'brig-estado', 'brig-empresa', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
+      $('brig-tabla').addEventListener('change', cambioEnTabla);
+      $('brig-tabla').addEventListener('input', cambioEnTabla);
       ['mat-buscar', 'mat-planta', 'mat-estado', 'mat-ver'].forEach(id => $(id).oninput = pintarMatriz);
       ['crono-buscar', 'crono-mes', 'crono-modulo', 'crono-estado'].forEach(id => $(id).oninput = pintarCronograma);
       ['rev-buscar'].forEach(id => $(id).oninput = pintarRevision);
@@ -138,7 +140,7 @@
         E.usuario = ctx.usuario; E.lecturaPublica = !!ctx.lecturaPublica; E.listo = !!(ctx.setup && ctx.setup.listo); E.setup = ctx.setup;
         $('txt-version').textContent = 'SIGBE v' + (ctx.version || '?');
         $('ayuda-version').textContent = 'v' + (ctx.version || '?');
-        if (ctx.version && ctx.version !== VERSION_HTML) banner('Los archivos de la app tienen versiones distintas (pantallas ' + esc(VERSION_HTML) + ', servidor ' + esc(ctx.version) + '). Vuelve a pegar <b>SIGBE.gs</b> e <b>Index.html</b> y publica una nueva versión.');
+        if (ctx.version && ctx.version !== VERSION_HTML) banner('Los archivos de la app tienen versiones distintas (pantallas ' + esc(VERSION_HTML) + ', servidor ' + esc(ctx.version) + '). Vuelve a pegar <b>SIGBE.gs</b>, <b>Index.html</b> y <b>App.html</b> y publica una nueva versión.');
         if (!E.usuario) olvidarSesion(true);
         pintarSesion();
         if (!E.listo) { finArranque(); pintarSetup(ctx.setup); mostrar('setup'); return; }
@@ -200,6 +202,8 @@
       if (!E.listo && vista !== 'setup' && vista !== 'ayuda') vista = 'setup';
       if (E.vista === 'asistencia' && vista !== 'asistencia' && hayCambios() && !confirm('Tienes cambios de asistencia sin guardar. ¿Salir y descartarlos?')) return;
       if (vista !== 'asistencia') asis.cambios = {};
+      if (E.vista === 'brigadistas' && vista !== 'brigadistas' && Object.keys(brig.cambios).length && !confirm('Tienes cambios sin guardar en la tabla de brigadistas. ¿Salir y descartarlos?')) return;
+      if (vista !== 'brigadistas') { brig.cambios = {}; brig.editar = false; }
       E.vista = vista;
       mostrar(vista);
       const off = bootstrap.Offcanvas.getInstance($('menu')); if (off) off.hide();
@@ -233,6 +237,11 @@
         registrar: abrirRegistro,
         'csv-brig': csvBrigadistas, 'csv-matriz': csvMatriz, 'csv-cambios': csvCambios, 'csv-hoja': csvHoja,
         ficha: () => abrirFicha(d.tipo, +d.j),
+        completar: () => abrirFicha(d.tipo, +d.j, true, d.campo),
+        'brig-modo': modoEdicionTabla,
+        'brig-guardar': confirmarTabla,
+        'brig-descartar': () => { brig.cambios = {}; pintarBrigadistas(); },
+        'brig-incompletos': () => { $('brig-datos').value = 'incompletos'; pintarBrigadistas(); },
         'asis-sede': () => { $('sel-sede').value = d.sede; cambiarSede(d.sede); },
         'elegir-sede': () => { $('sel-sede').value = d.sede; cambiarSede(d.sede); },
         'cob-abrir': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = true; }),
@@ -252,7 +261,7 @@
         diagnostico: ejecutarDiagnostico, 'actualizar-ahora': actualizarAhora,
         'guardar-archivos': guardarArchivos, 'guardar-lectura': guardarLectura,
         'auto-on': () => cambiarAutomatico(true), 'auto-off': () => cambiarAutomatico(false),
-        'ficha-editar': editarFicha, 'ficha-cancelar': () => pintarFicha(false), 'ficha-revisar': revisarEdicion,
+        'ficha-editar': () => editarFicha(), 'ficha-cancelar': () => pintarFicha(false), 'ficha-revisar': revisarEdicion,
         'ficha-asistencia': () => { modal('modal-ficha').hide(); acciones['ir-asistencia'](); },
       };
       if (acciones[a]) { ev.preventDefault(); acciones[a](); }
@@ -621,80 +630,213 @@
     }
 
     // ══════════ BRIGADISTAS ══════════
+    // Datos del brigadista que se pueden diligenciar (iguales para Holcim y contratistas)
+    const CAMPOS_B = {
+      cedula: 'Cédula', grupo: 'Grupo sanguíneo', fechaIngreso: 'Fecha de ingreso', empresa: 'Empresa',
+      clase1: 'Brigadista Clase I', estado: 'Estado', fechaRetiro: 'Fecha de retiro', certificado: 'Certificado 0256',
+    };
+    function datosDe(p) {
+      return p.tipo === 'HOLCIM'
+        ? { cedula: p.c, grupo: p.gs || '', fechaIngreso: p.fi || '', empresa: p.em || 'HOLCIM', clase1: p.c1 || '', estado: p.e || '', fechaRetiro: p.fr || '', certificado: p.ce || '' }
+        : { cedula: p.c, grupo: p.gs || '', fechaIngreso: p.fi || '', empresa: p.k || '', clase1: p.c1 || '', estado: p.e || '', fechaRetiro: p.fr || '', certificado: p.ce || '' };
+    }
+    /** Qué le falta a la persona (claves de CAMPOS_B). */
+    function faltantes(p) {
+      const d = datosDe(p), f = [];
+      if (!/^\d{5,12}$/.test(String(d.cedula).replace(/\D/g, ''))) f.push('cedula');
+      ['grupo', 'fechaIngreso', 'empresa', 'clase1'].forEach(k => { if (!String(d[k]).trim()) f.push(k); });
+      if (p.tipo === 'HOLCIM' && !d.estado) f.push('estado');
+      if (!p.activo && !d.fechaRetiro) f.push('fechaRetiro');
+      return f;
+    }
+    /** Pasa lo guardado a los datos en memoria (sin volver a leer todo). */
+    function aplicarDatos(p, cambios) {
+      const iso2txt = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split('-').reverse().join('/') : v;
+      const mapa = p.tipo === 'HOLCIM' ? { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'em', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce' }
+        : { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'k', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce' };
+      Object.keys(cambios).forEach(k => { if (mapa[k]) p[mapa[k]] = k === 'empresa' && p.tipo === 'INHOUSE' ? String(cambios[k]).toUpperCase() : iso2txt(String(cambios[k])); });
+      p.activo = !/desvinculado/i.test(p.e);
+      if (p.tipo === 'INHOUSE') p.emp = p.k || 'Contratista';
+      REV = null;
+    }
     function todosBrigadistas() { return P.concat(I); }
     function prepararBrigadistas() {
-      const plantas = unicos(todosBrigadistas().filter(enSede).map(p => p.p));
-      const actual = $('brig-planta').value;
-      $('brig-planta').innerHTML = opciones(plantas, plantas.indexOf(actual) !== -1 ? actual : '', 'Todas las plantas');
+      const base = todosBrigadistas().filter(enSede);
+      const pl = $('brig-planta').value, em = $('brig-empresa').value;
+      const plantas = unicos(base.map(p => p.p)), empresas = unicos(base.map(p => datosDe(p).empresa));
+      $('brig-planta').innerHTML = opciones(plantas, plantas.indexOf(pl) !== -1 ? pl : '', 'Todas las plantas');
+      $('brig-empresa').innerHTML = opciones(empresas, empresas.indexOf(em) !== -1 ? em : '', 'Todas las empresas');
       pintarBrigadistas();
     }
-    function pintarBrigadistas() {
-      const q = norm($('brig-buscar').value), pl = $('brig-planta').value, est = $('brig-estado').value, cert = $('brig-cert').value, cu = $('brig-cump').value;
+    function listaBrigadistas() {
+      const q = norm($('brig-buscar').value), pl = $('brig-planta').value, est = $('brig-estado').value, em = $('brig-empresa').value, dat = $('brig-datos').value;
       const lista = todosBrigadistas().filter(p => enSede(p) && (!brig.tipo || p.tipo === brig.tipo) && (!pl || p.p === pl) &&
-        (est === '' || (est === 'act') === p.activo) && (!cert || (cert === 'si') === tieneCert(p.ce)) &&
-        (!cu || (cu === '100' && p.cump.pct === 100) || (cu === 'parcial' && p.cump.pct > 0 && p.cump.pct < 100) || (cu === '0' && p.cump.pct === 0) || (cu === 'nd' && p.cump.pct === null)) &&
-        (!q || norm([p.n, p.c, p.p, p.emp].join(' ')).includes(q)));
+        (est === '' || (est === 'act') === p.activo) && (!em || datosDe(p).empresa === em) &&
+        (!dat || (dat === 'incompletos') === (faltantes(p).length > 0)) &&
+        (!q || norm([p.n, p.c, p.p, datosDe(p).empresa].join(' ')).includes(q)));
       const k = brig.orden, d = brig.dir;
-      const val = p => k === 'pct' ? (p.cump.pct === null ? -1 : p.cump.pct) : String(p[k] || '');
-      lista.sort((a, b) => { const x = val(a), y = val(b); return (typeof x === 'number' ? x - y : x.localeCompare(y, 'es')) * d; });
+      const val = p => { const x = datosDe(p); return { p: p.p, n: p.n, c: String(p.c), grupo: x.grupo, fechaIngreso: isoDe(x.fechaIngreso) || x.fechaIngreso, empresa: x.empresa, clase1: x.clase1, estado: x.estado || 'Activo', fechaRetiro: isoDe(x.fechaRetiro) }[k] || ''; };
+      return lista.sort((a, b) => val(a).localeCompare(val(b), 'es') * d || a.n.localeCompare(b.n, 'es'));
+    }
+    function pintarBrigadistas() {
+      const lista = listaBrigadistas();
       brig.visibles = lista;
-      document.querySelectorAll('#brig-cab th.ordenable').forEach(th => th.setAttribute('aria-sort', th.dataset.orden === k ? (d > 0 ? 'ascending' : 'descending') : 'none'));
-      const h = lista.filter(p => p.tipo === 'HOLCIM').length;
-      $('brig-conteo').textContent = `${lista.length} brigadista(s) · ${h} Holcim · ${lista.length - h} contratistas`;
-      $('brig-tabla').innerHTML = lista.map(p => `<tr class="fila-click ${p.activo ? '' : 'text-muted'}" data-accion="ficha" data-tipo="${p.tipo}" data-j="${p.j}" tabindex="0">
-        <td class="fw-semibold">${esc(p.n)}</td><td>${esc(p.c)}</td><td class="small">${esc(p.p)}</td>
-        <td><span class="badge ${p.tipo === 'HOLCIM' ? 'text-bg-primary' : 'bg-info-subtle text-info-emphasis'}">${esc(p.emp)}</span></td>
-        <td><span class="badge ${p.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(p.e || 'Activo')}</span></td>
-        <td>${p.ce ? `<span class="badge ${tieneCert(p.ce) ? 'bg-success-subtle text-success-emphasis' : 'bg-warning-subtle text-warning-emphasis'}">${esc(p.ce)}</span>` : '<span class="text-muted small">—</span>'}</td>
-        <td>${p.tipo === 'HOLCIM' ? pildoraCump(p.cump) : '<span class="text-muted small">—</span>'}</td></tr>`).join('') || '<tr><td colspan="7" class="text-muted text-center py-4">Sin resultados</td></tr>';
-      $('brig-tabla').onkeydown = ev => { if (ev.key === 'Enter') { const tr = ev.target.closest('tr[data-accion]'); if (tr) tr.click(); } };
+      document.querySelectorAll('#brig-cab th.ordenable').forEach(th => th.setAttribute('aria-sort', th.dataset.orden === brig.orden ? (brig.dir > 0 ? 'ascending' : 'descending') : 'none'));
+      const h = lista.filter(p => p.tipo === 'HOLCIM').length, inc = lista.filter(p => faltantes(p).length).length;
+      $('brig-conteo').innerHTML = `${lista.length} brigadista(s) · ${h} Holcim · ${lista.length - h} contratistas${inc ? ` · <a href="#" data-accion="brig-incompletos">${inc} con datos por completar</a>` : ''}`;
+      const editar = brig.editar && E.usuario;
+      $('brig-modo').innerHTML = editar ? '<i class="fa-solid fa-xmark me-1"></i>Salir de edición' : '<i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla';
+      $('brig-modo').className = 'btn btn-sm ' + (editar ? 'btn-warning' : 'btn-outline-primary');
+      const max = 400;
+      $('brig-tabla').innerHTML = lista.slice(0, max).map(p => {
+        const x = datosDe(p), falta = faltantes(p), clave = p.tipo + ':' + p.j, cam = brig.cambios[clave] || {};
+        const valor = k => k in cam ? cam[k] : x[k];
+        const completar = k => `<button class="btn btn-sm btn-completar" data-accion="completar" data-tipo="${p.tipo}" data-j="${p.j}" data-campo="${k}"><i class="fa-solid fa-plus me-1"></i>Completar</button>`;
+        const ver = (k, txt) => falta.indexOf(k) !== -1 ? completar(k) : esc(txt === undefined ? x[k] : txt);
+        const ctl = (k, html) => `<td class="${k in cam ? 'celda-cambiada' : ''}">${html}</td>`;
+        const op = (lista, v) => (v && lista.indexOf(v) === -1 ? [v].concat(lista) : lista).map(o => `<option value="${esc(o)}" ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('');
+        const inactivo = /desvinculado/i.test(valor('estado'));
+        if (editar) {
+          const base = `data-tipo="${p.tipo}" data-j="${p.j}"`;
+          return `<tr class="${p.activo ? '' : 'text-muted'}"><td class="small">${esc(p.p)}</td><td class="fw-semibold"><a href="#" data-accion="ficha" ${base}>${esc(p.n)}</a></td>
+            ${ctl('cedula', falta.indexOf('cedula') !== -1 ? `<input class="form-control form-control-sm ed" ${base} data-campo="cedula" inputmode="numeric" value="${esc(valor('cedula'))}" placeholder="Cédula" style="width:110px">` : esc(x.cedula))}
+            ${ctl('grupo', `<select class="form-select form-select-sm ed" ${base} data-campo="grupo" style="width:80px"><option value="">—</option>${op(catalogos.grupos, valor('grupo'))}</select>`)}
+            ${ctl('fechaIngreso', `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaIngreso" value="${esc(isoDe(valor('fechaIngreso')) || valor('fechaIngreso'))}" style="width:135px">`)}
+            ${ctl('empresa', `<input class="form-control form-control-sm ed" ${base} data-campo="empresa" list="dl-empresas" value="${esc(valor('empresa'))}" placeholder="Empresa" style="width:150px">`)}
+            ${ctl('clase1', `<select class="form-select form-select-sm ed" ${base} data-campo="clase1" style="width:115px"><option value="">—</option>${op(catalogos.clases, valor('clase1'))}</select>`)}
+            ${ctl('estado', `<select class="form-select form-select-sm ed" ${base} data-campo="estado" style="width:125px">${p.tipo === 'INHOUSE' && !x.estado ? '<option value="">Activo</option>' : ''}${op(catalogos.estados, valor('estado'))}</select>`)}
+            ${ctl('fechaRetiro', inactivo ? `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaRetiro" value="${esc(isoDe(valor('fechaRetiro')) || valor('fechaRetiro'))}" style="width:135px">` : '<span class="text-muted small">—</span>')}</tr>`;
+        }
+        return `<tr class="fila-click ${p.activo ? '' : 'text-muted'}" data-accion="ficha" data-tipo="${p.tipo}" data-j="${p.j}" tabindex="0">
+          <td class="small">${esc(p.p)}</td><td class="fw-semibold">${esc(p.n)}</td><td>${ver('cedula')}</td><td>${ver('grupo')}</td><td class="text-nowrap">${ver('fechaIngreso')}</td>
+          <td>${falta.indexOf('empresa') !== -1 ? completar('empresa') : `<span class="badge ${p.tipo === 'HOLCIM' ? 'text-bg-primary' : 'bg-info-subtle text-info-emphasis'}">${esc(x.empresa)}</span>`}</td>
+          <td>${ver('clase1')}</td>
+          <td>${falta.indexOf('estado') !== -1 ? completar('estado') : `<span class="badge ${p.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>`}</td>
+          <td class="text-nowrap">${p.activo ? '' : ver('fechaRetiro')}</td></tr>`;
+      }).join('') + (lista.length > max ? `<tr><td colspan="9" class="text-muted small">Se muestran ${max} de ${lista.length}; usa los filtros.</td></tr>` : '') || '<tr><td colspan="9" class="text-muted text-center py-4">Sin resultados</td></tr>';
+      barraBrigadistas();
+      $('brig-tabla').onkeydown = ev => { if (ev.key === 'Enter' && ev.target.matches('tr[data-accion]')) ev.target.click(); };
+    }
+    function barraBrigadistas() {
+      const n = Object.keys(brig.cambios).reduce((s, k) => s + Object.keys(brig.cambios[k]).length, 0);
+      $('brig-guardar').style.display = n ? 'flex' : 'none';
+      $('brig-guardar-n').textContent = n;
+    }
+    /** Cambios en la tabla editable: se guardan juntos con "Revisar y guardar". */
+    function cambioEnTabla(ev) {
+      const el = ev.target.closest('.ed');
+      if (!el) return;
+      const p = el.dataset.tipo === 'INHOUSE' ? I[+el.dataset.j] : P[+el.dataset.j];
+      const campo = el.dataset.campo, clave = p.tipo + ':' + p.j, orig = datosDe(p)[campo];
+      let v = el.value.trim();
+      const igual = campo === 'fechaIngreso' || campo === 'fechaRetiro' ? v === (isoDe(orig) || orig) : campo === 'empresa' && p.tipo === 'INHOUSE' ? v.toUpperCase() === orig : v === orig;
+      brig.cambios[clave] = brig.cambios[clave] || {};
+      if (igual) delete brig.cambios[clave][campo]; else brig.cambios[clave][campo] = v;
+      if (!Object.keys(brig.cambios[clave]).length) delete brig.cambios[clave];
+      // Solo el estado cambia la forma de la fila (fecha de retiro); lo demás no repinta para no perder el foco
+      if (campo === 'estado' && ev.type === 'change') return pintarBrigadistas();
+      el.closest('td').classList.toggle('celda-cambiada', !igual);
+      barraBrigadistas();
+    }
+    async function modoEdicionTabla() {
+      if (brig.editar) {
+        if (Object.keys(brig.cambios).length && !confirm('Tienes cambios sin guardar en la tabla. ¿Descartarlos?')) return;
+        brig.editar = false; brig.cambios = {}; return pintarBrigadistas();
+      }
+      if (!E.usuario) return pedirSesion(modoEdicionTabla);
+      if (!(await cargarCatalogos())) return;
+      brig.editar = true; pintarBrigadistas();
+    }
+    function confirmarTabla() {
+      const items = Object.keys(brig.cambios).map(k => { const [t, j] = k.split(':'); const p = t === 'INHOUSE' ? I[+j] : P[+j]; return { p: p, cambios: brig.cambios[k] }; });
+      const fmt = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split('-').reverse().join('/') : v;
+      $('conf-titulo').textContent = 'Guardar cambios de ' + items.length + ' brigadista(s)';
+      $('conf-cuerpo').innerHTML = '<table class="table table-sm small mb-2"><thead><tr><th>Brigadista</th><th>Dato</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
+        items.map(x => Object.keys(x.cambios).map((c, i) => `<tr><td>${i ? '' : esc(x.p.n)}</td><td>${CAMPOS_B[c]}</td><td class="text-muted">${esc(datosDe(x.p)[c] || '—')}</td><td class="fw-semibold">${esc(fmt(x.cambios[c]) || '—')}</td></tr>`).join('')).join('') + '</tbody></table>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar';
+      $('conf-ok').onclick = () => guardarTabla(items);
+      modal('modal-confirmar').show();
+    }
+    async function guardarTabla(items) {
+      modal('modal-confirmar').hide(); ocupado(true);
+      try {
+        const lote = items.map(x => { const ant = {}; Object.keys(x.cambios).forEach(c => { ant[c] = datosDe(x.p)[c]; }); return { tipo: x.p.tipo, cedula: x.p.c, nombre: x.p.n, cambios: x.cambios, anteriores: ant }; });
+        const r = await api('actualizarBrigadistasLote', E.token, lote);
+        ocupado(false);
+        if (revisarSesion(r)) return;
+        if (!r.exito) return avisar(esc(r.mensaje), 'danger', 12000);
+        const rech = [];
+        items.forEach((x, i) => {
+          const res = r.resultados[i] || {};
+          const fallidos = (res.rechazos || []).map(t => Object.keys(CAMPOS_B).find(c => t.indexOf(CAMPOS_B[c] + ':') === 0)).filter(Boolean);
+          const ok = {}; Object.keys(x.cambios).forEach(c => { if (fallidos.indexOf(c) === -1) ok[c] = x.cambios[c]; });
+          aplicarDatos(x.p, ok);
+          (res.rechazos || []).forEach(t => rech.push(x.p.n + ' · ' + t));
+          if (!fallidos.length) delete brig.cambios[x.p.tipo + ':' + x.p.j];
+        });
+        avisar('<b>' + esc(r.mensaje) + '</b>' + (rech.length ? '<ul class="small mb-0 mt-1">' + rech.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul>' : ''), rech.length ? 'warning' : 'success', 15000);
+        pintarBrigadistas();
+        $('badge-revision').textContent = revision().filter(x => x.g !== 'info').length || '';
+      } catch (e) { error(e); }
     }
     function csvBrigadistas() {
       if (!brig.visibles.length) return avisar('No hay brigadistas para descargar.', 'warning');
-      descargarCsv('brigadistas' + (E.sede ? '_' + E.sede : '') + '.csv', [['Nombre', 'Cédula', 'Planta', 'Sede', 'Tipo', 'Empresa', 'Estado', 'Certificado 0256', 'Cumplimiento', 'Módulos asistidos', 'Módulos vencidos', 'Fecha ingreso']]
-        .concat(brig.visibles.map(p => [p.n, p.c, p.p, p.sede, p.tipo, p.emp, p.e, p.ce, p.cump.pct === null ? '' : p.cump.pct + '%', p.cump.c, p.cump.t, p.fi || ''])));
+      descargarCsv('brigadistas' + (E.sede ? '_' + E.sede : '') + '.csv', [['Planta', 'Nombres y apellidos', 'Cédula', 'Grupo sanguíneo', 'Fecha de ingreso', 'Empresa', 'Brigadista Clase I', 'Estado', 'Fecha de retiro', 'Tipo', 'Sede', 'Certificado 0256', 'Cumplimiento', 'Datos por completar']]
+        .concat(brig.visibles.map(p => { const x = datosDe(p); return [p.p, p.n, x.cedula, x.grupo, x.fechaIngreso, x.empresa, x.clase1, x.estado || 'Activo', x.fechaRetiro, p.tipo, p.sede, x.certificado, p.cump.pct === null ? '' : p.cump.pct + '%', faltantes(p).map(k => CAMPOS_B[k]).join(', ')]; })));
     }
 
     // ══════════ FICHA ══════════
     let ficha = null;
-    function abrirFicha(tipo, j) {
+    function abrirFicha(tipo, j, editar, campo) {
       const p = tipo === 'INHOUSE' ? I[j] : P[j];
       if (!p) return;
       ficha = p;
-      pintarFicha(false);
+      if (editar) { editarFicha(campo); } else pintarFicha(false);
       modal('modal-ficha').show();
     }
-    function pintarFicha(editando) {
-      const f = ficha;
+    function pintarFicha(editando, campoFoco) {
+      const f = ficha, x = datosDe(f), falta = faltantes(f);
       $('ficha-titulo').textContent = f.n;
-      const dato = (k, v) => `<div class="col-sm-6 col-md-4"><div class="small text-muted">${k}</div><div class="fw-semibold">${v || '<span class="text-muted">—</span>'}</div></div>`;
-      let html = `<div class="row g-3 mb-3">${dato('Cédula', esc(f.c))}${dato('Planta', esc(f.p))}${dato('Empresa', esc(f.emp))}
-        ${dato('Estado', `<span class="badge ${f.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(f.e || 'Activo')}</span>`)}
-        ${dato('Certificado 0256', esc(f.ce))}${f.tipo === 'HOLCIM' ? dato('Fecha de ingreso', esc(f.fi)) + dato('Cumplimiento', f.cump.pct === null ? 'sin módulos vencidos' : f.cump.pct + ' % (' + f.cump.c + ' de ' + f.cump.t + ' módulos)') : ''}</div>`;
+      const dato = (k, v) => `<div class="col-sm-6 col-md-4"><div class="small text-muted">${k}</div><div class="fw-semibold">${v || '<span class="badge bg-warning-subtle text-warning-emphasis">Por completar</span>'}</div></div>`;
+      let html = (falta.length && !editando ? `<div class="alert alert-warning small py-2"><i class="fa-solid fa-triangle-exclamation me-1"></i>Faltan: <b>${falta.map(k => CAMPOS_B[k]).join(', ')}</b>. Pulsa <b>Completar datos</b>.</div>` : '') +
+        `<div class="row g-3 mb-3">${dato('Planta', esc(f.p))}${dato('Cédula', falta.indexOf('cedula') !== -1 ? '' : esc(x.cedula))}${dato('Grupo sanguíneo', esc(x.grupo))}
+        ${dato('Fecha de ingreso', esc(x.fechaIngreso))}${dato('Empresa', esc(x.empresa))}${dato('Brigadista Clase I', esc(x.clase1))}
+        ${dato('Estado', x.estado || f.tipo === 'INHOUSE' ? `<span class="badge ${f.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>` : '')}
+        ${f.activo ? '' : dato('Fecha de retiro', esc(x.fechaRetiro))}${x.certificado ? dato('Certificado 0256', esc(x.certificado)) : ''}
+        ${f.tipo === 'HOLCIM' ? dato('Cumplimiento', f.cump.pct === null ? 'sin módulos vencidos' : f.cump.pct + ' % (' + f.cump.c + ' de ' + f.cump.t + ' módulos)') : ''}</div>`;
       if (editando) {
-        const op = (lista, v) => (v && lista.indexOf(v) === -1 ? [v].concat(lista) : v ? lista : [''].concat(lista)).map(x => `<option value="${esc(x)}" ${x === v ? 'selected' : ''}>${x ? esc(x) : '(vacío)'}</option>`).join('');
-        html += `<div class="border rounded p-3 bg-light"><h3 class="h6 fw-bold mb-3"><i class="fa-solid fa-pen me-1"></i>Editar datos</h3><div class="row g-3">` +
-          (f.tipo === 'HOLCIM'
-            ? `<div class="col-md-4"><label class="form-label small" for="ed-estado">Estado</label><select id="ed-estado" class="form-select form-select-sm">${op(catalogos.estados, f.e)}</select></div>
-               <div class="col-md-4"><label class="form-label small" for="ed-fecha">Fecha de ingreso</label><input type="date" id="ed-fecha" class="form-control form-control-sm" value="${esc(isoDe(f.fi))}"></div>`
-            : `<div class="col-md-6"><label class="form-label small" for="ed-contratista">Empresa contratista</label><input id="ed-contratista" class="form-control form-control-sm" list="reg-contratistas" value="${esc(f.k)}"></div>`) +
-          (f.tipo === 'INHOUSE' || catalogos.holcimTieneCertificado ? `<div class="col-md-4"><label class="form-label small" for="ed-cert">Certificado 0256</label><select id="ed-cert" class="form-select form-select-sm">${op(catalogos.certificados, f.ce)}</select></div>` : '') +
-          '</div><p class="small text-muted mt-2 mb-0">La planta y el nombre no se editan desde la app para no desordenar la hoja.</p></div>';
+        const op = (lista, v, vacio) => (vacio ? `<option value="">${vacio}</option>` : '') + (v && lista.indexOf(v) === -1 ? [v].concat(lista) : lista).map(o => `<option value="${esc(o)}" ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('');
+        const inactivo = !f.activo;
+        html += `<div class="border rounded p-3 bg-light"><h3 class="h6 fw-bold mb-3"><i class="fa-solid fa-pen me-1"></i>Completar o editar datos</h3><div class="row g-3">
+          ${falta.indexOf('cedula') !== -1 ? `<div class="col-md-4"><label class="form-label small" for="ed-cedula">Cédula</label><input id="ed-cedula" class="form-control form-control-sm" inputmode="numeric" value="${esc(x.cedula)}"></div>` : ''}
+          <div class="col-md-4"><label class="form-label small" for="ed-grupo">Grupo sanguíneo</label><select id="ed-grupo" class="form-select form-select-sm">${op(catalogos.grupos, x.grupo, '—')}</select></div>
+          <div class="col-md-4"><label class="form-label small" for="ed-fechaIngreso">Fecha de ingreso</label><input type="date" id="ed-fechaIngreso" class="form-control form-control-sm" value="${esc(isoDe(x.fechaIngreso))}"></div>
+          <div class="col-md-4"><label class="form-label small" for="ed-empresa">Empresa</label><input id="ed-empresa" class="form-control form-control-sm" list="dl-empresas" value="${esc(x.empresa)}"></div>
+          <div class="col-md-4"><label class="form-label small" for="ed-clase1">Brigadista Clase I</label><select id="ed-clase1" class="form-select form-select-sm">${op(catalogos.clases, x.clase1, '—')}</select></div>
+          <div class="col-md-4"><label class="form-label small" for="ed-estado">Estado</label><select id="ed-estado" class="form-select form-select-sm">${f.tipo === 'INHOUSE' && !x.estado ? '<option value="">Activo</option>' : ''}${op(catalogos.estados, x.estado)}</select></div>
+          <div class="col-md-4" id="ed-retiro-box" style="${inactivo ? '' : 'display:none'}"><label class="form-label small" for="ed-fechaRetiro">Fecha de retiro</label><input type="date" id="ed-fechaRetiro" class="form-control form-control-sm" value="${esc(isoDe(x.fechaRetiro))}"></div>
+          ${f.tipo === 'INHOUSE' || catalogos.holcimTieneCertificado ? `<div class="col-md-4"><label class="form-label small" for="ed-certificado">Certificado 0256</label><select id="ed-certificado" class="form-select form-select-sm">${op(catalogos.certificados, x.certificado, x.certificado ? '' : '—')}</select></div>` : ''}
+          </div><p class="small text-muted mt-2 mb-0">La planta y el nombre no se editan desde la app para no desordenar la hoja. Si la hoja no tiene la columna de un dato, se crea al guardar.</p></div>`;
       }
-      if (f.tipo === 'HOLCIM') {
+      if (f.tipo === 'HOLCIM' && !editando) {
         const filas = D.sesiones.map(s => Object.assign({ s: s }, ses(f, s.i)));
         const txt = { si: '<span class="pildora e-si">✓ Asistió</span>', no: '<span class="pildora e-no">✗ No asistió</span>', pend: '<span class="pildora e-pend">· Pendiente</span>', na: '<span class="pildora e-na">— No aplica</span>', sina: '<span class="pildora e-sina">! Marcada sin aplicar</span>' };
-        const ocultas = filas.filter(x => x.est === 'na').length;
+        const ocultas = filas.filter(y => y.est === 'na').length;
         html += `<h3 class="h6 fw-bold mt-3 mb-2">Sesiones</h3><div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead><tr><th>Sesión</th><th>Tema</th><th>Fecha</th><th>Estado</th><th></th></tr></thead><tbody>` +
-          filas.filter(x => x.est !== 'na').map(x => `<tr><td class="text-nowrap"><b>${esc(x.s.clave)}</b> · S${x.s.n}</td><td>${esc(x.s.titulo)}</td><td class="text-nowrap">${esc(x.f || 'sin fecha')}${x.xFecha && x.xFecha !== x.f ? '<br><span class="text-warning">hoja: ' + esc(x.xFecha) + '</span>' : ''}</td><td>${txt[x.est]}</td>
-            <td>${x.est !== 'na' ? `<button class="btn btn-sm btn-link p-0" data-accion="ficha-asistencia" data-sede="${esc(f.sede)}" data-key="${esc(x.s.key)}">Abrir lista</button>` : ''}</td></tr>`).join('') +
+          filas.filter(y => y.est !== 'na').map(y => `<tr><td class="text-nowrap"><b>${esc(y.s.clave)}</b> · S${y.s.n}</td><td>${esc(y.s.titulo)}</td><td class="text-nowrap">${esc(y.f || 'sin fecha')}${y.xFecha && y.xFecha !== y.f ? '<br><span class="text-warning">hoja: ' + esc(y.xFecha) + '</span>' : ''}</td><td>${txt[y.est]}</td>
+            <td><button class="btn btn-sm btn-link p-0" data-accion="ficha-asistencia" data-sede="${esc(f.sede)}" data-key="${esc(y.s.key)}">Abrir lista</button></td></tr>`).join('') +
           (ocultas ? `<tr class="text-muted"><td colspan="5"><i class="fa-solid fa-circle-info me-1"></i>${ocultas} sesión(es) no aplican en ${esc(f.p)} según el cronograma.</td></tr>` : '') + '</tbody></table></div>';
       }
       html += `<p class="small text-muted mt-3 mb-0">Fila ${esc(f.r)} de "${esc(f.tipo === 'HOLCIM' ? 'Lista HOLCIM' : 'INHOUSE')}" · ${esc(f.tipo === 'HOLCIM' ? D.fuentes.asistencia.nombre : D.fuentes.datos.nombre)}</p>`;
       $('ficha-cuerpo').innerHTML = html;
       $('ficha-pie').innerHTML = editando
         ? '<button class="btn btn-outline-secondary" data-accion="ficha-cancelar">Cancelar</button><button class="btn btn-success" data-accion="ficha-revisar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>'
-        : '<button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button class="btn btn-primary" data-accion="ficha-editar"><i class="fa-solid fa-pen me-1"></i>Editar</button>';
+        : `<button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button class="btn ${falta.length ? 'btn-warning' : 'btn-primary'}" data-accion="ficha-editar"><i class="fa-solid fa-pen me-1"></i>${falta.length ? 'Completar datos' : 'Editar'}</button>`;
+      if (editando) {
+        $('ed-estado').onchange = () => { $('ed-retiro-box').style.display = /desvinculado/i.test($('ed-estado').value) ? '' : 'none'; };
+        const foco = campoFoco && $('ed-' + campoFoco);
+        if (foco) setTimeout(() => foco.focus(), 350);
+      }
     }
     async function cargarCatalogos() {
       if (catalogos) return true;
@@ -704,26 +846,30 @@
       $('reg-estado').innerHTML = opciones(catalogos.estados, 'Activo');
       $('reg-cert').innerHTML = catalogos.certificados.map(x => `<option ${/pendiente/i.test(x) ? 'selected' : ''}>${esc(x)}</option>`).join('');
       $('reg-contratistas').innerHTML = catalogos.contratistas.map(x => `<option value="${esc(x)}">`).join('');
+      $('dl-empresas').innerHTML = catalogos.empresas.map(x => `<option value="${esc(x)}">`).join('');
+      $('reg-grupo').innerHTML = '<option value="">—</option>' + catalogos.grupos.map(x => `<option>${esc(x)}</option>`).join('');
+      $('reg-clase1').innerHTML = '<option value="">—</option>' + catalogos.clases.map(x => `<option>${esc(x)}</option>`).join('');
       return true;
     }
-    async function editarFicha() {
-      if (!E.usuario) return pedirSesion(editarFicha);
-      if (await cargarCatalogos()) pintarFicha(true);
+    async function editarFicha(campo) {
+      if (!E.usuario) return pedirSesion(() => editarFicha(campo));
+      if (await cargarCatalogos()) pintarFicha(true, typeof campo === 'string' ? campo : '');
     }
     function revisarEdicion() {
-      const f = ficha, cambios = {}, anteriores = {};
-      const poner = (campo, nuevo, actual) => { if (String(nuevo) !== String(actual || '')) { cambios[campo] = nuevo; anteriores[campo] = actual || ''; } };
-      if (f.tipo === 'HOLCIM') {
-        poner('estado', $('ed-estado').value, f.e);
-        const iso = $('ed-fecha').value;
-        if (iso !== isoDe(f.fi)) { cambios.fechaIngreso = iso; anteriores.fechaIngreso = f.fi || ''; }
-      } else poner('contratista', $('ed-contratista').value.trim().toUpperCase(), f.k);
-      if ($('ed-cert')) poner('certificado', $('ed-cert').value, f.ce);
+      const f = ficha, x = datosDe(f), cambios = {}, anteriores = {};
+      ['cedula', 'grupo', 'fechaIngreso', 'empresa', 'clase1', 'estado', 'fechaRetiro', 'certificado'].forEach(k => {
+        const el = $('ed-' + k);
+        if (!el || (k === 'fechaRetiro' && $('ed-retiro-box').style.display === 'none')) return;
+        let v = el.value.trim();
+        if (k === 'empresa' && f.tipo === 'INHOUSE') v = v.toUpperCase();
+        const actual = k === 'fechaIngreso' || k === 'fechaRetiro' ? isoDe(x[k]) || x[k] : x[k];
+        if (v !== String(actual || '')) { cambios[k] = v; anteriores[k] = x[k] || ''; }
+      });
       if (!Object.keys(cambios).length) return avisar('No cambiaste nada.', 'info');
-      const eti = { estado: 'Estado', certificado: 'Certificado 0256', fechaIngreso: 'Fecha de ingreso', contratista: 'Contratista' };
+      const fmt = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split('-').reverse().join('/') : v;
       $('conf-titulo').textContent = 'Confirmar cambios de ' + f.n;
       $('conf-cuerpo').innerHTML = '<table class="table table-sm mb-2"><thead><tr><th>Dato</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
-        Object.keys(cambios).map(k => `<tr><td>${eti[k]}</td><td class="text-muted">${esc(anteriores[k] || '—')}</td><td class="fw-semibold">${esc(k === 'fechaIngreso' && cambios[k] ? cambios[k].split('-').reverse().join('/') : cambios[k] || '—')}</td></tr>`).join('') + '</tbody></table>';
+        Object.keys(cambios).map(k => `<tr><td>${CAMPOS_B[k]}</td><td class="text-muted">${esc(anteriores[k] || '—')}</td><td class="fw-semibold">${esc(fmt(cambios[k]) || '—')}</td></tr>`).join('') + '</tbody></table>';
       $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar cambios';
       $('conf-ok').onclick = () => guardarEdicion(cambios, anteriores);
       modal('modal-ficha').hide(); modal('modal-confirmar').show();
@@ -735,7 +881,12 @@
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? (r.rechazos && r.rechazos.length ? 'warning' : 'success') : 'danger', 10000);
-        if (r.exito) { await cargarDatos(false); cargarVista(); } else modal('modal-ficha').show();
+        if (!r.exito) { modal('modal-ficha').show(); return; }
+        const fallidos = (r.rechazos || []).map(t => Object.keys(CAMPOS_B).find(c => t.indexOf(CAMPOS_B[c] + ':') === 0)).filter(Boolean);
+        const ok = {}; Object.keys(cambios).forEach(c => { if (fallidos.indexOf(c) === -1) ok[c] = cambios[c]; });
+        aplicarDatos(ficha, ok);
+        $('badge-revision').textContent = revision().filter(x => x.g !== 'info').length || '';
+        cargarVista();
       } catch (e) { error(e); }
     }
 
@@ -767,14 +918,16 @@
       ev.preventDefault();
       const tipo = document.querySelector('input[name="reg-tipo"]:checked').value;
       const d = { tipo: tipo, planta: $('reg-planta').value, contratista: $('reg-contratista').value, nombre: $('reg-nombre').value.trim(), cedula: $('reg-cedula').value.replace(/\D/g, ''),
-        estado: $('reg-estado').value, fechaIngreso: $('reg-fecha').value, certificado: $('reg-cert-box').style.display === 'none' ? '' : $('reg-cert').value };
+        estado: $('reg-estado').value, fechaIngreso: $('reg-fecha').value, certificado: $('reg-cert-box').style.display === 'none' ? '' : $('reg-cert').value,
+        grupo: $('reg-grupo').value, clase1: $('reg-clase1').value, empresa: tipo === 'HOLCIM' ? $('reg-empresa').value.trim() : '' };
       const ya = todosBrigadistas().find(p => String(p.c).replace(/\D/g, '') === d.cedula);
       if (ya) return avisar('La cédula ' + esc(d.cedula) + ' ya está registrada: <b>' + esc(ya.n) + '</b> (' + esc(ya.p) + ').', 'warning', 9000);
       const fila = (k, v) => v ? `<tr><th class="text-muted fw-normal">${k}</th><td class="fw-semibold">${esc(v)}</td></tr>` : '';
       $('conf-titulo').textContent = 'Revisa los datos antes de guardar';
       $('conf-cuerpo').innerHTML = '<table class="table table-sm mb-2">' + fila('Tipo', tipo === 'HOLCIM' ? 'Personal Holcim' : 'Contratista (Inhouse)') + fila('Planta', d.planta) +
-        fila('Empresa', tipo === 'INHOUSE' ? d.contratista.toUpperCase() : '') + fila('Nombre', d.nombre.toUpperCase()) + fila('Cédula', d.cedula) +
-        fila('Estado', tipo === 'HOLCIM' ? d.estado : '') + fila('Fecha de ingreso', tipo === 'HOLCIM' ? d.fechaIngreso : '') + fila('Certificado 0256', d.certificado) + '</table>';
+        fila('Empresa', tipo === 'INHOUSE' ? d.contratista.toUpperCase() : d.empresa) + fila('Nombre', d.nombre.toUpperCase()) + fila('Cédula', d.cedula) +
+        fila('Grupo sanguíneo', d.grupo) + fila('Brigadista Clase I', d.clase1) +
+        fila('Estado', tipo === 'HOLCIM' ? d.estado : '') + fila('Fecha de ingreso', d.fechaIngreso ? d.fechaIngreso.split('-').reverse().join('/') : '') + fila('Certificado 0256', d.certificado) + '</table>';
       $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Confirmar y guardar';
       $('conf-ok').onclick = () => guardarRegistro(d);
       modal('modal-registro').hide(); modal('modal-confirmar').show();
@@ -890,7 +1043,7 @@
       'datos': ['aviso', 'Problema al leer los datos'],
       'nombre-dup': ['info', 'Mismo nombre con cédulas distintas'],
       'sin-asistencias': ['info', 'Activo sin ninguna asistencia'],
-      'sin-fecha-ingreso': ['info', 'Sin fecha de ingreso'],
+      'datos-incompletos': ['aviso', 'Datos incompletos del brigadista'],
       'sin-cert': ['info', 'Contratista sin certificado 0256'],
       'crono-estado': ['info', 'Sesión pasada que sigue "Programada"'],
       'crono-sin-fecha': ['info', 'Sesión sin fecha en el cronograma'],
@@ -909,7 +1062,7 @@
           if (x.marcada && x.iso && p.fi && isoDe(p.fi) && x.iso < isoDe(p.fi)) add('marca-antes-ingreso', { sede: p.sede, planta: p.p, persona: p, detalle: `${p.n}: asistió a ${nombreSesion(s)} (${x.f}) pero entró a la brigada el ${p.fi}.`, que: 'Corrige la fecha de ingreso o la marca.' });
         });
         if (p.activo && p.cump.t >= 2 && p.cump.c === 0) add('sin-asistencias', { sede: p.sede, planta: p.p, persona: p, detalle: `${p.n} tiene ${p.cump.t} módulos vencidos y ninguna asistencia.`, que: 'Revisa si faltan marcas o si la persona sigue en la brigada.' });
-        if (p.activo && !p.fi) add('sin-fecha-ingreso', { sede: p.sede, planta: p.p, persona: p, detalle: `${p.n} no tiene fecha de ingreso a la brigada.`, que: 'Agrégala en su ficha (Editar).' });
+
       });
       // Fechas de la hoja distintas al cronograma (por planta y sesión)
       Object.keys(D.plantas).forEach(pl => {
@@ -925,6 +1078,12 @@
       unicos(P.map(p => p.sede)).forEach(sede => sesionesSede(sede).forEach(x => {
         if (x.aplica && x.iso && x.iso < hace(3) && !x.marcadas && x.total) add('sin-registro', { sede: sede, detalle: `${sede} · ${nombreSesion(x.s)} (${x.s.titulo}) fue el ${x.fecha} y no tiene ninguna asistencia.`, que: 'Registra la asistencia o, si no se dictó, actualiza el cronograma.', key: x.s.key });
       }));
+      // Datos del brigadista por completar (activos, y desvinculados sin fecha de retiro)
+      P.concat(I).forEach(p => {
+        const f = faltantes(p).filter(k => k !== 'cedula'); // la cédula tiene su propio aviso
+        if (f.length && (p.activo || f.indexOf('fechaRetiro') !== -1)) add('datos-incompletos', { sede: p.sede, planta: p.p, persona: p, completar: f[0],
+          detalle: `${p.n} (${p.p}): falta ${f.map(k => CAMPOS_B[k].charAt(0).toLowerCase() + CAMPOS_B[k].slice(1)).join(', ')}.`, que: 'Pulsa Completar, o en Brigadistas usa "Editar en la tabla" para completar varios a la vez.' });
+      });
       // Cédulas y nombres
       const todos = P.concat(I), porCed = {}, porNom = {};
       todos.forEach(p => {
@@ -978,7 +1137,7 @@
       const max = 400;
       $('rev-lista').innerHTML = lista.slice(0, max).map(r => `<div class="rev rev-${r.g}"><div class="d-flex flex-wrap gap-2 align-items-start">
           <div class="flex-grow-1"><div class="small text-muted">${esc(r.titulo)}${r.sede ? ' · ' + esc(r.sede) : ''}</div><div>${esc(r.detalle)}</div><div class="small mt-1"><i class="fa-solid fa-arrow-right me-1 text-primary"></i>${esc(r.que)}</div></div>
-          ${r.persona ? `<button class="btn btn-sm btn-outline-secondary" data-accion="ficha" data-tipo="${r.persona.tipo}" data-j="${r.persona.j}">Ver ficha</button>` : ''}
+          ${r.completar ? `<button class="btn btn-sm btn-warning" data-accion="completar" data-tipo="${r.persona.tipo}" data-j="${r.persona.j}" data-campo="${r.completar}"><i class="fa-solid fa-pen me-1"></i>Completar</button>` : r.persona ? `<button class="btn btn-sm btn-outline-secondary" data-accion="ficha" data-tipo="${r.persona.tipo}" data-j="${r.persona.j}">Ver ficha</button>` : ''}
           ${r.key ? `<button class="btn btn-sm btn-outline-primary" data-accion="ir-asistencia" data-sede="${esc(r.sede)}" data-key="${esc(r.key)}">Registrar</button>` : ''}</div></div>`).join('') +
         (lista.length > max ? `<p class="text-muted small">Se muestran ${max} de ${lista.length}; usa los filtros para ver el resto.</p>` : '') +
         (lista.length ? '' : '<p class="text-success"><i class="fa-solid fa-check me-1"></i>Nada que revisar con este filtro.</p>');
