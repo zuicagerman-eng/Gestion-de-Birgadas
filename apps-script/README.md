@@ -48,6 +48,7 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   Grupo sanguíneo: O+, O-, A+, A-, B+, B-, AB+, AB-. Clase I: la lista de la hoja si tiene desplegable; si no, Sí / No / En formación.
 - **Cronograma**: próximas / pasadas / por definir, filtros por mes, tema y estado; botón para abrir la asistencia.
 - **Cobertura**: pestaña *Indicador.* con avance a la meta y comparación con las listas.
+- **Sede** (arriba): se pueden elegir varias a la vez (o "solo" una); todas las vistas filtran por esas sedes.
 - **Revisión de datos**: posibles errores con filtros por gravedad y tipo (ver abajo).
 - **Historial de cambios**: lo hecho desde la app y lo detectado en el Excel, con filtros y CSV.
 - **Temarios** y **Otras hojas** (Seguimiento, Datos de contacto, Evacuadores…): consulta con buscador y filtros.

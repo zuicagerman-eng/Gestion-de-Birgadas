@@ -119,6 +119,10 @@
     th.ordenable[aria-sort="ascending"]::after { content: " ▲"; font-size: .7em; }
     th.ordenable[aria-sort="descending"]::after { content: " ▼"; font-size: .7em; }
     .fila-click { cursor: pointer; }
+    #sel-sede.sede-filtrada { border-color: #0d6efd; background-color: #eef4ff; font-weight: 600; }
+    .sede-op:hover { background: #f1f5fb; }
+    .sede-op .solo { visibility: hidden; font-size: .78rem; }
+    .sede-op:hover .solo, .sede-op .solo:focus { visibility: visible; }
     .btn-completar { padding: 0 .4rem; font-size: .72rem; color: #8a5a00; background: #fff4d6; border: 1px dashed #f0b429; border-radius: 999px; white-space: nowrap; }
     .btn-completar:hover, .btn-completar:focus { background: #ffe8a8; color: #5c3c00; }
     .celda-cambiada { background: #fff8e1 !important; box-shadow: inset 3px 0 0 #f59f00; }
@@ -186,8 +190,11 @@
         <header class="topbar px-3 py-2 d-flex flex-wrap align-items-center gap-2 position-relative">
           <button class="btn btn-outline-secondary d-md-none" data-bs-toggle="offcanvas" data-bs-target="#menu" aria-label="Abrir menú"><i class="fa-solid fa-bars"></i></button>
           <div class="d-flex align-items-center gap-2">
-            <label class="small text-muted mb-0" for="sel-sede"><i class="fa-solid fa-location-dot me-1"></i>Sede</label>
-            <select id="sel-sede" class="form-select form-select-sm" style="min-width: 180px;"></select>
+            <span class="small text-muted" id="lbl-sede"><i class="fa-solid fa-location-dot me-1"></i>Sede</span>
+            <div class="dropdown">
+              <button type="button" id="sel-sede" class="form-select form-select-sm text-start text-truncate" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-labelledby="lbl-sede sel-sede" style="min-width: 180px; max-width: 260px;">Todas las sedes</button>
+              <div class="dropdown-menu shadow py-2" id="sede-menu" style="min-width: 240px; max-height: 70vh; overflow-y: auto;"></div>
+            </div>
           </div>
           <div class="small text-muted d-flex align-items-center gap-2" id="frescura"></div>
           <div class="ms-auto d-flex align-items-center gap-2">

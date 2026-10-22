@@ -2,7 +2,17 @@
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
     const VERSION_HTML = '4.0.3'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
-    const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sede: leer('localStorage', 'sigbe_sede') || '', listo: false, lecturaPublica: false, setup: null };
+    const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
+    // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
+    Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
+    function sedesGuardadas() {
+      const t = leer('localStorage', 'sigbe_sede') || '';
+      try { const a = JSON.parse(t); if (Array.isArray(a)) return a.map(String); } catch (e) { /* formato viejo: una sola sede */ }
+      return t ? [t] : [];
+    }
+    function sedeOk(s) { return !E.sedes.length || E.sedes.indexOf(s) !== -1; }
+    function sufijoSede() { return E.sedes.length ? '_' + E.sedes.join('_') : ''; }
+    function textoSedes() { return !E.sedes.length ? 'Todas las sedes' : E.sedes.length <= 2 ? E.sedes.join(', ') : E.sedes.length + ' sedes'; }
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
     const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', planta: '', inactivos: false, filtro: '' };
     const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {} };
@@ -64,7 +74,7 @@
       return `<span class="badge ${n.includes('programada') ? 'bg-success-subtle text-success-emphasis' : n.includes('pendiente') ? 'bg-warning-subtle text-warning-emphasis' : n.includes('realiz') || n.includes('ejecut') ? 'bg-primary-subtle text-primary-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'}">${esc(e)}</span>`;
     }
     function opciones(lista, actual, todos) { return (todos ? `<option value="">${esc(todos)}</option>` : '') + lista.map(x => `<option value="${esc(x)}" ${x === actual ? 'selected' : ''}>${esc(x)}</option>`).join(''); }
-    function enSede(x) { return !E.sede || x.sede === E.sede; }
+    function enSede(x) { return sedeOk(x.sede); }
     function tieneCert(c) { return /^\d+$/.test(String(c || '')); }
     function pctBarra(pct, color) { return `<div class="barrita" role="img" aria-label="${pct} %"><div style="width:${Math.max(0, Math.min(pct, 100))}%;background:${color}"></div></div>`; }
 
@@ -73,7 +83,11 @@
       window.__sigbeArranco = true;
       document.querySelectorAll('#nav .nav-link').forEach(a => a.onclick = ev => { ev.preventDefault(); ir(a.dataset.vista); });
       document.body.addEventListener('click', clicGeneral);
-      $('sel-sede').onchange = () => cambiarSede($('sel-sede').value);
+      $('sede-menu').addEventListener('change', ev => {
+        const marcadas = [...document.querySelectorAll('#sede-menu input[data-sede]:checked')].map(x => x.dataset.sede);
+        if (marcadas.length) cambiarSede(marcadas.length === D.sedes.length ? [] : marcadas);
+      });
+      $('sel-sede').addEventListener('hidden.bs.dropdown', () => pintarSelectorSede()); // si quedó todo desmarcado, vuelve a lo aplicado
       $('btn-sesion').onclick = () => E.usuario ? cerrarSesion() : pedirSesion();
       $('form-login').onsubmit = iniciarSesion;
       $('form-registro').onsubmit = revisarRegistro;
@@ -174,8 +188,8 @@
       P = D.holcim.map((p, j) => { const o = Object.assign({}, p, { j: j, tipo: 'HOLCIM', sede: (D.plantas[p.p] || {}).sede || p.p, activo: !/desvinculado/i.test(p.e), emp: 'Holcim' }); o.cump = cumplimiento(o); return o; });
       I = D.inhouse.map((p, j) => Object.assign({}, p, { j: j, tipo: 'INHOUSE', activo: !/desvinculado/i.test(p.e), emp: p.k || 'Contratista', cump: { c: 0, t: 0, pct: null } }));
       REV = null;
-      if (E.sede && D.sedes.indexOf(E.sede) === -1) E.sede = '';
-      $('sel-sede').innerHTML = '<option value="">Todas las sedes</option>' + D.sedes.map(s => `<option ${s === E.sede ? 'selected' : ''}>${esc(s)}</option>`).join('');
+      E.sedes = E.sedes.filter(s => D.sedes.indexOf(s) !== -1);
+      pintarSelectorSede();
       const avisos = (D.avisos || []).concat(D.fuentes.soloLectura && (D.fuentes.soloLectura.asistencia || D.fuentes.soloLectura.datos) ? ['Modo solo lectura en parte de los datos (ver Estado del sistema).'] : []);
       if (avisos.length) banner('<i class="fa-solid fa-triangle-exclamation me-1"></i>' + avisos.map(esc).join(' · ')); else if (!/versiones distintas/.test($('banner').innerHTML)) $('banner').style.display = 'none';
       pintarFrescura();
@@ -216,9 +230,20 @@
          cobertura: pintarCobertura, revision: prepararRevision, cambios: cargarCambios, temarios: cargarTemarios, hojas: cargarHojas,
          estado: cargarEstado, configuracion: cargarConfiguracion, setup: () => {}, ayuda: () => {} })[E.vista]();
     }
-    function cambiarSede(s) {
-      if (hayCambios() && !confirm('Tienes cambios de asistencia sin guardar. ¿Cambiar de sede y descartarlos?')) { $('sel-sede').value = E.sede; return; }
-      E.sede = s; guardar('localStorage', 'sigbe_sede', s);
+    /** Selector de sedes (varias a la vez) arriba. */
+    function pintarSelectorSede() {
+      const foco = document.activeElement && document.activeElement.closest('#sede-menu') ? document.activeElement.dataset.sede : null;
+      $('sel-sede').textContent = textoSedes();
+      $('sel-sede').classList.toggle('sede-filtrada', E.sedes.length > 0);
+      $('sede-menu').innerHTML = `<div class="d-flex gap-2 px-2 pb-2 mb-1 border-bottom"><button type="button" class="btn btn-sm btn-link p-0" data-accion="sedes-todas">Todas</button><span class="text-muted">·</span><button type="button" class="btn btn-sm btn-link p-0" data-accion="sedes-ninguna">Ninguna</button></div>` +
+        D.sedes.map((s, k) => `<div class="sede-op d-flex align-items-center gap-2 px-2"><input class="form-check-input mt-0" type="checkbox" id="sede-${k}" data-sede="${esc(s)}" ${!E.sedes.length || E.sedes.indexOf(s) !== -1 ? 'checked' : ''}>
+          <label class="form-check-label flex-grow-1 py-1" for="sede-${k}">${esc(s)}</label><button type="button" class="btn btn-sm btn-link p-0 solo" data-accion="sede-solo" data-sede="${esc(s)}">solo</button></div>`).join('');
+      if (foco) { const el = [...document.querySelectorAll('#sede-menu input[data-sede]')].find(x => x.dataset.sede === foco); if (el) el.focus(); } // no perder el foco al marcar
+    }
+    function cambiarSede(lista) {
+      if (typeof lista === 'string') lista = lista ? [lista] : [];
+      if (hayCambios() && !confirm('Tienes cambios de asistencia sin guardar. ¿Cambiar de sede y descartarlos?')) { pintarSelectorSede(); return; }
+      E.sedes = lista; guardar('localStorage', 'sigbe_sede', JSON.stringify(lista)); pintarSelectorSede();
       asis.paso = 'sesiones'; asis.cambios = {}; asis.planta = '';
       cargarVista();
     }
@@ -242,8 +267,11 @@
         'brig-guardar': confirmarTabla,
         'brig-descartar': () => { brig.cambios = {}; pintarBrigadistas(); },
         'brig-incompletos': () => { $('brig-datos').value = 'incompletos'; pintarBrigadistas(); },
-        'asis-sede': () => { $('sel-sede').value = d.sede; cambiarSede(d.sede); },
-        'elegir-sede': () => { $('sel-sede').value = d.sede; cambiarSede(d.sede); },
+        'asis-sede': () => cambiarSede([d.sede]),
+        'elegir-sede': () => cambiarSede([d.sede]),
+        'sede-solo': () => { cambiarSede([d.sede]); bootstrap.Dropdown.getOrCreateInstance($('sel-sede')).hide(); },
+        'sedes-todas': () => cambiarSede([]),
+        'sedes-ninguna': () => { document.querySelectorAll('#sede-menu input[data-sede]').forEach(x => { x.checked = false; }); },
         'cob-abrir': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = true; }),
         'cob-cerrar': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = false; }),
         'asis-sesion': () => elegirSesion(d.key),
@@ -254,7 +282,7 @@
         'asis-descartar': () => { asis.cambios = {}; pintarAsistencia(); },
         'asis-guardar': confirmarAsistencia,
         'asis-imprimir': imprimirLista, 'asis-csv': csvAsistencia,
-        'ir-asistencia': () => { if (d.sede) { E.sede = d.sede; guardar('localStorage', 'sigbe_sede', d.sede); $('sel-sede').value = d.sede; } asis.key = null; asis.paso = 'sesiones'; ir('asistencia'); if (d.key) elegirSesion(d.key); },
+        'ir-asistencia': () => { if (d.sede) { E.sedes = [d.sede]; guardar('localStorage', 'sigbe_sede', JSON.stringify(E.sedes)); pintarSelectorSede(); } asis.key = null; asis.paso = 'sesiones'; ir('asistencia'); if (d.key) elegirSesion(d.key); },
         'rev-tipo': () => { rev.tipo = rev.tipo === d.t ? '' : d.t; pintarRevision(); },
         'recargar-cambios': () => { CAMBIOS = null; cargarCambios(); },
         'cambios-mas': () => { cam.limite += 300; pintarCambios(); },
@@ -342,7 +370,7 @@
 
     // ══════════ INICIO ══════════
     function pintarInicio() {
-      $('inicio-sub').textContent = E.sede ? 'Sede ' + E.sede : 'Todas las sedes · haz clic en una sede de las barras o elígela arriba';
+      $('inicio-sub').textContent = E.sedes.length ? (E.sedes.length === 1 ? 'Sede ' : 'Sedes ') + E.sedes.join(', ') : 'Todas las sedes · haz clic en una sede de las barras o elige una o varias arriba';
       const h = P.filter(p => enSede(p) && p.activo), ih = I.filter(p => enSede(p) && p.activo);
       const conCert = ih.filter(p => tieneCert(p.ce)).length;
       const cumps = h.map(p => p.cump).filter(c => c.pct !== null);
@@ -360,13 +388,13 @@
       // Barras por sede (clic = filtrar por esa sede)
       const barra = (sede, pct, txt) => { const color = pct >= 80 ? 'var(--s-ok)' : pct >= 40 ? '#f59f00' : 'var(--s-mal)';
         return `<div class="fila-sede d-flex align-items-center gap-2" data-accion="elegir-sede" data-sede="${esc(sede)}" title="Ver solo ${esc(sede)}"><div style="width:110px" class="fw-semibold text-truncate">${esc(sede)}</div><div class="flex-grow-1">${pctBarra(pct, color)}</div><div style="width:120px" class="text-end text-muted">${txt}</div></div>`; };
-      const sedes = unicos(P.map(p => p.sede)).filter(x => !E.sede || x === E.sede);
+      const sedes = unicos(P.map(p => p.sede)).filter(sedeOk);
       $('inicio-por-sede').innerHTML = sedes.map(sd => {
         const cs = P.filter(p => p.sede === sd && p.activo).map(p => p.cump).filter(c => c.t);
         const c = cs.reduce((n, x) => n + x.c, 0), t = cs.reduce((n, x) => n + x.t, 0);
         return { sd, pct: t ? Math.round(c / t * 100) : 0, txt: t ? `${Math.round(c / t * 100)} % · ${c}/${t}` : 'sin vencidos' };
       }).sort((a, b) => a.pct - b.pct).map(x => barra(x.sd, x.pct, x.txt)).join('') || '<p class="text-muted mb-0">Sin datos.</p>';
-      const sedesInd = unicos(D.indicador.map(f => f.sede)).filter(x => !E.sede || x === E.sede);
+      const sedesInd = unicos(D.indicador.map(f => f.sede)).filter(sedeOk);
       $('inicio-cobertura').innerHTML = sedesInd.map(sd => {
         const f = D.indicador.filter(x => x.sede === sd && !x.tot);
         const b = f.reduce((n, x) => n + x.bri, 0), m = f.reduce((n, x) => n + x.meta, 0);
@@ -392,7 +420,7 @@
     /** Sesiones de la sede (por planta) que ya pasaron, aplican y no tienen ninguna asistencia. */
     function sesionesSinRegistro() {
       const out = [];
-      const sedes = E.sede ? [E.sede] : unicos(P.map(p => p.sede));
+      const sedes = unicos(P.map(p => p.sede)).filter(sedeOk);
       sedes.forEach(sede => sesionesSede(sede).forEach(x => { if (x.aplica && x.iso && x.iso < D.hoy && !x.marcadas && x.total) out.push(Object.assign({ sede: sede }, x)); }));
       return out.sort((a, b) => a.iso < b.iso ? 1 : -1);
     }
@@ -421,14 +449,14 @@
         ? `<li class="breadcrumb-item active" aria-current="step">${esc(t)}${v ? ': <b>' + esc(v) + '</b>' : ''}</li>`
         : `<li class="breadcrumb-item"><a href="#" data-accion="${acc}">${esc(t)}: <b>${esc(v)}</b></a></li>`).join('');
       const r = document.querySelector('[data-accion="asis-sede-reset"]');
-      if (r) r.onclick = ev => { ev.preventDefault(); if (hayCambios() && !confirm('¿Descartar cambios?')) return; E.sede = ''; $('sel-sede').value = ''; asis.paso = 'sesiones'; asis.cambios = {}; pintarAsistencia(); };
+      if (r) r.onclick = ev => { ev.preventDefault(); if (hayCambios() && !confirm('¿Descartar cambios?')) return; asis.cambios = {}; cambiarSede([]); };
     }
     function pintarAsistencia() {
       const c = $('asis-contenido');
       if (!E.sede) {
         asis.paso = 'sesiones'; migas();
         c.innerHTML = `<div class="tarjeta p-4"><h2 class="h5 mb-3">1. ¿En qué sede vas a tomar asistencia?</h2><div class="row g-2">` +
-          unicos(P.map(p => p.sede)).map(s => `<div class="col-6 col-md-4 col-lg-3"><button class="btn btn-outline-primary w-100 py-3 fw-semibold" data-accion="asis-sede" data-sede="${esc(s)}"><i class="fa-solid fa-location-dot me-1"></i>${esc(s)}<div class="small fw-normal">${personasSede(s).filter(p => p.activo).length} brigadistas</div></button></div>`).join('') + '</div></div>';
+          unicos(P.map(p => p.sede)).filter(sedeOk).map(s => `<div class="col-6 col-md-4 col-lg-3"><button class="btn btn-outline-primary w-100 py-3 fw-semibold" data-accion="asis-sede" data-sede="${esc(s)}"><i class="fa-solid fa-location-dot me-1"></i>${esc(s)}<div class="small fw-normal">${personasSede(s).filter(p => p.activo).length} brigadistas</div></button></div>`).join('') + '</div></div>';
         return;
       }
       if (asis.paso === 'lista' && asis.key) return pintarLista();
@@ -625,7 +653,7 @@
     }
     function csvMatriz() {
       const txt = { si: 'Asistió', no: 'No asistió', pend: 'Pendiente', na: 'No aplica', sina: 'Marcada sin aplicar' };
-      descargarCsv('avance_por_persona' + (E.sede ? '_' + E.sede : '') + '.csv', [['Planta', 'Nombre', 'Cédula', 'Estado'].concat(D.unidades.map(u => u.clave), ['Cumplimiento'])]
+      descargarCsv('avance_por_persona' + sufijoSede() + '.csv', [['Planta', 'Nombre', 'Cédula', 'Estado'].concat(D.unidades.map(u => u.clave), ['Cumplimiento'])]
         .concat(filasMatriz().map(p => [p.p, p.n, p.c, p.e].concat(D.unidades.map(u => txt[estadoUnidad(p, u).est]), [p.cump.pct === null ? '' : p.cump.pct + '%']))));
     }
 
@@ -781,7 +809,7 @@
     }
     function csvBrigadistas() {
       if (!brig.visibles.length) return avisar('No hay brigadistas para descargar.', 'warning');
-      descargarCsv('brigadistas' + (E.sede ? '_' + E.sede : '') + '.csv', [['Planta', 'Nombres y apellidos', 'Cédula', 'Grupo sanguíneo', 'Fecha de ingreso', 'Empresa', 'Brigadista Clase I', 'Estado', 'Fecha de retiro', 'Tipo', 'Sede', 'Certificado 0256', 'Cumplimiento', 'Datos por completar']]
+      descargarCsv('brigadistas' + sufijoSede() + '.csv', [['Planta', 'Nombres y apellidos', 'Cédula', 'Grupo sanguíneo', 'Fecha de ingreso', 'Empresa', 'Brigadista Clase I', 'Estado', 'Fecha de retiro', 'Tipo', 'Sede', 'Certificado 0256', 'Cumplimiento', 'Datos por completar']]
         .concat(brig.visibles.map(p => { const x = datosDe(p); return [p.p, p.n, x.cedula, x.grupo, x.fechaIngreso, x.empresa, x.clase1, x.estado || 'Activo', x.fechaRetiro, p.tipo, p.sede, x.certificado, p.cump.pct === null ? '' : p.cump.pct + '%', faltantes(p).map(k => CAMPOS_B[k]).join(', ')]; })));
     }
 
@@ -1123,7 +1151,7 @@
     }
     function prepararRevision() { pintarRevision(); }
     function pintarRevision() {
-      const todo = revision().filter(r => !E.sede || r.sede === E.sede);
+      const todo = revision().filter(r => E.sedes.length ? sedeOk(r.sede) : true);
       ['error', 'aviso', 'info'].forEach(g => { $('rev-n-' + g).textContent = todo.filter(r => r.g === g).length; });
       const porTipo = {};
       todo.filter(r => !rev.g || r.g === rev.g).forEach(r => { porTipo[r.tipo] = (porTipo[r.tipo] || 0) + 1; });
@@ -1156,7 +1184,7 @@
     }
     function filtrarCambios() {
       const q = norm($('cam-buscar').value), h = $('cam-hoja').value, de = $('cam-desde').value, a = $('cam-hasta').value;
-      return (CAMBIOS || []).filter(c => (!cam.o || (cam.o === 'excel') === c.excel) && (!h || c.hoja === h) && (!E.sede || !c.sede || c.sede === E.sede) &&
+      return (CAMBIOS || []).filter(c => (!cam.o || (cam.o === 'excel') === c.excel) && (!h || c.hoja === h) && (!c.sede || sedeOk(c.sede)) &&
         (!de || c.iso >= de) && (!a || c.iso <= a) && (!q || norm([c.nombre, c.cedula, c.detalle, c.accion, c.usuario, c.antes, c.despues].join(' ')).includes(q)));
     }
     function pintarCambios() {
