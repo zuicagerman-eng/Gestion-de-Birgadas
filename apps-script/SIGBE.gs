@@ -237,6 +237,11 @@ function probarApp() {
     if (fechas.length) throw new Error('hay fechas que el navegador no puede recibir: ' + fechas.slice(0, 5).join(', '));
     return m.holcim.length + ' Holcim · ' + m.inhouse.length + ' contratistas · ' + m.crono.length + ' sesiones de cronograma · ' + Math.round(JSON.stringify(m).length / 1024) + ' KB' + (m.avisos.length ? ' · avisos: ' + m.avisos.join(' | ') : '');
   });
+  paso('Página (doGet + App.html)', () => {
+    const h = doGet().getContent();
+    if (h.indexOf('window.__sigbeCargarApp("') === -1) throw new Error('la página no trae el código de pantallas: falta App.html o el doGet no es el de esta versión');
+    return 'completa · ' + Math.round(h.length / 1024) + ' KB';
+  });
   paso('Caché', () => { sigbeCacheGuardar_('sigbe_prueba', { ok: 1 }); return sigbeCacheLeer_('sigbe_prueba') ? 'funciona' : 'no guarda (la app funciona igual, pero más lenta)'; });
   return lnMostrar_(L.join('\n'));
 }

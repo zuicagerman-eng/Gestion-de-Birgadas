@@ -204,6 +204,7 @@
             });
             // Decodifica y ejecuta el código de las pantallas (App.html), que el servidor manda en base64.
             window.__sigbeCargarApp = function (b64) {
+              window.__sigbeAppLlego = true;
               var codigo = '';
               try {
                 var bin = atob(b64), bytes = new Uint8Array(bin.length);
@@ -217,7 +218,10 @@
               document.head.appendChild(sc);
             };
             setTimeout(function () {
-              if (!window.__sigbeArranco) window.__sigbeMostrarError('El código de la pantalla no arrancó en 20 segundos. Revisa que exista el archivo App.html en el proyecto y que se publicó una versión nueva (o que el navegador no esté bloqueando cdn.jsdelivr.net).');
+              if (window.__sigbeArranco) return;
+              if (!window.__sigbeAppLlego) window.__sigbeMostrarError('El servidor no incluyó el código de las pantallas (App.html). Pasa cuando SIGBE.gs todavía tiene la función doGet anterior. ' +
+                'Reemplaza SIGBE.gs completo, guarda y publica una versión nueva (Implementar → Administrar implementaciones → lápiz → Nueva versión). En el editor, probarApp lo comprueba en el paso "Página".');
+              else window.__sigbeMostrarError('El código de las pantallas llegó pero no arrancó en 20 segundos. Recarga con Ctrl + F5 (o revisa que el navegador no bloquee cdn.jsdelivr.net).');
             }, 20000);
           </script>
 
