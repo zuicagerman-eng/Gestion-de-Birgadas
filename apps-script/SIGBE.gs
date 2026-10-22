@@ -62,10 +62,10 @@ const SIGBE_SEDES = [
  * altere, y sin pasar por el motor de plantillas (la app no usa <? ?>).
  */
 function doGet() {
-  const codigo = HtmlService.createHtmlOutputFromFile('App').getContent();
+  // getRawContent: el texto de los archivos tal cual, sin que Google lo procese
+  const codigo = HtmlService.createTemplateFromFile('App').getRawContent();
   const b64 = Utilities.base64Encode(codigo, Utilities.Charset.UTF_8);
-  const html = HtmlService.createHtmlOutputFromFile('Index').getContent()
-    .replace('/*SIGBE_APP*/', 'window.__sigbeCargarApp("' + b64 + '");');
+  const html = HtmlService.createTemplateFromFile('Index').getRawContent().replace('__SIGBE_APP__', b64);
   return HtmlService.createHtmlOutput(html)
     .setTitle('SIGBE - Gestión de Brigadas')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
@@ -239,7 +239,7 @@ function probarApp() {
   });
   paso('Página (doGet + App.html)', () => {
     const h = doGet().getContent();
-    if (h.indexOf('window.__sigbeCargarApp("') === -1) throw new Error('la página no trae el código de pantallas: falta App.html o el doGet no es el de esta versión');
+    if (h.indexOf('__SIGBE_APP__') !== -1 || h.indexOf('sigbe-app-b64') === -1) throw new Error('la página no trae el código de pantallas: falta App.html, o Index.html / doGet no son de esta versión');
     return 'completa · ' + Math.round(h.length / 1024) + ' KB';
   });
   paso('Caché', () => { sigbeCacheGuardar_('sigbe_prueba', { ok: 1 }); return sigbeCacheLeer_('sigbe_prueba') ? 'funciona' : 'no guarda (la app funciona igual, pero más lenta)'; });
