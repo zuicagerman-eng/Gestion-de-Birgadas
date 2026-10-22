@@ -182,6 +182,23 @@
 
         <main class="main" id="contenido" tabindex="-1">
           <div id="arranque" class="tarjeta p-4 mb-3" role="status" aria-live="polite"><span class="spinner-border spinner-border-sm me-2" id="arranque-spin"></span><span id="arranque-txt">Abriendo la app…</span></div>
+          <script>
+            // Vigía del arranque: va aparte para poder mostrar el error aunque el código principal no cargue.
+            window.__sigbeMostrarError = function (m) {
+              if (window.__sigbeDatos) return;
+              var t = document.getElementById('arranque-txt'), c = document.getElementById('arranque'), s = document.getElementById('arranque-spin');
+              if (!t) return;
+              c.className = 'alert alert-danger mb-3'; if (s) s.style.display = 'none';
+              t.innerHTML = '<b>La pantalla no pudo arrancar.</b><div class="mt-1">' + String(m).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>' +
+                '<div class="small mt-2">Recarga con Ctrl + F5. Si sigue igual, manda una captura de este recuadro.</div>';
+            };
+            window.addEventListener('error', function (e) {
+              window.__sigbeMostrarError((e.message || 'Error') + (e.lineno ? ' (línea ' + e.lineno + ')' : ''));
+            });
+            setTimeout(function () {
+              if (!window.__sigbeArranco) window.__sigbeMostrarError('El código de la pantalla no arrancó en 20 segundos (¿se bloqueó la descarga de Bootstrap desde cdn.jsdelivr.net o hay una extensión del navegador que bloquea scripts?).');
+            }, 20000);
+          </script>
 
           <!-- INICIO -->
           <section class="vista" id="v-inicio" aria-labelledby="t-inicio">
@@ -641,7 +658,7 @@
     function descargarCsv(nombre, filas) {
       const csv = filas.map(f => f.map(v => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"').join(';')).join('\r\n');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
       a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
     }
     function chipFecha(iso, texto) {
@@ -660,7 +677,8 @@
     function pctBarra(pct, color) { return `<div class="barrita" role="img" aria-label="${pct} %"><div style="width:${Math.max(0, Math.min(pct, 100))}%;background:${color}"></div></div>`; }
 
     // ══════════ ARRANQUE ══════════
-    document.addEventListener('DOMContentLoaded', async () => {
+    async function iniciar() {
+      window.__sigbeArranco = true;
       document.querySelectorAll('#nav .nav-link').forEach(a => a.onclick = ev => { ev.preventDefault(); ir(a.dataset.vista); });
       document.body.addEventListener('click', clicGeneral);
       $('sel-sede').onchange = () => cambiarSede($('sel-sede').value);
@@ -688,7 +706,7 @@
       document.querySelectorAll('#brig-cab th.ordenable').forEach(th => { th.tabIndex = 0; th.onclick = th.onkeydown = ev => { if (ev.type === 'keydown' && ev.key !== 'Enter') return; const k = th.dataset.orden; brig.dir = brig.orden === k ? -brig.dir : 1; brig.orden = k; pintarBrigadistas(); }; });
       window.addEventListener('beforeunload', ev => { if (hayCambios()) { ev.preventDefault(); ev.returnValue = ''; } });
       await arrancar();
-    });
+    }
 
     function grupoChips(id, attr, fn) {
       $(id).addEventListener('click', ev => {
@@ -735,6 +753,7 @@
         pasoArranque('Leyendo las hojas de cálculo… (la primera vez puede tardar hasta un minuto)');
         D = await api('getDatos', E.token, false);
         preparar();
+        window.__sigbeDatos = true;
         finArranque();
         ir(E.vista === 'setup' ? 'inicio' : E.vista);
       } catch (e) {
@@ -1736,6 +1755,8 @@
         if (r.exito) await arrancar();
       } catch (e) { error(e); }
     }
+    // Arranque (al final, cuando ya existe todo lo de arriba)
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
   </script>
 </body>
 </html>
