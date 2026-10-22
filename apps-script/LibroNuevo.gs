@@ -26,6 +26,7 @@
  *   libroNuevoActualizarTodo()        → vuelve a traer todas las pestañas aunque no hayan cambiado
  *   libroNuevoActivarAutomatico()     → actualización automática cada SIGBE_CADA_HORAS horas
  *   libroNuevoDesactivarAutomatico()
+ *   libroNuevoProbarAcceso()          → revisa que la cuenta pueda abrir el 1.0, el 2.0 y el libro nuevo
  *   libroNuevoEstado()                → muestra en el registro cómo está todo
  *   libroNuevoCorte()                 → última actualización y fin del espejo
  *   libroNuevoQuitarCorte()           → por si el corte se hizo antes de tiempo
@@ -137,6 +138,27 @@ function libroNuevoDesactivarAutomatico() {
   lnSoloDueno_();
   lnQuitarActivador_();
   return lnMostrar_('Actualización automática del libro nuevo desactivada.');
+}
+
+/** Revisa, sin cambiar nada, que la cuenta del script pueda abrir el 1.0, el 2.0 y el libro nuevo. */
+function libroNuevoProbarAcceso() {
+  const lineas = ['Cuenta que ejecuta el script: ' + cuentaScript_()];
+  const probar = (nombre, propiedad) => {
+    const id = idDesdeTexto_(prop_(propiedad));
+    if (!id) { lineas.push('· ' + nombre + ': la propiedad ' + propiedad + ' está vacía.'); return; }
+    if (/^NINGUNO$/i.test(id)) { lineas.push('· ' + nombre + ': NINGUNO.'); return; }
+    try {
+      const f = revisarArchivo_(id, nombre);
+      const ss = SpreadsheetApp.openById(id);
+      lineas.push('✔ ' + nombre + ': "' + f.getName() + '" (' + ss.getSheets().length + ' pestañas). ' + ss.getUrl());
+    } catch (e) {
+      lineas.push('✖ ' + nombre + ': ' + e.message);
+    }
+  };
+  probar('1.0 (original)', 'SIGBE_ID_ORIGEN');
+  probar('2.0', 'SIGBE_ID_DESTINO');
+  probar('libro nuevo', 'LIBRO_NUEVO_ID');
+  return lnMostrar_(lineas.join('\n'));
 }
 
 function libroNuevoEstado() {

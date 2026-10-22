@@ -83,18 +83,34 @@ function abrirOrigen_() {
   const cfg = configOrigen_();
   if (cfg.modo === 'sin_configurar') throw new Error('No hay archivo original configurado (propiedad SIGBE_ID_ORIGEN). Pon su URL o escribe NINGUNO si se trabaja solo con el 2.0.');
   if (cfg.modo === 'ninguno') throw new Error('Está configurado trabajar sin archivo original (NINGUNO).');
+  revisarArchivo_(cfg.id, 'original (SIGBE_ID_ORIGEN)');
+  return SpreadsheetApp.openById(cfg.id);
+}
+
+/** Cuenta con la que corre el script (la que necesita acceso a los archivos). */
+function cuentaScript_() {
+  try { return Session.getEffectiveUser().getEmail() || '(desconocida)'; } catch (e) { return '(desconocida)'; }
+}
+
+/** Comprueba que el archivo exista, que esta cuenta lo vea, que no esté en la papelera y que sea una Hoja de Google. */
+function revisarArchivo_(id, cual) {
+  const cuenta = cuentaScript_();
   let archivo;
   try {
-    archivo = DriveApp.getFileById(cfg.id);
+    archivo = DriveApp.getFileById(id);
   } catch (e) {
-    throw new Error('no se pudo abrir el archivo original (¿se borró, está mal el ID o ya no hay acceso?). No se tocó nada. ' +
-      'Si ya no se usa, escribe NINGUNO en el archivo original y desactiva la actualización automática.');
+    throw new Error('no se pudo abrir el archivo ' + cual + ' con el ID ' + id + '. La cuenta ' + cuenta +
+      ' no lo ve: o el ID está mal, o el archivo no está compartido con esa cuenta (si es de un dominio corporativo, ' +
+      'puede que no se permita compartir con cuentas de fuera). Abre el enlace con esa cuenta para comprobarlo. No se tocó nada.');
   }
-  if (archivo.isTrashed()) {
-    throw new Error('el archivo original está en la papelera. No se tocó nada. ' +
-      'Si ya no se usa, escribe NINGUNO en el archivo original y desactiva la actualización automática.');
+  if (archivo.isTrashed()) throw new Error('el archivo ' + cual + ' está en la papelera. No se tocó nada.');
+  const tipo = archivo.getMimeType();
+  if (tipo !== 'application/vnd.google-apps.spreadsheet') {
+    throw new Error('el archivo ' + cual + ' ("' + archivo.getName() + '") no es una Hoja de cálculo de Google sino ' +
+      (/sheet|excel/i.test(tipo) ? 'un Excel subido a Drive' : 'un archivo de tipo ' + tipo) +
+      '. Ábrelo y usa Archivo → Guardar como Hojas de cálculo de Google, y pon la URL de esa copia. No se tocó nada.');
   }
-  return SpreadsheetApp.openById(cfg.id);
+  return archivo;
 }
 
 // ───────────────────────────── ACTIVADOR AUTOMÁTICO ─────────────────────────────
