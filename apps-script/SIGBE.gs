@@ -56,9 +56,17 @@ const SIGBE_SEDES = [
   ['Transcem', ['TRANSCEM']],
 ];
 
+/**
+ * Arma la página: Index.html (pantallas y estilos) + App.html (código de las pantallas).
+ * El código va en base64 (solo letras y números) para que ningún paso entre el editor y el navegador lo
+ * altere, y sin pasar por el motor de plantillas (la app no usa <? ?>).
+ */
 function doGet() {
-  return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
+  const codigo = HtmlService.createHtmlOutputFromFile('App').getContent();
+  const b64 = Utilities.base64Encode(codigo, Utilities.Charset.UTF_8);
+  const html = HtmlService.createHtmlOutputFromFile('Index').getContent()
+    .replace('/*SIGBE_APP*/', 'window.__sigbeCargarApp("' + b64 + '");');
+  return HtmlService.createHtmlOutput(html)
     .setTitle('SIGBE - Gestión de Brigadas')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);

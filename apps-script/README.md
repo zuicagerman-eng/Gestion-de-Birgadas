@@ -14,7 +14,8 @@ Es un **proyecto independiente de Apps Script** (no vive dentro de ninguna hoja)
 | [`SIGBE.gs`](SIGBE.gs) | Backend de la app: lectura de datos (con caché), asistencia, brigadistas, revisión de cambios del Excel, estado, configuración. |
 | [`LibroNuevo.gs`](LibroNuevo.gs) | Libro nuevo consolidado (1.0 + lista de asistencia del 2.0), su corte y la tarea automática. |
 | [`SincronizarBrigadas.gs`](SincronizarBrigadas.gs) | Utilidades compartidas: abrir archivos, copiar pestañas, respaldos, activador. |
-| [`Index.html`](Index.html) | Todas las pantallas. |
+| [`Index.html`](Index.html) | Pantallas y estilos (HTML). |
+| [`App.html`](App.html) | Código de las pantallas (JavaScript, sin etiquetas `<script>`). `doGet` lo manda codificado dentro de `Index.html` para que nada lo altere en el camino. |
 | [`appsscript.json`](appsscript.json) | Manifiesto: zona horaria, permisos y tipo de publicación. |
 
 ## De dónde lee y dónde guarda
@@ -143,7 +144,8 @@ Mismo seguro que la sincronización: si una pestaña de origen pierde de golpe m
 ## Instalación y actualización
 
 1. **Proyecto**: [script.google.com](https://script.google.com) → el proyecto SIGBE → reemplaza el contenido de
-   `SIGBE.gs`, `LibroNuevo.gs`, `SincronizarBrigadas.gs`, `Index.html` (y `appsscript.json` si cambió) → guarda.
+   `SIGBE.gs`, `LibroNuevo.gs`, `SincronizarBrigadas.gs`, `Index.html` y **`App.html`** (➕ → HTML → nombre `App`)
+   (y `appsscript.json` si cambió) → guarda. Al pegar, revisa que el final del archivo quede completo.
 2. **Propiedades del script**: `SIGBE_ID_ORIGEN` (URL del 1.0), `SIGBE_ID_DESTINO` (URL del 2.0), `SIGBE_USUARIO`,
    `SIGBE_CLAVE_INICIAL` (se cifra y se borra al primer inicio de sesión), `SIGBE_LECTURA_PUBLICA` = `no`.
    `LIBRO_NUEVO_ID` lo pone `libroNuevoCrear`.
