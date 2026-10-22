@@ -69,7 +69,9 @@
     .planta-cob .avance { flex: 1 1 220px; min-width: 180px; }
     .planta-cob .barrita { height: 10px; }
     .estado-cob { font-weight: 700; border-radius: 999px; padding: 3px 12px; font-size: .85rem; white-space: nowrap; }
-    .fila-sede { cursor: pointer; border-radius: 6px; padding: 4px 6px; } .fila-sede:hover { background: #f6f9ff; }
+    .fila-sede { border-radius: 6px; padding: 4px 6px; } .fila-sede[data-accion], .sede-cob > summary .fila-sede { cursor: pointer; } .fila-sede[data-accion]:hover, .sede-cob > summary:hover .fila-sede { background: #f6f9ff; }
+    .sede-cob > summary { list-style: none; } .sede-cob > summary::-webkit-details-marker { display: none; }
+    .sede-cob[open] { background: #fafcff; border-radius: 6px; margin-bottom: 6px; } .sede-cob[open] > summary .fila-sede { font-weight: 600; }
     .contador { font-size: .85rem; color: #5f6b76; }
 
     /* Estados de sesión (color + símbolo, nunca solo color) */
@@ -258,51 +260,39 @@
           <section class="vista" id="v-inicio" aria-labelledby="t-inicio">
             <h1 class="titulo-vista" id="t-inicio">Dashboard</h1>
             <p class="sub-vista" id="inicio-sub"></p>
-            <div class="row g-3 mb-3" id="inicio-kpis"></div>
             <div class="row g-3 mb-3">
-              <div class="col-lg-6"><div class="tarjeta p-3 h-100">
-                <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-list-check me-2 text-success"></i>Cumplimiento por sede <span class="small text-muted fw-normal">(módulos vencidos asistidos)</span></h2>
+              <div class="col-xl-7"><div class="tarjeta p-3 h-100">
+                <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-clipboard-check me-2 text-success"></i>Asistencia a las capacitaciones</h2>
+                <p class="small text-muted mb-3">Personal Holcim de la lista de asistencia. Solo cuentan los módulos que aplican a cada planta y cuya fecha ya pasó según el cronograma.</p>
+                <div class="row g-3 mb-3" id="inicio-kpis"></div>
+                <div class="small fw-semibold text-muted text-uppercase mb-1" style="letter-spacing:.05em">Asistencia por sede</div>
                 <div id="inicio-por-sede" class="small"></div>
               </div></div>
-              <div class="col-lg-6"><div class="tarjeta p-3 h-100">
-                <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Cobertura por sede <span class="small text-muted fw-normal">(brigadistas frente a la meta del 20 %)</span></h2>
+              <div class="col-xl-5"><div class="tarjeta p-3 h-100">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Cobertura de brigadistas <span class="small text-muted fw-normal">(brigadistas frente a la meta del 20 %)</span></h2>
+                  <a href="#" data-ir="cobertura" class="small">Ver detalle</a>
+                </div>
+                <div id="inicio-cob-resumen" class="small text-muted mb-1"></div>
+                <div id="inicio-cob-listas" class="small mb-2"></div>
                 <div id="inicio-cobertura" class="small"></div>
               </div></div>
             </div>
             <div class="row g-3">
-              <div class="col-lg-7">
-                <div class="tarjeta p-3 mb-3">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-triangle-exclamation me-2 text-danger"></i>Sesiones pasadas sin asistencia registrada</h2>
-                    <a href="#" data-ir="asistencia" class="small">Tomar asistencia</a>
-                  </div>
-                  <div id="inicio-sin-registro" class="small"></div>
+              <div class="col-lg-7"><div class="tarjeta p-3 h-100">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-calendar-check me-2 text-primary"></i>Próximas capacitaciones</h2>
+                  <a href="#" data-ir="cronograma" class="small">Ver cronograma</a>
                 </div>
-                <div class="tarjeta p-3">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-calendar-check me-2 text-primary"></i>Próximas capacitaciones</h2>
-                    <a href="#" data-ir="cronograma" class="small">Ver cronograma</a>
-                  </div>
-                  <div id="inicio-proximas"></div>
+                <div id="inicio-proximas"></div>
+              </div></div>
+              <div class="col-lg-5"><div class="tarjeta p-3 h-100">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-magnifying-glass-chart me-2 text-warning"></i>Revisión de datos</h2>
+                  <a href="#" data-ir="revision" class="small">Ver todo</a>
                 </div>
-              </div>
-              <div class="col-lg-5">
-                <div class="tarjeta p-3 mb-3">
-                  <h2 class="h6 fw-bold mb-3">¿Qué quieres hacer?</h2>
-                  <div class="d-grid gap-2">
-                    <button class="btn btn-primary text-start py-3" data-ir="asistencia"><i class="fa-solid fa-clipboard-check fa-lg me-2"></i><b>Tomar asistencia</b><div class="small opacity-75">Elige la sesión y marca quién asistió</div></button>
-                    <button class="btn btn-outline-primary text-start py-3" data-accion="registrar"><i class="fa-solid fa-user-plus fa-lg me-2"></i><b>Registrar brigadista</b><div class="small opacity-75">Agregar una persona nueva a la brigada</div></button>
-                    <button class="btn btn-outline-secondary text-start py-3" data-ir="matriz"><i class="fa-solid fa-table-cells fa-lg me-2"></i><b>Ver avance por persona</b><div class="small opacity-75">Qué módulos lleva cada brigadista</div></button>
-                  </div>
-                </div>
-                <div class="tarjeta p-3">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-magnifying-glass-chart me-2 text-warning"></i>Revisión de datos</h2>
-                    <a href="#" data-ir="revision" class="small">Ver todo</a>
-                  </div>
-                  <div id="inicio-revision" class="small"></div>
-                </div>
-              </div>
+                <div id="inicio-revision" class="small"></div>
+              </div></div>
             </div>
           </section>
 
@@ -339,6 +329,7 @@
               <h1 class="titulo-vista mb-0" id="t-brig">Brigadistas</h1>
               <div class="d-flex gap-2">
                 <button class="btn btn-outline-secondary btn-sm" data-accion="csv-brig"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
+                <button class="btn btn-outline-secondary btn-sm" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Traer faltantes</button>
                 <button class="btn btn-outline-primary btn-sm" id="brig-modo" data-accion="brig-modo"><i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla</button>
                 <button class="btn btn-success btn-sm" data-accion="registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
               </div>
@@ -413,6 +404,7 @@
             <h1 class="titulo-vista" id="t-cob">Cobertura de brigadistas</h1>
             <p class="sub-vista">Meta: brigadistas = 20 % del personal (pestaña <i>Indicador.</i>). Cada tarjeta es una planta; ábrela para ver el detalle por empresa. Los requeridos se redondean hacia arriba (no se puede tener 0,6 brigadistas).</p>
             <div class="row g-3 mb-3" id="cob-kpis"></div>
+            <div id="cob-diferencia"></div>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros">
                 <span role="group" aria-label="Orden" id="cob-orden" class="d-flex segmento">
@@ -792,6 +784,23 @@
       </div></div>
       <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Revisar y guardar</button></div>
     </form></div>
+  </div>
+  <!-- MODAL: brigadistas que faltan en las listas -->
+  <div class="modal fade" id="modal-faltantes" tabindex="-1" aria-labelledby="falt-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+      <div class="modal-header"><h2 class="modal-title h5" id="falt-titulo"><i class="fa-solid fa-user-clock text-primary me-2"></i>Brigadistas que faltan en las listas</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">El Indicador cuenta los brigadistas por planta y empresa; aquí se ve, por sede, cuántos hay en las listas de la app. Abajo están las personas con cédula y nombre que aparecen en otras pestañas del 1.0, el 2.0 o el libro nuevo (también ocultas) y no están en las listas. Revisa, ajusta la planta y el tipo, y trae las que sí son brigadistas.</p>
+        <div class="table-responsive mb-3"><table class="table table-sm small align-middle mb-0"><thead><tr><th>Sede</th><th class="text-end">Indicador</th><th class="text-end">Listas de la app</th><th class="text-end">Diferencia</th></tr></thead><tbody id="falt-sedes"></tbody></table></div>
+        <div class="fw-semibold small mb-1">Pestañas donde se encontraron personas (marca de cuáles traer):</div>
+        <div id="falt-fuentes" class="d-flex flex-wrap gap-3 small mb-2"></div>
+        <div class="filtros mb-2"><input type="search" id="falt-buscar" class="form-control form-control-sm" placeholder="Buscar nombre, cédula o planta…" aria-label="Buscar"><select id="falt-sede" class="form-select form-select-sm" aria-label="Sede"></select>
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="falt-desv"><label class="form-check-label small" for="falt-desv">Mostrar también desvinculados</label></div><span class="contador ms-auto" id="falt-conteo"></span></div>
+        <div class="table-responsive"><table class="table table-sm small align-middle tabla-compacta"><thead><tr><th><input class="form-check-input" type="checkbox" id="falt-todos" aria-label="Marcar todos"></th><th>Nombre</th><th>Cédula</th><th>Planta en la lista</th><th>Tipo</th><th>Empresa</th><th>Dónde está</th></tr></thead><tbody id="falt-tabla"></tbody></table></div>
+        <datalist id="falt-plantas"></datalist>
+      </div>
+      <div class="modal-footer"><span class="small text-muted me-auto">Se agregan como "Activo" al final de su planta (si la planta no existe en la lista, al final). Queda en el historial.</span><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button type="button" class="btn btn-success" data-accion="falt-traer" id="falt-traer">Traer seleccionados</button></div>
+    </div></div>
   </div>
   <!-- MODAL: otra sesión de un módulo en una planta -->
   <div class="modal fade" id="modal-sesion" tabindex="-1" aria-labelledby="ses-titulo" aria-hidden="true">

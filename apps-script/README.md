@@ -56,7 +56,13 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   ya tiene esa sesión con "-" en ese tema, la habilita; si no, agrega un bloque "Sesión N" de columnas junto a los de la
   planta en el cronograma (con "-" en los demás temas) y, si hace falta, las columnas `M7_Sesión_3` en la lista.
   Los módulos nuevos quedan con "-" en las sesiones extra que casi ningún tema usa.
-- **Cobertura**: pestaña *Indicador.* con avance a la meta y comparación con las listas.
+- **Dashboard**: *Asistencia a las capacitaciones* (personal Holcim: asistencias registradas frente a las esperadas en
+  los módulos ya dictados, brigadistas al día, contratistas con 0256, asistencia por sede) separada de *Cobertura de
+  brigadistas* (Indicador frente a la meta del 20 %, con % por sede), más próximas capacitaciones y revisión de datos.
+- **Cobertura**: una tarjeta por planta del *Indicador.* con % de la meta, brigadistas, requeridos y personal, detalle por
+  empresa y comparación con las listas de la app. Si las listas tienen menos brigadistas que el Indicador, **Traer
+  faltantes** busca en todas las pestañas (también ocultas) del 1.0, el 2.0 y el libro nuevo a las personas con cédula y
+  nombre que no están en las listas; se revisan, se ajusta planta, tipo y empresa, y se agregan. (También desde Brigadistas.)
 - **Sede** (arriba): se pueden elegir varias a la vez (o "solo" una); todas las vistas filtran por esas sedes.
 - **Revisión de datos**: posibles errores con filtros por gravedad y tipo (ver abajo).
 - **Historial de cambios**: lo hecho desde la app y lo detectado en el Excel, con filtros y CSV.

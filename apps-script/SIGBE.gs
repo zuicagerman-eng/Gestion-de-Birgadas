@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.3.0';
+const SIGBE_VERSION = '4.3.1';
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -886,6 +886,86 @@ function agregarSesion(token, d) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ═════════════════════════════ BRIGADISTAS QUE FALTAN EN LAS LISTAS ═════════════════════════════
+// La pestaña Indicador. cuenta brigadistas por planta y empresa; las listas de la app pueden tener menos.
+// getBrigadistasFaltantes busca en TODAS las pestañas (también las ocultas) del 1.0, el 2.0 y el libro nuevo las
+// personas con cédula y nombre que no están en las listas, para revisarlas y traerlas con importarBrigadistas.
+
+function getBrigadistasFaltantes(token) {
+  sigbeExigirSesion_(token);
+  const F = sigbeFuentes_();
+  const h = sigbeLeerHolcim_(sigbeHoja_(F.asistencia, SIGBE_HOJA_HOLCIM));
+  const inh = sigbeLeerInhouse_(sigbeHoja_(F.datos, SIGBE_HOJA_INHOUSE));
+  const ya = {};
+  h.personas.forEach(p => { ya[String(p.cedula).replace(/\D/g, '')] = true; });
+  inh.forEach(p => { ya[String(p.c).replace(/\D/g, '')] = true; });
+  const libros = [];
+  // El 1.0 y el 2.0 originales (también después del corte: sus pestañas ocultas no pasaron al libro nuevo);
+  // el libro nuevo solo después del corte (antes es una copia de ellos)
+  const cfg = configOrigen_();
+  [F.v1 || sigbeAbrir_(cfg.modo === 'configurado' ? cfg.id : ''), F.v2 || sigbeAbrir_(idDestino_()), F.corte ? F.libro : null]
+    .forEach(ss => { if (ss && !libros.some(x => x.getId() === ss.getId())) libros.push(ss); });
+  const propias = [SIGBE_HOJA_BITACORA, SIGBE_HOJA_INGRESOS].map(sigbeNorm_);
+  const candidatos = {}, fuentes = [];
+  libros.forEach(ss => {
+    ss.getSheets().forEach(sh => {
+      const nombre = sh.getName();
+      if (propias.indexOf(sigbeNorm_(nombre)) !== -1 || /^Respaldo /i.test(nombre)) return;
+      const esLista = (ss.getId() === F.asistencia.getId() && sh.getName() === h.hoja.getName()) || (ss.getId() === F.datos.getId() && sigbeNorm_(nombre).indexOf(sigbeNorm_(SIGBE_HOJA_INHOUSE)) === 0);
+      if (esLista) return;
+      const nf = Math.min(sh.getLastRow(), 3000), nc = Math.min(sh.getLastColumn(), 60);
+      if (nf < 2 || nc < 2) return;
+      const v = sh.getRange(1, 1, nf, nc).getValues();
+      const r0 = v.slice(0, 10).findIndex(f => f.some(x => sigbeNorm_(x).indexOf('CEDULA') === 0) && f.some(x => /^NOMBRE/.test(sigbeNorm_(x))));
+      if (r0 === -1) return;
+      const enc = v[r0].map(sigbeNorm_), col = re => enc.findIndex(x => re.test(x));
+      const cC = col(/^CEDULA/), cN = col(/^NOMBRE/), cP = col(/^PLANTA|^SEDE/), cE = col(/^EMPRESA|^CONTRATISTA/), cS = col(/^ESTADO/);
+      let n = 0;
+      for (let r = r0 + 1; r < v.length; r++) {
+        const ced = String(v[r][cC]).replace(/\D/g, ''), nom = String(v[r][cN] || '').replace(/\s+/g, ' ').trim();
+        if (ced.length < 5 || ced.length > 12 || !nom || ya[ced]) continue;
+        n++;
+        const fuente = ss.getName() + ' › ' + nombre + (sh.isSheetHidden() ? ' (oculta)' : '');
+        const x = candidatos[ced] || (candidatos[ced] = { cedula: ced, nombre: nom.toUpperCase(), planta: '', empresa: '', estado: '', fuentes: [] });
+        if (!x.planta && cP >= 0) x.planta = String(v[r][cP] || '').trim();
+        if (!x.empresa && cE >= 0) x.empresa = String(v[r][cE] || '').trim().toUpperCase();
+        if (!x.estado && cS >= 0) x.estado = String(v[r][cS] || '').trim();
+        if (x.fuentes.indexOf(fuente) === -1) x.fuentes.push(fuente);
+      }
+      if (n) fuentes.push({ fuente: ss.getName() + ' › ' + nombre + (sh.isSheetHidden() ? ' (oculta)' : ''), n: n,
+        evacuadores: /EVACUADOR/.test(sigbeNorm_(nombre)), contacto: /CONTACTO/.test(sigbeNorm_(nombre)) });
+    });
+  });
+  const lista = Object.keys(candidatos).map(k => candidatos[k]);
+  lista.forEach(x => { x.sede = x.planta ? sigbeSede_(x.planta) : ''; x.desvinculado = /desvinculado|retirado|inactivo/i.test(x.estado); });
+  // Brigadistas por sede: Indicador frente a las listas
+  let indicador = [];
+  try { indicador = sigbeLeerIndicador_(sigbeHoja_(F.datos, SIGBE_HOJA_INDICADOR)).filter(f => !f.tot); } catch (e) { indicador = []; }
+  const porSede = {};
+  indicador.forEach(f => { const s = porSede[f.sede] = porSede[f.sede] || { sede: f.sede, indicador: 0, listas: 0 }; s.indicador += f.bri; });
+  h.personas.filter(p => !/desvinculado/i.test(p.estado)).forEach(p => { const sd = sigbeSede_(p.planta); (porSede[sd] = porSede[sd] || { sede: sd, indicador: 0, listas: 0 }).listas++; });
+  inh.filter(p => !/desvinculado/i.test(p.e)).forEach(p => { const sd = sigbeSede_(p.p); (porSede[sd] = porSede[sd] || { sede: sd, indicador: 0, listas: 0 }).listas++; });
+  return {
+    candidatos: lista.sort((a, b) => a.sede.localeCompare(b.sede, 'es') || a.nombre.localeCompare(b.nombre, 'es')),
+    fuentes: fuentes,
+    sedes: Object.keys(porSede).map(k => porSede[k]).sort((a, b) => (a.listas - a.indicador) - (b.listas - b.indicador)),
+    plantasHolcim: sigbeUnicos_(h.personas.map(p => p.planta)),
+    plantasInhouse: sigbeUnicos_(inh.map(p => p.p)),
+  };
+}
+
+/** Trae a las listas las personas elegidas. lista: [{ tipo, planta, nombre, cedula, empresa }] */
+function importarBrigadistas(token, lista) {
+  sigbeExigirSesion_(token);
+  const resultados = (lista || []).slice(0, 200).map(d => {
+    const r = registrarBrigadistaNuevo(token, { tipo: d.tipo === 'INHOUSE' ? 'INHOUSE' : 'HOLCIM', planta: d.planta, nombre: d.nombre, cedula: d.cedula,
+      contratista: d.tipo === 'INHOUSE' ? d.empresa : '', empresa: d.tipo === 'INHOUSE' ? '' : d.empresa, estado: 'Activo', fechaIngreso: '' });
+    return { cedula: d.cedula, nombre: d.nombre, exito: r.exito, mensaje: r.mensaje };
+  });
+  const ok = resultados.filter(r => r.exito).length;
+  return { exito: true, resultados: resultados, mensaje: ok + ' de ' + resultados.length + ' brigadista(s) agregado(s) a las listas.' };
 }
 
 /** Después de guardar: historial, caché nueva y actualización rápida del libro nuevo. */

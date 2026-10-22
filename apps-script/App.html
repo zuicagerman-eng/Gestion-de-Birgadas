@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.3.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.3.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), visita: leer('sessionStorage', 'sigbe_visita'), visitante: null, acceso: 'cedula', usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -98,6 +98,10 @@
       $('form-setup').onsubmit = enviarSetup;
       $('form-clave').onsubmit = cambiarClaveApp;
       $('form-crono').onsubmit = revisarCrono;
+      grupoChips('cob-orden', 'orden', () => pintarCobertura());
+      $('cob-faltan').onchange = pintarCobertura;
+      $('modal-faltantes').addEventListener('change', cambioFaltantes);
+      $('falt-buscar').oninput = pintarFaltantes; $('falt-sede').onchange = pintarFaltantes; $('falt-desv').onchange = pintarFaltantes;
       $('form-ingreso').onsubmit = enviarIngreso;
       ['ing-buscar', 'ing-fuera'].forEach(id => { $(id).oninput = pintarIngresos; $(id).onchange = pintarIngresos; });
       grupoChips('ing-tipo', 'tipo', v => { ingr.tipo = v; pintarIngresos(); });
@@ -126,8 +130,6 @@
       grupoChips('crono-cuando', 'cuando', v => { crono.cuando = v; pintarCronograma(); });
       grupoChips('rev-grav', 'g', v => { rev.g = v; pintarRevision(); });
       grupoChips('cam-origen', 'o', v => { cam.o = v; cam.limite = 200; pintarCambios(); });
-      grupoChips('cob-orden', 'orden', () => pintarCobertura());
-      $('cob-faltan').onchange = pintarCobertura;
       document.querySelectorAll('#brig-cab th.ordenable').forEach(th => { th.tabIndex = 0; th.onclick = th.onkeydown = ev => { if (ev.type === 'keydown' && ev.key !== 'Enter') return; const k = th.dataset.orden; brig.dir = brig.orden === k ? -brig.dir : 1; brig.orden = k; pintarBrigadistas(); }; });
       window.addEventListener('beforeunload', ev => { if (hayCambios()) { ev.preventDefault(); ev.returnValue = ''; } });
       await arrancar();
@@ -290,6 +292,10 @@
         completar: () => abrirFicha(d.tipo, +d.j, true, d.campo),
         'crono-editar': () => editarCrono(d.k),
         'salir-visita': salirVisita,
+        'faltantes': abrirFaltantes,
+        'falt-traer': revisarFaltantes,
+        'cob-abrir': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = true; }),
+        'cob-cerrar': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = false; }),
         'csv-ingresos': csvIngresos,
         'guardar-textos': guardarTextos,
         'textos-defecto': () => { if (confirm('¿Volver a los textos iniciales? Se guardan al pulsar "Guardar textos".')) { $('conf-texto-datos').value = ''; $('conf-texto-conf').value = ''; $('conf-responsable').value = 'Holcim Colombia'; guardarTextos(); } },
@@ -312,8 +318,6 @@
         'sede-solo': () => { cambiarSede([d.sede]); bootstrap.Dropdown.getOrCreateInstance($('sel-sede')).hide(); },
         'sedes-todas': () => cambiarSede([]),
         'sedes-ninguna': () => { document.querySelectorAll('#sede-menu input[data-sede]').forEach(x => { x.checked = false; }); },
-        'cob-abrir': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = true; }),
-        'cob-cerrar': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = false; }),
         'asis-sesion': () => elegirSesion(d.key),
         'asis-volver': volverASesiones,
         'asis-filtro': () => { asis.filtro = d.f; pintarAsistencia(); },
@@ -415,42 +419,70 @@
     }
 
     // ══════════ INICIO ══════════
+    /** Barra de una sede (verde ≥ 80 %, ámbar ≥ 40 %, roja debajo). accion: qué hace el clic. */
+    function barraSede(sede, pct, txt, accion) {
+      const color = pct >= 80 ? 'var(--s-ok)' : pct >= 40 ? '#f59f00' : 'var(--s-mal)';
+      return `<div class="fila-sede d-flex align-items-center gap-2" ${accion ? `data-accion="${accion}" data-sede="${esc(sede)}" title="Ver solo ${esc(sede)}"` : ''}><div style="width:120px" class="fw-semibold text-truncate">${esc(sede)}</div><div class="flex-grow-1">${pctBarra(Math.min(pct, 100), color)}</div><div style="width:190px" class="text-end text-muted">${txt}</div></div>`;
+    }
+    /** Plantas de la pestaña Indicador. con su cobertura (la misma cuenta en el Dashboard y en Cobertura). */
+    function plantasCobertura() {
+      const enteros = x => Math.ceil(Math.round(x * 10) / 10);
+      const plantas = [];
+      D.indicador.filter(enSede).forEach(f => { let pl = plantas.find(x => x.p === f.p); if (!pl) plantas.push(pl = { p: f.p, sede: f.sede, tot: null, emp: [] }); if (f.tot) pl.tot = f; else pl.emp.push(f); });
+      plantas.forEach(pl => {
+        const sum = k => pl.emp.reduce((n, f) => n + f[k], 0);
+        pl.per = pl.tot ? pl.tot.per : sum('per'); pl.bri = pl.tot ? pl.tot.bri : sum('bri');
+        pl.metaN = enteros(pl.tot ? pl.tot.meta : sum('meta')); // 20 % de la planta, hacia arriba
+        pl.faltan = Math.max(0, pl.metaN - pl.bri);
+        pl.pct = pl.metaN ? Math.round(pl.bri / pl.metaN * 100) : 100;
+        pl.pctPer = pl.per ? Math.round(pl.bri / pl.per * 1000) / 10 : 0;
+        pl.empresas = pl.emp.filter(f => f.per > 0).map(f => { const m = enteros(f.meta); return Object.assign({}, f, { metaN: m, faltan: Math.max(0, m - f.bri), pct: m ? Math.round(f.bri / m * 100) : 100 }); });
+      });
+      return plantas;
+    }
+    /** Las mismas plantas sumadas por sede. */
+    function coberturaSedes() {
+      const out = {};
+      plantasCobertura().forEach(pl => { const x = out[pl.sede] = out[pl.sede] || { sd: pl.sede, per: 0, bri: 0, metaN: 0 }; x.per += pl.per; x.bri += pl.bri; x.metaN += pl.metaN; });
+      return Object.keys(out).map(k => Object.assign(out[k], { pct: out[k].metaN ? Math.round(out[k].bri / out[k].metaN * 100) : 100 })).sort((a, b) => a.pct - b.pct);
+    }
+    function resumenCobertura(lista) {
+      const per = lista.reduce((n, x) => n + x.per, 0), bri = lista.reduce((n, x) => n + x.bri, 0), meta = lista.reduce((n, x) => n + x.metaN, 0);
+      const cumplen = lista.filter(x => x.bri >= x.metaN).length;
+      return `En total: <b class="text-body">${bri}</b> brigadistas de <b class="text-body">${meta}</b> requeridos (${meta ? Math.round(bri / meta * 100) : 0} %) · ${per} personas · <b class="text-body">${cumplen} de ${lista.length}</b> sedes cumplen la meta.`;
+    }
+
     function pintarInicio() {
       $('inicio-sub').textContent = E.sedes.length ? (E.sedes.length === 1 ? 'Sede ' : 'Sedes ') + E.sedes.join(', ') : 'Todas las sedes · haz clic en una sede de las barras o elige una o varias arriba';
+      // 1) Asistencia a las capacitaciones (personal Holcim; solo módulos que aplican y cuya fecha ya pasó)
       const h = P.filter(p => enSede(p) && p.activo), ih = I.filter(p => enSede(p) && p.activo);
       const conCert = ih.filter(p => tieneCert(p.ce)).length;
-      const cumps = h.map(p => p.cump).filter(c => c.pct !== null);
-      const cPromedio = cumps.length ? Math.round(cumps.reduce((n, c) => n + c.pct, 0) / cumps.length) : 0;
-      const alDia = cumps.filter(c => c.pct >= 100).length;
-      const ind = D.indicador.filter(f => !f.tot && enSede(f));
-      const per = ind.reduce((n, f) => n + f.per, 0), bri = ind.reduce((n, f) => n + f.bri, 0), meta = ind.reduce((n, f) => n + f.meta, 0);
-      const pctMeta = meta ? Math.round(bri / meta * 100) : 0;
-      const kpi = (ico, color, eti, num, sub, pct) => `<div class="col-sm-6 col-xl-3"><div class="kpi"><i class="fa-solid ${ico} ico" style="color:${color}"></i><div class="eti">${eti}</div><div class="num" style="color:${color}">${num}</div><div class="small text-muted">${sub}</div>${pct === undefined ? '' : pctBarra(pct, color)}</div></div>`;
+      const cumps = h.map(p => p.cump).filter(c => c.t > 0);
+      const c = cumps.reduce((n, x) => n + x.c, 0), t = cumps.reduce((n, x) => n + x.t, 0), pct = t ? Math.round(c / t * 100) : 0;
+      const alDia = cumps.filter(x => x.c >= x.t).length, ninguna = cumps.filter(x => x.c === 0).length;
+      const kpi = (ico, color, eti, num, sub, barra) => `<div class="col-sm-6"><div class="kpi"><i class="fa-solid ${ico} ico" style="color:${color}"></i><div class="eti">${eti}</div><div class="num" style="color:${color}">${num}</div><div class="small text-muted">${sub}</div>${barra === undefined ? '' : pctBarra(barra, color)}</div></div>`;
+      const colorPct = x => x >= 80 ? 'var(--s-ok)' : x >= 40 ? '#e8590c' : 'var(--s-mal)';
       $('inicio-kpis').innerHTML =
-        kpi('fa-users', 'var(--s-azul)', 'Brigadistas activos', h.length + ih.length, `${h.length} Holcim · ${ih.length} contratistas`) +
-        kpi('fa-list-check', cPromedio >= 80 ? 'var(--s-ok)' : '#e8590c', 'Cumplimiento Holcim', cPromedio + ' %', `${alDia} de ${cumps.length} al día con los módulos vencidos`, cPromedio) +
-        kpi('fa-certificate', '#7b2cbf', 'Contratistas con 0256', (ih.length ? Math.round(conCert / ih.length * 100) : 0) + ' %', `${conCert} de ${ih.length} con certificado`, ih.length ? conCert / ih.length * 100 : 0) +
-        kpi('fa-shield-halved', pctMeta >= 100 ? 'var(--s-ok)' : '#1d2f3c', 'Cobertura vs. meta', pctMeta + ' %', `${bri} brigadistas de ${Math.round(meta)} requeridos (${per} personas)`, pctMeta);
-      // Barras por sede (clic = filtrar por esa sede)
-      const barra = (sede, pct, txt) => { const color = pct >= 80 ? 'var(--s-ok)' : pct >= 40 ? '#f59f00' : 'var(--s-mal)';
-        return `<div class="fila-sede d-flex align-items-center gap-2" data-accion="elegir-sede" data-sede="${esc(sede)}" title="Ver solo ${esc(sede)}"><div style="width:110px" class="fw-semibold text-truncate">${esc(sede)}</div><div class="flex-grow-1">${pctBarra(pct, color)}</div><div style="width:120px" class="text-end text-muted">${txt}</div></div>`; };
+        kpi('fa-list-check', colorPct(pct), 'Asistencia a módulos ya dictados', t ? pct + ' %' : '—',
+          t ? `<b>${c}</b> de <b>${t}</b> asistencias esperadas: cada brigadista Holcim activo por cada módulo que ya se dictó en su planta.` : 'Todavía no hay módulos con fecha pasada.', t ? pct : undefined) +
+        kpi('fa-user-check', colorPct(cumps.length ? alDia / cumps.length * 100 : 0), 'Brigadistas Holcim al día', `${alDia} de ${cumps.length}`,
+          `asistieron a todos los módulos ya dictados${ninguna ? ` · <b>${ninguna}</b> no tienen ninguna asistencia` : ''}.`) +
+        kpi('fa-users', 'var(--s-azul)', 'Brigadistas Holcim activos', h.length, `son los que toman asistencia por módulo en la lista${h.length - cumps.length ? ` (${h.length - cumps.length} aún sin módulos dictados)` : ''}.`) +
+        kpi('fa-certificate', '#7b2cbf', 'Contratistas con certificado 0256', ih.length ? Math.round(conCert / ih.length * 100) + ' %' : '—', `<b>${conCert}</b> de <b>${ih.length}</b> contratistas activos tienen el certificado.`, ih.length ? conCert / ih.length * 100 : undefined);
       const sedes = unicos(P.map(p => p.sede)).filter(sedeOk);
       $('inicio-por-sede').innerHTML = sedes.map(sd => {
-        const cs = P.filter(p => p.sede === sd && p.activo).map(p => p.cump).filter(c => c.t);
-        const c = cs.reduce((n, x) => n + x.c, 0), t = cs.reduce((n, x) => n + x.t, 0);
-        return { sd, pct: t ? Math.round(c / t * 100) : 0, txt: t ? `${Math.round(c / t * 100)} % · ${c}/${t}` : 'sin vencidos' };
-      }).sort((a, b) => a.pct - b.pct).map(x => barra(x.sd, x.pct, x.txt)).join('') || '<p class="text-muted mb-0">Sin datos.</p>';
-      const sedesInd = unicos(D.indicador.map(f => f.sede)).filter(sedeOk);
-      $('inicio-cobertura').innerHTML = sedesInd.map(sd => {
-        const f = D.indicador.filter(x => x.sede === sd && !x.tot);
-        const b = f.reduce((n, x) => n + x.bri, 0), m = f.reduce((n, x) => n + x.meta, 0);
-        return { sd, pct: m ? Math.min(Math.round(b / m * 100), 999) : 0, txt: `${b} de ${Math.round(m)}` };
-      }).sort((a, b) => a.pct - b.pct).map(x => barra(x.sd, x.pct, x.txt)).join('') || '<p class="text-muted mb-0">Sin datos del Indicador.</p>';
-      const pend = sesionesSinRegistro().slice(0, 8);
-      $('inicio-sin-registro').innerHTML = pend.length ? pend.map(x => `<div class="d-flex align-items-center gap-3 py-2 border-bottom">${chipFecha(x.iso)}
-          <div class="flex-grow-1"><div class="fw-semibold">${esc(nombreSesion(x.s))} · ${esc(x.s.titulo)}</div><div class="text-muted">${esc(x.sede)} · ${x.total} brigadistas · hace ${diasEntre(x.iso, D.hoy)} días</div></div>
-          <button class="btn btn-sm btn-outline-primary" data-accion="ir-asistencia" data-sede="${esc(x.sede)}" data-key="${esc(x.s.key)}">Registrar</button></div>`).join('')
-        : '<p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>Todas las sesiones pasadas tienen asistencia registrada.</p>';
+        const cs = P.filter(p => p.sede === sd && p.activo).map(p => p.cump).filter(x => x.t);
+        const a = cs.reduce((n, x) => n + x.c, 0), b = cs.reduce((n, x) => n + x.t, 0);
+        return { sd, pct: b ? Math.round(a / b * 100) : 0, txt: b ? `${Math.round(a / b * 100)} % · ${a} de ${b} asistencias` : 'sin módulos dictados' };
+      }).sort((x, y) => x.pct - y.pct).map(x => barraSede(x.sd, x.pct, x.txt, 'elegir-sede')).join('') || '<p class="text-muted mb-0">Sin datos.</p>';
+      // 2) Cobertura de brigadistas (pestaña Indicador.)
+      const cob = coberturaSedes();
+      $('inicio-cob-resumen').innerHTML = cob.length ? resumenCobertura(cob) : '';
+      $('inicio-cobertura').innerHTML = cob.map(x => barraSede(x.sd, x.pct, `<b class="text-body">${x.pct} %</b> · ${x.bri} de ${x.metaN}`, 'elegir-sede')).join('') || '<p class="text-muted mb-0">Sin datos del Indicador.</p>';
+      const Lt = brigadistasEnListas(), briInd = cob.reduce((n, x) => n + x.bri, 0);
+      $('inicio-cob-listas').innerHTML = !cob.length ? '' : Lt.t === briInd ? `<span class="text-success"><i class="fa-solid fa-check me-1"></i>Las listas de la app tienen los mismos ${Lt.t} (${Lt.h} Holcim · ${Lt.c} contratistas).</span>`
+        : `<span class="${Lt.t < briInd ? 'text-danger' : 'text-muted'}"><i class="fa-solid fa-scale-unbalanced me-1"></i>Las listas de la app tienen ${Lt.t} activos (${Lt.h} Holcim · ${Lt.c} contratistas)${Lt.t < briInd ? `: faltan ${briInd - Lt.t} por registrar.` : '.'}</span> <a href="#" data-accion="faltantes">Ver cuáles</a>`;
+      // 3) Próximas capacitaciones y revisión de datos
       const prox = D.crono.filter(c => enSede(c) && c.i && c.i >= D.hoy).sort((a, b) => a.i < b.i ? -1 : 1).slice(0, 7);
       $('inicio-proximas').innerHTML = prox.length ? prox.map(c => `<div class="d-flex align-items-center gap-3 py-2 border-bottom">${chipFecha(c.i, c.f)}
           <div class="flex-grow-1"><div class="fw-semibold small">${esc(c.ent)}</div><div class="small text-muted">${esc(c.pl)} · ${esc(c.ses)}${c.obs ? ' · ' + esc(c.obs) : ''}</div></div>${badgeEstadoCrono(c.e)}</div>`).join('')
@@ -1235,50 +1267,127 @@
      * Cobertura por planta: el total de cada planta es el encabezado de su tarjeta (no una fila más);
      * el detalle por empresa queda plegado. Metas y faltantes en personas enteras (no 0,6 personas).
      */
+    /** Brigadistas activos en las listas de la app, por sede (Holcim + contratistas). */
+    function brigadistasEnListas(sede) {
+      const h = P.filter(p => p.activo && (!sede || p.sede === sede) && enSede(p)).length, c = I.filter(p => p.activo && (!sede || p.sede === sede) && enSede(p)).length;
+      return { h: h, c: c, t: h + c };
+    }
+    /** Cada tarjeta es una planta del Indicador; todo con números y % explícitos. */
     function pintarCobertura() {
-      const filas = D.indicador.filter(enSede);
-      const enteros = x => Math.ceil(Math.round(x * 10) / 10);
-      const plantas = [];
-      filas.forEach(f => { let pl = plantas.find(x => x.p === f.p); if (!pl) plantas.push(pl = { p: f.p, sede: f.sede, tot: null, emp: [] }); if (f.tot) pl.tot = f; else pl.emp.push(f); });
-      plantas.forEach(pl => {
-        const sum = k => pl.emp.reduce((n, f) => n + f[k], 0);
-        pl.per = pl.tot ? pl.tot.per : sum('per'); pl.bri = pl.tot ? pl.tot.bri : sum('bri'); pl.meta = pl.tot ? pl.tot.meta : sum('meta');
-        pl.metaN = enteros(pl.meta); pl.faltan = Math.max(0, pl.metaN - pl.bri);
-        pl.pct = pl.metaN ? Math.round(pl.bri / pl.metaN * 100) : 100;
-        pl.lista = P.filter(p => p.activo && p.sede === pl.sede).length + I.filter(p => p.activo && p.sede === pl.sede).length;
-      });
+      const plantas = plantasCobertura();
       const per = plantas.reduce((n, x) => n + x.per, 0), bri = plantas.reduce((n, x) => n + x.bri, 0), meta = plantas.reduce((n, x) => n + x.metaN, 0);
-      const cumplen = plantas.filter(x => !x.faltan).length;
+      const cumplen = plantas.filter(x => !x.faltan).length, L = brigadistasEnListas();
       const kpi = (eti, num, sub, color) => `<div class="col-6 col-lg-3"><div class="kpi"><div class="eti">${eti}</div><div class="num" style="color:${color || 'inherit'}">${num}</div><div class="small text-muted">${sub}</div></div></div>`;
-      $('cob-kpis').innerHTML = kpi('Personal', per, 'trabajadores según el Indicador') + kpi('Brigadistas', bri, (per ? Math.round(bri / per * 1000) / 10 : 0) + ' % del personal') +
-        kpi('Meta (20 %)', meta, meta > bri ? 'faltan ' + (meta - bri) + ' brigadistas' : 'meta cumplida', meta > bri ? 'var(--s-mal)' : 'var(--s-ok)') +
-        kpi('Plantas que cumplen', cumplen + ' de ' + plantas.length, plantas.length - cumplen ? (plantas.length - cumplen) + ' por debajo de la meta' : 'todas cumplen', cumplen === plantas.length ? 'var(--s-ok)' : '#e8590c');
+      $('cob-kpis').innerHTML = kpi('Personal', per, 'trabajadores según el Indicador') +
+        kpi('Brigadistas', bri, `${per ? Math.round(bri / per * 1000) / 10 : 0} % del personal (según el Indicador)`) +
+        kpi('Meta (20 %)', meta, meta > bri ? `faltan ${meta - bri} brigadistas · vas en ${meta ? Math.round(bri / meta * 100) : 0} % de la meta` : `meta cumplida (${meta ? Math.round(bri / meta * 100) : 0} %)`, meta > bri ? 'var(--s-mal)' : 'var(--s-ok)') +
+        kpi('Plantas que cumplen', cumplen + ' de ' + plantas.length, `${plantas.length ? Math.round(cumplen / plantas.length * 100) : 0} % de las plantas${plantas.length - cumplen ? ' · ' + (plantas.length - cumplen) + ' por debajo de la meta' : ''}`, cumplen === plantas.length ? 'var(--s-ok)' : '#e8590c');
+      $('cob-diferencia').innerHTML = L.t === bri ? '' : `<div class="alert ${L.t < bri ? 'alert-warning' : 'alert-info'} small d-flex flex-wrap align-items-center gap-2"><i class="fa-solid fa-scale-unbalanced"></i>
+        <span>El Indicador cuenta <b>${bri}</b> brigadistas y las listas de la app tienen <b>${L.t}</b> activos (${L.h} Holcim · ${L.c} contratistas)${L.t < bri ? `: faltan <b>${bri - L.t}</b> por registrar en las listas` : ''}.</span>
+        <button class="btn btn-sm btn-outline-dark ms-auto" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Ver y traer los que faltan</button></div>`;
       const orden = (document.querySelector('#cob-orden [aria-pressed="true"]') || {}).dataset || {};
       const lista = plantas.filter(x => !$('cob-faltan').checked || x.faltan)
         .sort((a, b) => orden.orden === 'nombre' ? a.p.localeCompare(b.p, 'es') : a.pct - b.pct || b.faltan - a.faltan);
       const color = pct => pct >= 100 ? 'var(--s-ok)' : pct >= 60 ? '#f59f00' : 'var(--s-mal)';
       const estado = x => x.faltan ? `<span class="estado-cob bg-danger-subtle text-danger-emphasis">Faltan ${x.faltan}</span>` : '<span class="estado-cob bg-success-subtle text-success-emphasis"><i class="fa-solid fa-check me-1"></i>Cumple</span>';
       $('cob-plantas').innerHTML = lista.map(x => {
-        const emp = x.emp.filter(f => f.per > 0).map(f => Object.assign({}, f, { metaN: enteros(f.meta) })).map(f => Object.assign(f, { faltan: Math.max(0, f.metaN - f.bri), pct: f.metaN ? Math.round(f.bri / f.metaN * 100) : 100 }))
-          .sort((a, b) => b.faltan - a.faltan || a.pct - b.pct);
+        const emp = x.empresas.slice().sort((a, b) => b.faltan - a.faltan || a.pct - b.pct);
+        const sola = plantas.filter(y => y.sede === x.sede).length === 1, Ls = brigadistasEnListas(x.sede);
+        const listas = sola ? (Ls.t === x.bri ? `<span class="text-success"><i class="fa-solid fa-check me-1"></i>Las listas de la app tienen los mismos ${Ls.t}</span>`
+          : `<span class="${Ls.t < x.bri ? 'text-danger' : 'text-muted'}"><i class="fa-solid fa-scale-unbalanced me-1"></i>En las listas de la app: ${Ls.t}${Ls.t < x.bri ? ` (faltan ${x.bri - Ls.t} por registrar)` : ` (${Ls.t - x.bri} más que el Indicador)`}</span>`)
+          : `<span class="text-muted">En las listas de la app: ${Ls.t} en toda la sede ${esc(x.sede)}</span>`;
         return `<details class="planta-cob">
           <summary>
             <i class="fa-solid fa-chevron-right flecha" aria-hidden="true"></i>
-            <span class="nombre">${esc(x.p)}</span>
-            <span class="avance">${pctBarra(Math.min(x.pct, 100), color(x.pct))}<span class="small text-muted"><b class="text-body">${x.bri}</b> brigadistas de <b class="text-body">${x.metaN}</b> requeridos · ${x.per} personas</span></span>
+            <span class="nombre">${esc(x.p)}<span class="d-block small text-muted fw-normal">${esc(x.sede)}</span></span>
+            <span class="avance">${pctBarra(Math.min(x.pct, 100), color(x.pct))}
+              <span class="small text-muted"><b class="text-body fs-6">${x.pct} %</b> de la meta · <b class="text-body">${x.bri}</b> brigadistas de <b class="text-body">${x.metaN}</b> requeridos (20 % de ${x.per} personas; hoy son el ${x.pctPer} % del personal)</span>
+              <span class="small d-block">${listas}</span></span>
             ${estado(x)}
             <span class="small text-muted">${emp.length} empresa(s)</span>
           </summary>
           <div class="p-2">
             <table class="table table-sm align-middle mb-1 tabla-compacta">
-              <thead><tr><th scope="col">Empresa</th><th scope="col" class="text-end">Personal</th><th scope="col" class="text-end">Brigadistas</th><th scope="col" class="text-end">Requeridos</th><th scope="col" style="min-width:140px">Avance</th><th scope="col" class="text-end">Estado</th></tr></thead>
+              <thead><tr><th scope="col">Empresa</th><th scope="col" class="text-end">Personal</th><th scope="col" class="text-end">Brigadistas</th><th scope="col" class="text-end">Requeridos</th><th scope="col" style="min-width:160px">% de la meta</th><th scope="col" class="text-end"></th></tr></thead>
               <tbody>${emp.map(f => `<tr><td>${esc(f.emp)}</td><td class="text-end">${f.per}</td><td class="text-end">${f.bri}</td><td class="text-end" title="20 % exacto: ${f.meta}">${f.metaN}</td>
-                <td><div class="d-flex align-items-center gap-2"><div class="flex-grow-1">${pctBarra(Math.min(f.pct, 100), color(f.pct))}</div><span class="small" style="width:42px">${f.pct} %</span></div></td>
-                <td class="text-end">${f.faltan ? `<span class="badge bg-danger-subtle text-danger-emphasis">Faltan ${f.faltan}</span>` : '<i class="fa-solid fa-check text-success" aria-label="Cumple"></i>'}</td></tr>`).join('') || '<tr><td colspan="6" class="text-muted">Sin empresas con personal.</td></tr>'}</tbody>
+                <td><div class="d-flex align-items-center gap-2"><div class="flex-grow-1">${pctBarra(Math.min(f.pct, 100), color(f.pct))}</div><span class="small fw-semibold" style="width:46px">${f.pct} %</span></div></td>
+                <td class="text-end">${f.faltan ? `<span class="badge bg-danger-subtle text-danger-emphasis">Faltan ${f.faltan}</span>` : '<i class="fa-solid fa-check text-success" aria-label="Cumple"></i>'}</td></tr>`).join('') || '<tr><td colspan="6" class="text-muted">Sin detalle por empresa en el Indicador.</td></tr>'}</tbody>
             </table>
-            ${plantas.filter(y => y.sede === x.sede).length === 1 && x.lista !== x.bri ? `<div class="small text-muted px-1"><i class="fa-solid fa-circle-info me-1"></i>En las listas de la app hay ${x.lista} brigadistas activos en ${esc(x.sede)}; el Indicador dice ${x.bri}.</div>` : ''}
           </div></details>`;
       }).join('') || '<p class="text-muted">Sin datos para esta sede o filtro.</p>';
+    }
+
+    // Brigadistas que faltan en las listas (están en otras pestañas del 1.0 / 2.0 / libro nuevo)
+    const falt = { datos: null, fuentes: {}, marcados: {}, ajustes: {} };
+    async function abrirFaltantes() {
+      if (!E.usuario) return pedirSesion(abrirFaltantes);
+      ocupado(true);
+      try { falt.datos = await api('getBrigadistasFaltantes', E.token); ocupado(false); } catch (e) { return error(e); }
+      const d = falt.datos;
+      falt.fuentes = {}; falt.marcados = {}; falt.ajustes = {};
+      d.fuentes.forEach(f => { falt.fuentes[f.fuente] = !f.evacuadores && !f.contacto; });
+      $('falt-sedes').innerHTML = d.sedes.map(x => { const dif = x.listas - x.indicador; return `<tr><td>${esc(x.sede)}</td><td class="text-end">${x.indicador}</td><td class="text-end">${x.listas}</td><td class="text-end ${dif < 0 ? 'text-danger fw-semibold' : dif > 0 ? 'text-muted' : 'text-success'}">${dif < 0 ? 'faltan ' + (-dif) : dif > 0 ? '+' + dif : 'igual'}</td></tr>`; }).join('');
+      $('falt-fuentes').innerHTML = d.fuentes.map((f, k) => `<div class="form-check"><input class="form-check-input" type="checkbox" id="falt-f-${k}" data-fuente="${esc(f.fuente)}" ${falt.fuentes[f.fuente] ? 'checked' : ''}>
+        <label class="form-check-label" for="falt-f-${k}">${esc(f.fuente)} <span class="text-muted">(${f.n})</span>${f.evacuadores ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">evacuadores, no brigadistas</span>' : f.contacto ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">contactos</span>' : ''}</label></div>`).join('') || '<span class="text-muted">No se encontraron personas fuera de las listas.</span>';
+      $('falt-sede').innerHTML = opciones(unicos(d.candidatos.map(c => c.sede || '(sin planta)')), '', 'Todas las sedes');
+      const todasPlantas = unicos(d.plantasHolcim.concat(d.plantasInhouse));
+      $('falt-plantas').innerHTML = todasPlantas.map(x => `<option value="${esc(x)}">`).join('');
+      d.candidatos.forEach(c => {
+        const igual = todasPlantas.find(x => norm(x) === norm(c.planta)), deSede = todasPlantas.find(x => c.sede && norm(x).includes(norm(c.sede)));
+        const contratista = c.empresa && !/HOLCIM/.test(c.empresa);
+        falt.ajustes[c.cedula] = { planta: igual || deSede || c.planta, tipo: contratista ? 'INHOUSE' : 'HOLCIM', empresa: c.empresa };
+      });
+      pintarFaltantes();
+      modal('modal-faltantes').show();
+    }
+    function visiblesFaltantes() {
+      const q = norm($('falt-buscar').value), sede = $('falt-sede').value, desv = $('falt-desv').checked;
+      return falt.datos.candidatos.filter(c => c.fuentes.some(f => falt.fuentes[f]) && (desv || !c.desvinculado) && (!sede || (c.sede || '(sin planta)') === sede) &&
+        (!q || norm([c.nombre, c.cedula, c.planta, c.empresa].join(' ')).includes(q)));
+    }
+    function pintarFaltantes() {
+      const lista = visiblesFaltantes();
+      const n = Object.keys(falt.marcados).filter(k => falt.marcados[k]).length;
+      $('falt-conteo').textContent = lista.length + ' persona(s) · ' + n + ' seleccionada(s)';
+      $('falt-traer').textContent = n ? 'Traer ' + n + ' seleccionado(s)' : 'Traer seleccionados';
+      $('falt-traer').disabled = !n;
+      $('falt-tabla').innerHTML = lista.map(c => { const a = falt.ajustes[c.cedula]; return `<tr class="${c.desvinculado ? 'text-muted' : ''}">
+        <td><input class="form-check-input falt-sel" type="checkbox" data-c="${esc(c.cedula)}" ${falt.marcados[c.cedula] ? 'checked' : ''} aria-label="Traer a ${esc(c.nombre)}"></td>
+        <td class="fw-semibold">${esc(c.nombre)}${c.estado ? `<div class="small text-muted fw-normal">${esc(c.estado)}</div>` : ''}</td><td>${esc(c.cedula)}</td>
+        <td><input class="form-control form-control-sm falt-aj" data-c="${esc(c.cedula)}" data-k="planta" list="falt-plantas" value="${esc(a.planta)}" style="min-width:150px">${c.planta && c.planta !== a.planta ? `<div class="small text-muted">en la pestaña: ${esc(c.planta)}</div>` : ''}</td>
+        <td><select class="form-select form-select-sm falt-aj" data-c="${esc(c.cedula)}" data-k="tipo"><option value="HOLCIM" ${a.tipo === 'HOLCIM' ? 'selected' : ''}>Holcim</option><option value="INHOUSE" ${a.tipo === 'INHOUSE' ? 'selected' : ''}>Contratista</option></select></td>
+        <td><input class="form-control form-control-sm falt-aj" data-c="${esc(c.cedula)}" data-k="empresa" value="${esc(a.empresa)}" style="min-width:110px"></td>
+        <td class="small text-muted">${c.fuentes.map(esc).join('<br>')}</td></tr>`; }).join('') || '<tr><td colspan="7" class="text-muted text-center py-3">Nadie con ese filtro.</td></tr>';
+    }
+    function cambioFaltantes(ev) {
+      const el = ev.target;
+      if (el.dataset.fuente) { falt.fuentes[el.dataset.fuente] = el.checked; return pintarFaltantes(); }
+      if (el.id === 'falt-todos') { visiblesFaltantes().forEach(c => { falt.marcados[c.cedula] = el.checked; }); return pintarFaltantes(); }
+      if (el.classList.contains('falt-sel')) { falt.marcados[el.dataset.c] = el.checked; const n = Object.keys(falt.marcados).filter(k => falt.marcados[k]).length; $('falt-traer').textContent = n ? 'Traer ' + n + ' seleccionado(s)' : 'Traer seleccionados'; $('falt-traer').disabled = !n; $('falt-conteo').textContent = visiblesFaltantes().length + ' persona(s) · ' + n + ' seleccionada(s)'; return; }
+      if (el.classList.contains('falt-aj')) { falt.ajustes[el.dataset.c][el.dataset.k] = el.value.trim(); }
+    }
+    function revisarFaltantes() {
+      const lista = falt.datos.candidatos.filter(c => falt.marcados[c.cedula]).map(c => Object.assign({ cedula: c.cedula, nombre: c.nombre }, falt.ajustes[c.cedula]));
+      const sinPlanta = lista.filter(x => !x.planta);
+      if (sinPlanta.length) return avisar('Ponle planta a: ' + sinPlanta.map(x => esc(x.nombre)).join(', '), 'warning', 9000);
+      const sinEmpresa = lista.filter(x => x.tipo === 'INHOUSE' && !x.empresa);
+      if (sinEmpresa.length) return avisar('Los contratistas necesitan empresa: ' + sinEmpresa.map(x => esc(x.nombre)).join(', '), 'warning', 9000);
+      $('conf-titulo').textContent = 'Traer ' + lista.length + ' brigadista(s) a las listas';
+      $('conf-cuerpo').innerHTML = '<table class="table table-sm small mb-2"><thead><tr><th>Nombre</th><th>Cédula</th><th>Planta</th><th>Tipo</th><th>Empresa</th></tr></thead><tbody>' +
+        lista.map(x => `<tr><td>${esc(x.nombre)}</td><td>${esc(x.cedula)}</td><td>${esc(x.planta)}</td><td>${x.tipo === 'HOLCIM' ? 'Holcim' : 'Contratista'}</td><td>${esc(x.empresa || '')}</td></tr>`).join('') + '</tbody></table><p class="small text-muted mb-0">Quedan como "Activo"; luego completa sus datos (grupo sanguíneo, fecha de ingreso…) en Brigadistas.</p>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-user-plus me-1"></i>Traer';
+      $('conf-ok').onclick = () => traerFaltantes(lista);
+      modal('modal-faltantes').hide(); modal('modal-confirmar').show();
+    }
+    async function traerFaltantes(lista) {
+      modal('modal-confirmar').hide(); ocupado(true);
+      try {
+        const r = await api('importarBrigadistas', E.token, lista);
+        ocupado(false); if (revisarSesion(r)) return;
+        const malos = (r.resultados || []).filter(x => !x.exito);
+        avisar('<b>' + esc(r.mensaje) + '</b>' + (malos.length ? '<ul class="small mb-0 mt-1">' + malos.map(x => '<li>' + esc(x.nombre + ': ' + x.mensaje) + '</li>').join('') + '</ul>' : ''), malos.length ? 'warning' : 'success', 15000);
+        await cargarDatos(false); cargarVista();
+      } catch (e) { error(e); }
     }
 
     // ══════════ REVISIÓN DE DATOS ══════════
