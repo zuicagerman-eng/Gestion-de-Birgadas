@@ -189,11 +189,17 @@
               var t = document.getElementById('arranque-txt'), c = document.getElementById('arranque'), s = document.getElementById('arranque-spin');
               if (!t) return;
               c.className = 'alert alert-danger mb-3'; if (s) s.style.display = 'none';
-              t.innerHTML = '<b>La pantalla no pudo arrancar.</b><div class="mt-1">' + String(m).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>' +
+              t.innerHTML = '<b>La pantalla no pudo arrancar.</b><div class="mt-1" style="white-space:pre-wrap;font-family:monospace;font-size:.8rem">' + String(m).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>' +
                 '<div class="small mt-2">Recarga con Ctrl + F5. Si sigue igual, manda una captura de este recuadro.</div>';
             };
             window.addEventListener('error', function (e) {
-              window.__sigbeMostrarError((e.message || 'Error') + (e.lineno ? ' (línea ' + e.lineno + ')' : ''));
+              var extra = '';
+              try {
+                // Muestra la línea tal como llegó al navegador, para saber qué la rompe
+                var lineas = document.documentElement.outerHTML.split('\n');
+                for (var k = Math.max(0, e.lineno - 3); k < Math.min(lineas.length, e.lineno + 1); k++) extra += '\n' + (k + 1) + ': ' + lineas[k].slice(0, 220);
+              } catch (x) { /* sin detalle */ }
+              window.__sigbeMostrarError((e.message || 'Error') + (e.lineno ? ' (línea ' + e.lineno + ', columna ' + e.colno + ')' : '') + extra);
             });
             setTimeout(function () {
               if (!window.__sigbeArranco) window.__sigbeMostrarError('El código de la pantalla no arrancó en 20 segundos (¿se bloqueó la descarga de Bootstrap desde cdn.jsdelivr.net o hay una extensión del navegador que bloquea scripts?).');
