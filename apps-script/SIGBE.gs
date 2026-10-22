@@ -26,7 +26,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.0.1';
+const SIGBE_VERSION = '4.0.2';
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -70,6 +70,14 @@ function doGet() {
     .setTitle('SIGBE - Gestión de Brigadas')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * Código de las pantallas (App.html) en base64. La página lo pide al abrir si no le llegó incrustado:
+ * por este camino (google.script.run) Google no procesa el texto, así que llega intacto.
+ */
+function getCodigoApp() {
+  return Utilities.base64Encode(HtmlService.createTemplateFromFile('App').getRawContent(), Utilities.Charset.UTF_8);
 }
 
 // ═════════════════════════════ ARRANQUE Y DATOS ═════════════════════════════
@@ -237,10 +245,18 @@ function probarApp() {
     if (fechas.length) throw new Error('hay fechas que el navegador no puede recibir: ' + fechas.slice(0, 5).join(', '));
     return m.holcim.length + ' Holcim · ' + m.inhouse.length + ' contratistas · ' + m.crono.length + ' sesiones de cronograma · ' + Math.round(JSON.stringify(m).length / 1024) + ' KB' + (m.avisos.length ? ' · avisos: ' + m.avisos.join(' | ') : '');
   });
-  paso('Página (doGet + App.html)', () => {
+  paso('Código de pantallas (App.html)', () => {
+    const raw = HtmlService.createTemplateFromFile('App').getRawContent();
+    if (raw.indexOf('VERSION_HTML') === -1) throw new Error('App.html no parece el código de pantallas (no tiene VERSION_HTML)');
+    const v = (raw.match(/VERSION_HTML = '([^']+)'/) || [])[1];
+    return raw.split('\n').length + ' líneas · versión ' + v + (v !== SIGBE_VERSION ? ' ⚠ distinta a SIGBE.gs (' + SIGBE_VERSION + ')' : '') + ' · se envía por getCodigoApp (' + Math.round(getCodigoApp().length / 1024) + ' KB)';
+  });
+  paso('Página (Index.html)', () => {
+    const raw = HtmlService.createTemplateFromFile('Index').getRawContent();
+    if (raw.indexOf('sigbe-app-b64') === -1) throw new Error('Index.html no es de esta versión (no tiene el bloque sigbe-app-b64)');
     const h = doGet().getContent();
-    if (h.indexOf('__SIGBE_APP__') !== -1 || h.indexOf('sigbe-app-b64') === -1) throw new Error('la página no trae el código de pantallas: falta App.html, o Index.html / doGet no son de esta versión');
-    return 'completa · ' + Math.round(h.length / 1024) + ' KB';
+    const incrustado = h.indexOf('id="sigbe-app-b64" hidden>__SIGBE_APP__<') === -1 && h.indexOf('id="sigbe-app-b64"') !== -1;
+    return raw.split('\n').length + ' líneas · código ' + (incrustado ? 'incrustado en la página' : 'no incrustado: la página lo pedirá con getCodigoApp al abrir (es normal)');
   });
   paso('Caché', () => { sigbeCacheGuardar_('sigbe_prueba', { ok: 1 }); return sigbeCacheLeer_('sigbe_prueba') ? 'funciona' : 'no guarda (la app funciona igual, pero más lenta)'; });
   return lnMostrar_(L.join('\n'));

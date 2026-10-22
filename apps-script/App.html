@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.0.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.0.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sede: leer('localStorage', 'sigbe_sede') || '', listo: false, lecturaPublica: false, setup: null };
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
     const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', planta: '', inactivos: false, filtro: '' };

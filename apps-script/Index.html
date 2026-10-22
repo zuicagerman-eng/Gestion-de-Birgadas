@@ -219,8 +219,7 @@
             };
             setTimeout(function () {
               if (window.__sigbeArranco) return;
-              if (!window.__sigbeAppLlego) window.__sigbeMostrarError('El servidor no incluyó el código de las pantallas (App.html). Pasa cuando SIGBE.gs todavía tiene la función doGet anterior. ' +
-                'Reemplaza SIGBE.gs completo, guarda y publica una versión nueva (Implementar → Administrar implementaciones → lápiz → Nueva versión). En el editor, probarApp lo comprueba en el paso "Página".');
+              if (!window.__sigbeAppLlego) window.__sigbeMostrarError('El código de las pantallas no llegó en 20 segundos. Revisa que SIGBE.gs sea la versión 4.0.2 o posterior (tiene la función getCodigoApp) y publica una versión nueva. En el editor, probarApp lo comprueba.');
               else window.__sigbeMostrarError('El código de las pantallas llegó pero no arrancó en 20 segundos. Recarga con Ctrl + F5 (o revisa que el navegador no bloquee cdn.jsdelivr.net).');
             }, 20000);
           </script>
@@ -635,9 +634,15 @@
   <div id="sigbe-app-b64" hidden>__SIGBE_APP__</div>
   <script>
     (function () {
-      var t = (document.getElementById('sigbe-app-b64').textContent || '').trim();
-      if (t && t !== '__SIGBE_APP__') window.__sigbeCargarApp(t);
-      // si quedó "__SIGBE_APP__", el servidor no puso el código: el vigía lo explica a los 20 segundos
+      var el = document.getElementById('sigbe-app-b64');
+      var t = el ? (el.textContent || '').trim() : '';
+      if (t && t !== '__SIGBE_APP__' && /^[A-Za-z0-9+\/=\s]+$/.test(t)) { window.__sigbeCargarApp(t); return; }
+      // No llegó incrustado (o llegó alterado): se pide al servidor, camino que Google no procesa
+      document.getElementById('arranque-txt').textContent = 'Descargando la app…';
+      google.script.run
+        .withSuccessHandler(function (b64) { window.__sigbeCargarApp(b64); })
+        .withFailureHandler(function (e) { window.__sigbeAppLlego = true; window.__sigbeMostrarError('No se pudo traer el código de las pantallas (getCodigoApp): ' + (e && e.message || e) + '. Revisa que App.html exista en el proyecto y publica una versión nueva.'); })
+        .getCodigoApp();
     })();
   </script>
 </body>
