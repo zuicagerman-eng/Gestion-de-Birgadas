@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.2.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.3.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), visita: leer('sessionStorage', 'sigbe_visita'), visitante: null, acceso: 'cedula', usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -103,6 +103,8 @@
       grupoChips('ing-tipo', 'tipo', v => { ingr.tipo = v; pintarIngresos(); });
       $('cr-na').onchange = () => { $('cr-fecha').disabled = $('cr-na').checked; };
       $('form-modulo').onsubmit = revisarModulo;
+      $('form-sesion').onsubmit = revisarSesion2;
+      $('ses-fila').onchange = ajustarSesion; $('ses-pl').onchange = ajustarSesion;
       $('form-modulo').addEventListener('input', ajustarModulo);
       $('form-modulo').addEventListener('change', ajustarModulo);
       $('form-usuario').onsubmit = nuevoUsuario;
@@ -292,6 +294,8 @@
         'guardar-textos': guardarTextos,
         'textos-defecto': () => { if (confirm('¿Volver a los textos iniciales? Se guardan al pulsar "Guardar textos".')) { $('conf-texto-datos').value = ''; $('conf-texto-conf').value = ''; $('conf-responsable').value = 'Holcim Colombia'; guardarTextos(); } },
         'nuevo-modulo': abrirModulo,
+        'nueva-sesion': () => abrirSesion(),
+        'cr-otra-sesion': () => { const c = cronoEd; modal('modal-crono').hide(); abrirSesion(c.fila, c.pl); },
         'cr-todas': () => document.querySelectorAll('#cr-otras input').forEach(x => { x.checked = true; }),
         'cr-ninguna': () => document.querySelectorAll('#cr-otras input').forEach(x => { x.checked = false; }),
         'usr-nuevo': nuevoUsuario,
@@ -1108,6 +1112,66 @@
         const malos = r.resultados.filter(x => !x.exito || (x.rechazos && x.rechazos.length));
         avisar('<b>' + esc(r.mensaje) + '</b>' + (malos.length ? '<ul class="small mb-0 mt-1">' + malos.map(x => '<li>' + esc(x.mensaje) + '</li>').join('') + '</ul>' : ''), malos.length ? 'warning' : 'success', 12000);
         await cargarDatos(false); cargarVista();
+      } catch (e) { error(e); }
+    }
+
+    // Otra sesión de un módulo en una planta: habilita una que estaba en "-" o crea la Sesión N+1
+    let sesPlan = null;
+    async function abrirSesion(fila, pl) {
+      if (!E.usuario) return pedirSesion(() => abrirSesion(fila, pl));
+      if (!(await cargarCatalogos())) return;
+      $('form-sesion').reset();
+      const modulos = D.cronoFilas.filter(f => f.cl && D.cronoTodo.some(c => c.fila === f.fila));
+      $('ses-fila').innerHTML = modulos.map(f => `<option value="${f.fila}" ${f.fila === fila ? 'selected' : ''}>${esc(f.cl)} · ${esc(f.nombre)}${f.pre && f.pre !== 'TODOS' ? ' (' + esc(f.pre) + ')' : ''}</option>`).join('');
+      const plantas = unicos(D.cronoTodo.filter(enSede).map(c => c.pl));
+      $('ses-pl').innerHTML = plantas.map(p => `<option ${p === pl ? 'selected' : ''}>${esc(p)}</option>`).join('');
+      $('ses-estado').innerHTML = '<option value="">—</option>' + catalogos.estadosCrono.map(x => `<option ${x === 'Programada' ? 'selected' : ''}>${esc(x)}</option>`).join('');
+      ajustarSesion();
+      modal('modal-sesion').show();
+    }
+    function ajustarSesion() {
+      const fila = +$('ses-fila').value, pl = $('ses-pl').value, f = D.cronoFilas.find(x => x.fila === fila);
+      if (!f) return;
+      const items = D.cronoTodo.filter(c => c.fila === fila && c.pl === pl);
+      const libre = items.find(c => c.na), n = items.length + 1;
+      const tieneCols = k => D.sesiones.some(s => s.key === f.cl + '|' + k);
+      const actuales = items.map(c => `${esc(c.ses)}: ${c.na ? 'no aplica ("-")' : esc(c.f || 'sin fecha') + (c.e ? ' · ' + esc(c.e) : '')}`).join('<br>') || 'ninguna';
+      sesPlan = { f: f, pl: pl, libre: libre, n: n };
+      $('ses-resumen').innerHTML = `<b>${esc(f.cl)} en ${esc(pl)} hoy:</b><br>${actuales}<hr class="my-2">` + (libre
+        ? `Se <b>habilita la ${esc(libre.ses)}</b>: la planta ya tiene esa sesión para otros temas y en este tenía "-".`
+        : `Se <b>crea la Sesión ${n}</b> de ${esc(pl)} en el cronograma (un bloque de columnas nuevo, con "-" en los demás temas)` +
+          (tieneCols(n) ? '.' : ` y las columnas <b>${esc(f.cl)} Sesión ${n}</b> en la lista de asistencia.`) +
+          (D.cronoTodo.some(c => c.pl === pl && c.ses === 'Sesión ' + n) ? '' : ` Las plantas de la lista que usan las fechas de ${esc(pl)} tendrán esa sesión en este tema.`));
+      $('ses-ok').textContent = libre ? 'Revisar y habilitar' : 'Revisar y crear';
+    }
+    function revisarSesion2(ev) {
+      ev.preventDefault();
+      const x = sesPlan; if (!x) return;
+      const d = { fecha: $('ses-fecha').value, ambipar: $('ses-ambipar').value, estado: $('ses-estado').value, obs: $('ses-obs').value.trim() };
+      $('conf-titulo').textContent = x.libre ? 'Habilitar sesión' : 'Crear sesión';
+      $('conf-cuerpo').innerHTML = `<p class="mb-2"><b>${esc(x.f.cl)} · ${esc(x.f.nombre)}</b><br>${esc(x.pl)} · ${x.libre ? esc(x.libre.ses) : 'Sesión ' + x.n}${d.fecha ? ' · ' + esc(d.fecha.split('-').reverse().join('/')) : ' · sin fecha'}${d.estado ? ' · ' + esc(d.estado) : ''}</p>` +
+        `<p class="small text-muted mb-0">${x.libre ? 'Se pone la fecha en la sesión que tenía "-".' : 'Cambia la estructura del cronograma' + ($('ses-resumen').innerHTML.indexOf('lista de asistencia') !== -1 ? ' y de la lista de asistencia' : '') + ' (antes se guarda un respaldo del día).'} Queda en el historial.</p>`;
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-calendar-plus me-1"></i>' + (x.libre ? 'Habilitar' : 'Crear sesión');
+      $('conf-ok').onclick = () => crearSesionApp(x, d);
+      modal('modal-sesion').hide(); modal('modal-confirmar').show();
+    }
+    async function crearSesionApp(x, d) {
+      if (x.libre) {
+        const c = x.libre, cambios = { fecha: d.fecha || '' };
+        if (d.ambipar) cambios.ambipar = d.ambipar; if (d.estado) cambios.estado = d.estado; if (d.obs) cambios.obs = d.obs;
+        return guardarCrono([{ fila: c.fila, b: c.b, ent: c.ent, pl: c.pl, ses: c.ses, cambios: cambios, anteriores: { fecha: '-' } }]);
+      }
+      modal('modal-confirmar').hide(); ocupado(true);
+      try {
+        const r = await api('agregarSesion', E.token, Object.assign({ fila: x.f.fila, ent: x.f.nombre, pl: x.pl }, d));
+        ocupado(false);
+        if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? (r.avisos && r.avisos.length ? 'warning' : 'success') : 'danger', 12000);
+        if (!r.exito) return;
+        await cargarDatos(false);
+        if (E.vista === 'cronograma') { $('crono-modulo').value = x.f.nombre; crono.cuando = ''; document.querySelectorAll('#crono-cuando .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cuando === ''))); }
+        cargarVista();
+        if (E.vista === 'cronograma' && $('crono-modulo').value !== x.f.nombre) { $('crono-modulo').value = x.f.nombre; pintarCronograma(); }
       } catch (e) { error(e); }
     }
 

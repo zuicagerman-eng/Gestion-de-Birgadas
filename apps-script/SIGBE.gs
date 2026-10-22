@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.2.0';
+const SIGBE_VERSION = '4.3.0';
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -717,33 +717,8 @@ function crearModulo(token, d) {
     const fe = h.filaEncabezado, c0 = ultima + 1;
     try { respaldoDelDia_(F.asistencia); } catch (e) { /* sigue */ }
     if (F.datos.getId() !== F.asistencia.getId()) { try { respaldoDelDia_(F.datos); } catch (e) { /* sigue */ } }
-    try { shL.insertColumnsAfter(ultima, 4); }
-    catch (e) { return { exito: false, mensaje: 'Google no dejó agregar columnas en "' + shL.getName() + '" (' + e.message + '). No se cambió nada.' }; }
-    try { shL.getRange(1, ultima - 3, fe, 4).copyTo(shL.getRange(1, c0, fe, 4), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); } catch (e) { /* solo apariencia */ }
-    shL.getRange(fe, c0, 1, 4).setValues([[clave + '_Sesión_1', 'Asistencia ' + clave + '_1', clave + '_Sesión_2', 'Asistencia ' + clave + '_2']]);
-    if (fe > 1) {
-      shL.getRange(fe - 1, c0, 1, 4).setValues([[clave + ': ' + nombre, '', '', '']]);
-      try { shL.getRange(fe - 1, c0, 1, 4).merge(); } catch (e) { /* ya combinada o en una tabla */ }
-    }
-    const ultimaFila = shL.getLastRow();
-    if (ultimaFila > fe) {
-      const personas = {};
-      h.personas.forEach(p => { personas[p.fila] = true; });
-      const casilla = SpreadsheetApp.newDataValidation().requireCheckbox().build();
-      const rango = shL.getRange(fe + 1, c0, ultimaFila - fe, 4);
-      const fondos = rango.getBackgrounds(), valores = [], dvs = [], formatos = [];
-      for (let r = fe + 1; r <= ultimaFila; r++) {
-        const es = !!personas[r];
-        if (es) fondos[r - fe - 1] = ['#ffffff', '#ffffff', '#ffffff', '#ffffff'];
-        valores.push(es ? ['', false, '', false] : ['', '', '', '']);
-        dvs.push(es ? [null, casilla, null, casilla] : [null, null, null, null]);
-        formatos.push(['dd/mm/yyyy', 'General', 'dd/mm/yyyy', 'General']);
-      }
-      try { rango.setBackgrounds(fondos); } catch (e) { /* solo apariencia */ }
-      try { rango.setNumberFormats(formatos); } catch (e) { /* columna con tipo fijo */ }
-      try { rango.setDataValidations(dvs); } catch (e) { avisos.push('No se pudieron poner las casillas en la hoja (' + e.message + '); la asistencia igual se puede tomar desde la app.'); }
-      try { rango.setValues(valores); } catch (e) { /* quedan vacías: también cuentan como "no asistió" */ }
-    }
+    const err = sigbeColumnasSesion_(shL, h, ultima, clave, [1, 2], clave + ': ' + nombre, avisos);
+    if (err) return { exito: false, mensaje: err };
 
     // 2) Cronograma: la fila del módulo con su etiqueta
     let fila;
@@ -764,10 +739,13 @@ function crearModulo(token, d) {
         const ancho = Math.max(shC.getLastColumn(), 3);
         const valores = [delMes.length ? '' : mes.charAt(0) + mes.slice(1).toLowerCase(), (lineas.length ? lineas.join(' & ') : 'TODOS') + ': ' + nombre + ' (' + clave + ')'];
         for (let c = 2; c < ancho; c++) valores.push('');
-        crono.bloques.forEach(b => {
+        const conModulo = crono.filas.filter(f => f.clave);
+        crono.bloques.forEach((b, i) => {
           const cfg = lnPlanta_(b.nombre);
-          if (!lineas.length || !cfg || lineas.indexOf(cfg.linea) !== -1) return;
-          Object.keys(b.col).forEach(k => { valores[b.col[k]] = '-'; }); // esta planta no es de esas líneas
+          const otraLinea = lineas.length && cfg && lineas.indexOf(cfg.linea) === -1; // esta planta no es de esas líneas
+          // Sesión extra de la planta (creada para uno o pocos temas): en la mayoría de los módulos tiene "-"
+          const extra = b.n > 1 && conModulo.filter(f => f.celdas[i].tipo === 'noaplica').length * 2 > conModulo.length;
+          if (otraLinea || extra) Object.keys(b.col).forEach(k => { valores[b.col[k]] = '-'; });
         });
         shC.getRange(fila, 1, 1, ancho).setValues([valores]);
         try { shC.getRange(fila, 3, 1, ancho - 2).setBackground('#ffffff'); } catch (e) { /* solo apariencia */ }
@@ -779,6 +757,130 @@ function crearModulo(token, d) {
     sigbeTrasGuardar_(F, usuario, [['Nuevo módulo', shL.getName() + ' / ' + shC.getName(), fila, '', '', clave + ': ' + nombre + ' (' + (lineas.length ? lineas.join(', ') : existente ? existente.prefijo : 'todas las líneas') + ')', '', 'Creado']], true);
     return { exito: true, clave: clave, nombre: nombre, avisos: avisos,
       mensaje: 'Módulo ' + clave + ' creado: "' + nombre + '". Ahora ponle las fechas por planta en el Cronograma.' + (avisos.length ? ' ' + avisos.join(' ') : '') };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Inserta en la lista de asistencia, después de la columna `despues`, las columnas de esas sesiones de un módulo
+ * ("M7_Sesión_3" + "Asistencia M7_3") con casillas en las filas de personas. Devuelve un error en texto o ''.
+ */
+function sigbeColumnasSesion_(shL, h, despues, clave, sesiones, titulo, avisos) {
+  const fe = h.filaEncabezado, ancho = sesiones.length * 2, c0 = despues + 1;
+  try { shL.insertColumnsAfter(despues, ancho); }
+  catch (e) { return 'Google no dejó agregar columnas en "' + shL.getName() + '" (' + e.message + '). No se cambió nada.'; }
+  try { shL.getRange(1, despues - ancho + 1, fe, ancho).copyTo(shL.getRange(1, c0, fe, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); } catch (e) { /* solo apariencia */ }
+  const enc = [];
+  sesiones.forEach(n => { enc.push(clave + '_Sesión_' + n, 'Asistencia ' + clave + '_' + n); });
+  shL.getRange(fe, c0, 1, ancho).setValues([enc]);
+  if (fe > 1 && titulo) {
+    shL.getRange(fe - 1, c0, 1, ancho).setValues([[titulo].concat(Array(ancho - 1).fill(''))]);
+    try { shL.getRange(fe - 1, c0, 1, ancho).merge(); } catch (e) { /* ya combinada o en una tabla */ }
+  }
+  const ultimaFila = shL.getLastRow();
+  if (ultimaFila > fe) {
+    const personas = {};
+    h.personas.forEach(p => { personas[p.fila] = true; });
+    const casilla = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+    const rango = shL.getRange(fe + 1, c0, ultimaFila - fe, ancho);
+    const fondos = rango.getBackgrounds(), valores = [], dvs = [], formatos = [];
+    const par = (a, b) => { const f = []; sesiones.forEach(() => f.push(a, b)); return f; };
+    for (let r = fe + 1; r <= ultimaFila; r++) {
+      const es = !!personas[r];
+      if (es) fondos[r - fe - 1] = Array(ancho).fill('#ffffff');
+      valores.push(es ? par('', false) : par('', ''));
+      dvs.push(es ? par(null, casilla) : par(null, null));
+      formatos.push(par('dd/mm/yyyy', 'General'));
+    }
+    try { rango.setBackgrounds(fondos); } catch (e) { /* solo apariencia */ }
+    try { rango.setNumberFormats(formatos); } catch (e) { /* columna con tipo fijo */ }
+    try { rango.setDataValidations(dvs); } catch (e) { avisos.push('No se pudieron poner las casillas en la hoja (' + e.message + '); la asistencia igual se puede tomar desde la app.'); }
+    try { rango.setValues(valores); } catch (e) { /* quedan vacías: también cuentan como "no asistió" */ }
+  }
+  return '';
+}
+
+/**
+ * Otra sesión de un módulo que ya existe en una planta (p. ej. una Sesión 2 o 3 del M7 en Teleport).
+ * En el cronograma, cada sesión de una planta es un bloque de columnas (Fecha HOLCIM, Fecha AMBIPAR…): se agrega un
+ * bloque "Sesión N" junto a los de esa planta, con "-" en todos los temas menos este. Si la lista de asistencia no tiene
+ * columnas para la sesión N de ese módulo, también se agregan. Si la planta ya tiene una sesión en la que este tema
+ * "no aplica", no se crea nada: se habilita esa (desde la app, con guardarCronograma).
+ * d: { fila, ent, pl, fecha: 'yyyy-MM-dd' | '', ambipar, estado, obs }
+ */
+function agregarSesion(token, d) {
+  const lock = LockService.getScriptLock();
+  try {
+    const usuario = sigbeExigirSesion_(token);
+    if (!lock.tryLock(30000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    const F = sigbeFuentes_();
+    sigbeExigirEscritura_(F, 'datos');
+    const shC = sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA);
+    const crono = sigbeLeerCronograma_(shC);
+    const f = crono.filas.find(x => x.fila === Number(d.fila));
+    if (!f || f.nombre !== d.ent) return { exito: false, mensaje: 'El cronograma cambió mientras tanto. Actualiza los datos (↻) y vuelve a intentarlo.' };
+    if (!f.clave) return { exito: false, mensaje: '"' + f.nombre + '" no es un módulo de la lista de asistencia: conviértelo primero con "Nuevo módulo".' };
+    const propios = crono.bloques.map((b, i) => ({ b: b, i: i })).filter(x => x.b.nombre === d.pl);
+    if (!propios.length) return { exito: false, mensaje: 'No se encontró la planta "' + d.pl + '" en el cronograma.' };
+    const libre = propios.findIndex(x => f.celdas[x.i].tipo === 'noaplica');
+    if (libre !== -1) return { exito: false, habilitar: true, mensaje: 'La planta ya tiene la ' + propios[libre].b.sesion + ' (con "-" en este tema): habilítala en vez de crear otra.' };
+    if (d.fecha && !/^\d{4}-\d{2}-\d{2}$/.test(d.fecha)) return { exito: false, mensaje: 'Fecha no válida.' };
+    if (d.ambipar && !/^\d{4}-\d{2}-\d{2}$/.test(d.ambipar)) return { exito: false, mensaje: 'Fecha Ambipar no válida.' };
+    const n = propios.length + 1, ultimo = propios[propios.length - 1].b;
+    const cols = Object.keys(ultimo.col).map(k => ultimo.col[k]);
+    const c0 = Math.min.apply(null, cols), c1 = Math.max.apply(null, cols), ancho = c1 - c0 + 1; // 0-based
+    const avisos = [];
+    try { respaldoDelDia_(F.datos); } catch (e) { /* sigue */ }
+
+    // 1) Lista de asistencia: columnas de la sesión N del módulo, si no existen
+    let columnas = false;
+    const shL = sigbeHoja_(F.asistencia, SIGBE_HOJA_HOLCIM);
+    const h = sigbeLeerHolcim_(shL);
+    const delModulo = h.sesiones.filter(s => s.clave === f.clave);
+    if (!delModulo.length) return { exito: false, mensaje: 'La lista de asistencia no tiene columnas del módulo ' + f.clave + '.' };
+    const faltan = [];
+    for (let k = 1; k <= n; k++) if (!delModulo.some(s => s.n === k)) faltan.push(k);
+    if (faltan.length) {
+      sigbeExigirEscritura_(F, 'asistencia');
+      if (F.asistencia.getId() !== F.datos.getId()) { try { respaldoDelDia_(F.asistencia); } catch (e) { /* sigue */ } }
+      const err = sigbeColumnasSesion_(shL, h, Math.max.apply(null, delModulo.map(s => s.colAsis)), f.clave, faltan, '', avisos);
+      if (err) return { exito: false, mensaje: err };
+      columnas = true;
+    }
+
+    // 2) Cronograma: bloque "Sesión N" a la derecha de las sesiones de la planta, "-" en los demás temas
+    try { shC.insertColumnsAfter(c1 + 1, ancho); }
+    catch (e) { return { exito: false, mensaje: 'Google no dejó agregar columnas en el cronograma (' + e.message + ').' + (columnas ? ' Las columnas de la lista sí quedaron creadas.' : '') }; }
+    const alto = crono.v.length, nueva = c1 + 1; // primera columna nueva (0-based)
+    const origen = shC.getRange(1, c0 + 1, alto, ancho), destino = shC.getRange(1, nueva + 1, alto, ancho);
+    try { origen.copyTo(destino, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false); } catch (e) { /* solo apariencia */ }
+    try { origen.copyTo(destino, SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false); } catch (e) { /* sin desplegables */ }
+    const valores = [];
+    for (let r = 0; r < alto; r++) {
+      const fila = Array(ancho).fill('');
+      if (r === 1) fila[0] = 'Sesión ' + n;
+      else if (r === 2) for (let k = 0; k < ancho; k++) fila[k] = crono.d[2][c0 + k];
+      else if (r > 2 && r + 1 !== f.fila && crono.filas.some(x => x.fila === r + 1)) fila.fill('-');
+      valores.push(fila);
+    }
+    destino.setValues(valores);
+    try { shC.getRange(f.fila, nueva + 1, 1, ancho).setBackground('#ffffff'); } catch (e) { /* solo apariencia */ }
+    const col = k => ultimo.col[k] === undefined ? -1 : ultimo.col[k] - c0 + nueva;
+    const poner = (k, v, fecha) => { const c = col(k); if (c < 0 || v === '' || v === undefined) return; const celda = shC.getRange(f.fila, c + 1); celda.setValue(fecha ? sigbeFecha_(v) : v); if (fecha) { try { celda.setNumberFormat('dd/mm/yyyy'); } catch (e) { /* formato fijo */ } } };
+    poner('FECHA HOLCIM', d.fecha, true);
+    poner('FECHA AMBIPAR', d.ambipar, true);
+    poner('ESTADO', String(d.estado || '').trim());
+    poner('OBSERVACIONES', String(d.obs || '').trim().slice(0, 300));
+
+    const ses = 'Sesión ' + n, donde = f.nombre + ' · ' + d.pl + ' ' + ses;
+    const bit = [['Nueva sesión', shC.getName(), f.fila, '', '', f.clave + ' · ' + donde + (columnas ? ' (con columnas nuevas en la lista)' : ''), '', 'Creada']];
+    if (d.fecha) bit.push(['Cronograma', shC.getName(), f.fila, '', '', 'Fecha · ' + donde, '(sin fecha)', d.fecha.split('-').reverse().join('/')]);
+    sigbeTrasGuardar_(F, usuario, bit, true);
+    return { exito: true, sesion: n, columnas: columnas, avisos: avisos,
+      mensaje: 'Se creó la ' + ses + ' de ' + f.clave + ' en ' + d.pl + '.' + (columnas ? ' La lista de asistencia ya tiene sus columnas.' : '') + (avisos.length ? ' ' + avisos.join(' ') : '') };
   } catch (e) {
     return { exito: false, mensaje: e.message };
   } finally {
