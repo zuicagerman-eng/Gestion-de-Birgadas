@@ -14,6 +14,7 @@ desde la propia app.
 |---|---|
 | [`SIGBE.gs`](SIGBE.gs) | Backend de la app: datos, asistencia, brigadistas, configuración, diagnóstico. |
 | [`SincronizarBrigadas.gs`](SincronizarBrigadas.gs) | Sincronización original → 2.0, respaldos, restauración, activador. |
+| [`LibroNuevo.gs`](LibroNuevo.gs) | Libro nuevo consolidado (1.0 + lista de asistencia del 2.0) y su corte. |
 | [`Index.html`](Index.html) | Todas las pantallas. |
 | [`appsscript.json`](appsscript.json) | Manifiesto: zona horaria, permisos (scopes) y tipo de publicación. |
 
@@ -131,6 +132,66 @@ automática una hoja solo se reemplaza si cambió algo en el original. Si Google
 completa (pasa con el Cronograma), se actualiza **celda por celda** (datos, fórmulas, colores, formato de
 números); el resultado dice *"(celda por celda)"*. Las fórmulas de otras hojas del 2.0 que apuntan a las
 hojas sincronizadas se conservan.
+
+## Libro nuevo consolidado ("Gestión de Brigadas 2026")
+
+Un solo archivo que reemplaza al 1.0 y al 2.0. Se llena solo y se mantiene al día hasta el **corte**; después
+del corte se trabaja únicamente en él y el 1.0 y el 2.0 quedan como histórico.
+
+**Qué contiene**
+
+- Del **1.0**: todas las pestañas **visibles**, tal cual (mismo nombre, datos, fórmulas, colores, tablas,
+  desplegables). Las ocultas no se traen.
+- Del **2.0**: la pestaña **2026 Brigadistas HOLCIM** (lista de asistencia), con el mismo nombre, ubicada antes
+  de *2026 Brigadistas INHOUSE* y **organizada con el cronograma del 1.0**:
+
+| En el cronograma, para la planta y la sesión | En la lista de asistencia |
+|---|---|
+| Fecha | Esa fecha en la columna *Mx_Sesión_n* y casilla de asistencia habilitada. |
+| `-` o fondo gris | Texto **No aplica**, celda gris, **sin casilla** y no cuenta en el cumplimiento. |
+| Vacía (aún sin fecha) | Se deja lo que diga el 2.0 (o vacío) y la casilla habilitada. |
+| La planta tiene una sola sesión | La *Sesión 2* de todos los módulos: **No aplica**. |
+
+  Se quitan los textos de explicación ("FECHA SEGÚN CRONOGRAMA…"). Las marcas de asistencia del 2.0 se conservan.
+  *Cumplimiento del (los) Módulo(s)* y *% de cumplimiento* quedan con fórmula: módulos asistidos sobre módulos que
+  aplican y cuya fecha ya pasó (en un módulo con dos sesiones basta asistir a una). Las filas TOTAL suman las de su planta.
+
+**Cómo se relaciona cada módulo con el cronograma** (columna ENTRENAMIENTO del 1.0)
+
+| Módulo | Fila del cronograma |
+|---|---|
+| M1 | Primer auxilio |
+| M2 | Planes de prevención, preparación y respuesta |
+| M3 | Sustancias peligrosas (MATPEL) |
+| M4 | Eléctrico |
+| M5 | Alturas (comparte celda con espacios confinados) |
+| M6 | Vehicular |
+| M7 | Sismo |
+| M8-1, M8-2, M8-3 | 1.ª, 2.ª y 3.ª fila "Resolución 0256" |
+| M9 | Acuático de la línea de la planta (AGG, CEM o RMX & TQC) |
+| M10 | Minería de la línea de la planta (AGG o CEM) |
+| M11 | Harina caliente (CEM) |
+
+Las filas con prefijo (`AGG:`, `CEM:`, `RMX & TQC:`) solo aplican a esa línea; `TODOS:` aplica a todas. La planta y
+su bloque del cronograma están en la tabla `LN_PLANTAS` de [`LibroNuevo.gs`](LibroNuevo.gs): **RMX - VALLE usa el
+bloque de Calisur** (así estaba en el 2.0) y **CEM - NOBSA y GEO - NOBSA** usan el bloque *CEM & GEO - Nobsa* con las
+filas de CEM. Para cambiar una regla se cambia el cronograma (poner `-` o la fecha), no la lista de asistencia.
+
+**Pasos (en el editor de Apps Script, con la cuenta dueña; menú Ejecutar)**
+
+1. `libroNuevoCrear`: crea el archivo junto al 2.0 en Drive y lo llena. El enlace queda en el registro de ejecución.
+2. `libroNuevoActivarAutomatico`: lo mantiene al día cada `SIGBE_CADA_HORAS` horas (solo copia las pestañas que cambiaron).
+3. Mientras no haya corte, **no escribas en esas pestañas del libro nuevo**: cada actualización las vuelve a traer
+   del 1.0 y del 2.0. Se sigue marcando como hasta ahora.
+4. `libroNuevoCorte` cuando se decida el cambio: hace una última actualización (si hay un borrado masivo o un error,
+   **no** hace el corte), apaga la actualización automática y desde ahí el libro nuevo es el oficial.
+
+Otras: `libroNuevoActualizar` (traer cambios ya), `libroNuevoActualizarTodo` (todas las pestañas aunque no hayan
+cambiado; también sirve para aceptar un borrado que sí era correcto), `libroNuevoEstado`, `libroNuevoDesactivarAutomatico`,
+`libroNuevoQuitarCorte`. Si ya existe un archivo vacío que se quiera usar, pon su URL en la propiedad del script
+`LIBRO_NUEVO_ID` y ejecuta `libroNuevoActualizarTodo`.
+
+Mismo seguro que la sincronización: si una pestaña de origen pierde de golpe más del 30 % de sus datos, no se copia y se avisa.
 
 ## Seguros contra daños
 
