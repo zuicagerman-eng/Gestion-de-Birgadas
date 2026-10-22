@@ -25,7 +25,8 @@
     .marca { display: flex; align-items: center; gap: 10px; }
     .marca .logo { width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, #f59f00, #e8590c); display: flex; align-items: center; justify-content: center; color: #fff; }
     .nav-grupo { color: #7d8b97; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; margin: 14px 12px 4px; }
-    .sidebar .nav-link { color: #c8d1d9; padding: 9px 12px; margin: 1px 0; border-radius: 9px; font-weight: 500; display: flex; align-items: center; gap: 10px; }
+    .sidebar .nav-link { color: #c8d1d9; padding: 8px 12px; margin: 1px 0; border-radius: 8px; font-weight: 600; font-size: .92rem; display: flex; align-items: center; gap: 10px; }
+    .sidebar .nav-link.sub { padding-left: 26px; font-weight: 500; font-size: .86rem; }
     .sidebar .nav-link i { width: 18px; text-align: center; opacity: .9; }
     .sidebar .nav-link:hover { color: #fff; background: rgba(255,255,255,.07); }
     .sidebar .nav-link.active { color: #fff; background: var(--s-azul); }
@@ -54,6 +55,11 @@
     .chip { border: 1px solid var(--s-borde); background: #fff; border-radius: 999px; padding: 4px 12px; font-size: .85rem; cursor: pointer; white-space: nowrap; }
     .chip[aria-pressed="true"] { background: var(--s-azul); border-color: var(--s-azul); color: #fff; }
     .chip .n { font-weight: 700; margin-left: 4px; }
+    .segmento .chip { border-radius: 0; border-color: var(--s-azul); color: var(--s-azul); padding: 5px 14px; }
+    .segmento .chip + .chip { margin-left: -1px; }
+    .segmento .chip:first-child { border-radius: 6px 0 0 6px; } .segmento .chip:last-child { border-radius: 0 6px 6px 0; }
+    .segmento .chip[aria-pressed="true"] { background: var(--s-azul); color: #fff; }
+    .fila-sede { cursor: pointer; border-radius: 6px; padding: 4px 6px; } .fila-sede:hover { background: #f6f9ff; }
     .contador { font-size: .85rem; color: #5f6b76; }
 
     /* Estados de sesión (color + símbolo, nunca solo color) */
@@ -103,6 +109,7 @@
     th.ordenable[aria-sort="ascending"]::after { content: " ▲"; font-size: .7em; }
     th.ordenable[aria-sort="descending"]::after { content: " ▼"; font-size: .7em; }
     .fila-click { cursor: pointer; }
+    .tabla-compacta { font-size: .86rem; } .tabla-compacta td, .tabla-compacta th { padding: 5px 8px; } .tabla-compacta .barrita { height: 4px; margin-top: 3px; }
     .fila-click:hover td { background: #f6f9ff; }
     pre.registro { white-space: pre-wrap; font-size: .8rem; background: #f8fafc; border-radius: 8px; padding: 10px; max-height: 300px; overflow: auto; }
 
@@ -134,32 +141,30 @@
         <div class="offcanvas-md offcanvas-start text-white" tabindex="-1" id="menu" aria-label="Menú">
           <div class="p-3">
             <div class="marca mb-2">
-              <div class="logo"><i class="fa-solid fa-shield-halved"></i></div>
-              <div class="flex-grow-1"><div class="fw-bold">SIGBE</div><div class="small" style="color:#9fb0bd">Gestión de Brigadas</div></div>
+              <i class="fa-solid fa-shield-halved fa-2x text-warning"></i>
+              <div class="flex-grow-1"><div class="fw-bold fs-5">SIGBE 2.0</div><div class="small" style="color:#9fb0bd">Gestión de Brigadas</div></div>
               <button type="button" class="btn-close btn-close-white d-md-none" data-bs-dismiss="offcanvas" data-bs-target="#menu" aria-label="Cerrar menú"></button>
             </div>
             <nav aria-label="Secciones">
               <ul class="nav flex-column" id="nav">
-                <li><a href="#" class="nav-link" data-vista="inicio"><i class="fa-solid fa-house"></i>Inicio</a></li>
-                <li class="nav-grupo">Brigadas</li>
-                <li><a href="#" class="nav-link" data-vista="asistencia"><i class="fa-solid fa-clipboard-check"></i>Tomar asistencia</a></li>
-                <li><a href="#" class="nav-link" data-vista="matriz"><i class="fa-solid fa-table-cells"></i>Avance por persona</a></li>
-                <li><a href="#" class="nav-link" data-vista="brigadistas"><i class="fa-solid fa-users"></i>Brigadistas</a></li>
-                <li><a href="#" class="nav-link" data-vista="cronograma"><i class="fa-solid fa-calendar-days"></i>Cronograma</a></li>
+                <li><a href="#" class="nav-link" data-vista="inicio"><i class="fa-solid fa-gauge-high"></i>Dashboard</a></li>
                 <li><a href="#" class="nav-link" data-vista="cobertura"><i class="fa-solid fa-chart-column"></i>Cobertura</a></li>
-                <li class="nav-grupo">Control</li>
-                <li><a href="#" class="nav-link" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
-                <li><a href="#" class="nav-link" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
-                <li class="nav-grupo">Consulta</li>
+                <li><a href="#" class="nav-link" data-vista="brigadistas"><i class="fa-solid fa-users"></i>Brigadistas</a></li>
+                <li><a href="#" class="nav-link sub" data-vista="matriz"><i class="fa-solid fa-table-cells"></i>Avance por persona</a></li>
+                <li><a href="#" class="nav-link" data-vista="asistencia"><i class="fa-solid fa-clipboard-check"></i>Tomar asistencia</a></li>
+                <li><a href="#" class="nav-link" data-vista="cronograma"><i class="fa-solid fa-calendar-days"></i>Cronograma</a></li>
                 <li><a href="#" class="nav-link" data-vista="temarios"><i class="fa-solid fa-book-open"></i>Temarios</a></li>
-                <li><a href="#" class="nav-link" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
-                <li class="nav-grupo">Sistema</li>
+                <li><a href="#" class="nav-link sub" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
+                <li><a href="#" class="nav-link" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
+                <li><a href="#" class="nav-link sub" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
                 <li><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
-                <li><a href="#" class="nav-link" data-vista="configuracion"><i class="fa-solid fa-gear"></i>Configuración</a></li>
+                <li><a href="#" class="nav-link sub" data-vista="configuracion"><i class="fa-solid fa-gear"></i>Configuración</a></li>
                 <li><a href="#" class="nav-link" data-vista="ayuda"><i class="fa-solid fa-circle-question"></i>Ayuda</a></li>
               </ul>
             </nav>
-            <div class="small mt-3" style="color:#7d8b97" id="txt-version"></div>
+            <hr class="border-secondary my-3">
+            <div class="small" style="color:#9fb0bd" id="lateral-datos"></div>
+            <div class="small mt-2" style="color:#7d8b97" id="txt-version"></div>
           </div>
         </div>
       </div>
@@ -226,9 +231,19 @@
 
           <!-- INICIO -->
           <section class="vista" id="v-inicio" aria-labelledby="t-inicio">
-            <h1 class="titulo-vista" id="t-inicio">Resumen</h1>
+            <h1 class="titulo-vista" id="t-inicio">Dashboard</h1>
             <p class="sub-vista" id="inicio-sub"></p>
             <div class="row g-3 mb-3" id="inicio-kpis"></div>
+            <div class="row g-3 mb-3">
+              <div class="col-lg-6"><div class="tarjeta p-3 h-100">
+                <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-list-check me-2 text-success"></i>Cumplimiento por sede <span class="small text-muted fw-normal">(módulos vencidos asistidos)</span></h2>
+                <div id="inicio-por-sede" class="small"></div>
+              </div></div>
+              <div class="col-lg-6"><div class="tarjeta p-3 h-100">
+                <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Cobertura por sede <span class="small text-muted fw-normal">(brigadistas frente a la meta del 20 %)</span></h2>
+                <div id="inicio-cobertura" class="small"></div>
+              </div></div>
+            </div>
             <div class="row g-3">
               <div class="col-lg-7">
                 <div class="tarjeta p-3 mb-3">
@@ -305,7 +320,7 @@
             <div class="tarjeta p-3 mb-2">
               <div class="filtros mb-2">
                 <input type="search" id="brig-buscar" class="form-control form-control-sm flex-grow-1" placeholder="Buscar nombre, cédula, planta o empresa…" aria-label="Buscar brigadista" style="max-width: 360px;">
-                <span role="group" aria-label="Tipo" id="brig-tipo" class="d-flex gap-1">
+                <span role="group" aria-label="Tipo" id="brig-tipo" class="d-flex segmento">
                   <button class="chip" data-tipo="" aria-pressed="true">Todos</button>
                   <button class="chip" data-tipo="HOLCIM" aria-pressed="false">Holcim</button>
                   <button class="chip" data-tipo="INHOUSE" aria-pressed="false">Contratistas</button>
@@ -320,7 +335,7 @@
               </div>
             </div>
             <div class="tarjeta tabla-fija">
-              <table class="table table-hover align-middle mb-0">
+              <table class="table table-sm table-hover align-middle mb-0 tabla-compacta">
                 <caption class="visually-hidden">Lista de brigadistas filtrada</caption>
                 <thead><tr id="brig-cab">
                   <th scope="col" class="ordenable" data-orden="n">Nombre</th><th scope="col" class="ordenable" data-orden="c">Cédula</th><th scope="col" class="ordenable" data-orden="p">Planta</th>

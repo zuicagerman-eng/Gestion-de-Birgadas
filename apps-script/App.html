@@ -183,6 +183,7 @@
     function pintarFrescura() {
       if (!D) { $('frescura').innerHTML = ''; return; }
       const fuente = D.fuentes.corte ? 'libro nuevo' : '1.0 y 2.0';
+      $('lateral-datos').innerHTML = `<i class="fa-solid fa-rotate me-1"></i>Datos leídos: ${esc(D.generado.slice(8, 10) + '/' + D.generado.slice(5, 7) + ' ' + D.generado.slice(11))}<br>${D.fuentes.corte ? 'Libro nuevo' : 'Asistencia: 2.0 · Resto: 1.0'}`;
       $('frescura').innerHTML = `<span title="Archivos de origen: ${esc(D.fuentes.asistencia.nombre)} / ${esc(D.fuentes.datos.nombre)}"><i class="fa-regular fa-clock me-1"></i>Datos de las ${esc(D.generado.slice(11))} · ${fuente}</span>
         <button class="btn btn-sm btn-link p-0" data-accion="refrescar" title="Leer de nuevo las hojas" aria-label="Leer de nuevo las hojas"><i class="fa-solid fa-rotate"></i></button>`;
     }
@@ -231,6 +232,7 @@
         'csv-brig': csvBrigadistas, 'csv-matriz': csvMatriz, 'csv-cambios': csvCambios, 'csv-hoja': csvHoja,
         ficha: () => abrirFicha(d.tipo, +d.j),
         'asis-sede': () => { $('sel-sede').value = d.sede; cambiarSede(d.sede); },
+        'elegir-sede': () => { $('sel-sede').value = d.sede; cambiarSede(d.sede); },
         'asis-sesion': () => elegirSesion(d.key),
         'asis-volver': volverASesiones,
         'asis-filtro': () => { asis.filtro = d.f; pintarAsistencia(); },
@@ -327,7 +329,7 @@
 
     // ══════════ INICIO ══════════
     function pintarInicio() {
-      $('inicio-sub').textContent = E.sede ? 'Sede ' + E.sede : 'Todas las sedes · elige tu sede arriba para ver solo la tuya';
+      $('inicio-sub').textContent = E.sede ? 'Sede ' + E.sede : 'Todas las sedes · haz clic en una sede de las barras o elígela arriba';
       const h = P.filter(p => enSede(p) && p.activo), ih = I.filter(p => enSede(p) && p.activo);
       const conCert = ih.filter(p => tieneCert(p.ce)).length;
       const cumps = h.map(p => p.cump).filter(c => c.pct !== null);
@@ -342,6 +344,21 @@
         kpi('fa-list-check', cPromedio >= 80 ? 'var(--s-ok)' : '#e8590c', 'Cumplimiento Holcim', cPromedio + ' %', `${alDia} de ${cumps.length} al día con los módulos vencidos`, cPromedio) +
         kpi('fa-certificate', '#7b2cbf', 'Contratistas con 0256', (ih.length ? Math.round(conCert / ih.length * 100) : 0) + ' %', `${conCert} de ${ih.length} con certificado`, ih.length ? conCert / ih.length * 100 : 0) +
         kpi('fa-shield-halved', pctMeta >= 100 ? 'var(--s-ok)' : '#1d2f3c', 'Cobertura vs. meta', pctMeta + ' %', `${bri} brigadistas de ${Math.round(meta)} requeridos (${per} personas)`, pctMeta);
+      // Barras por sede (clic = filtrar por esa sede)
+      const barra = (sede, pct, txt) => { const color = pct >= 80 ? 'var(--s-ok)' : pct >= 40 ? '#f59f00' : 'var(--s-mal)';
+        return `<div class="fila-sede d-flex align-items-center gap-2" data-accion="elegir-sede" data-sede="${esc(sede)}" title="Ver solo ${esc(sede)}"><div style="width:110px" class="fw-semibold text-truncate">${esc(sede)}</div><div class="flex-grow-1">${pctBarra(pct, color)}</div><div style="width:120px" class="text-end text-muted">${txt}</div></div>`; };
+      const sedes = unicos(P.map(p => p.sede)).filter(x => !E.sede || x === E.sede);
+      $('inicio-por-sede').innerHTML = sedes.map(sd => {
+        const cs = P.filter(p => p.sede === sd && p.activo).map(p => p.cump).filter(c => c.t);
+        const c = cs.reduce((n, x) => n + x.c, 0), t = cs.reduce((n, x) => n + x.t, 0);
+        return { sd, pct: t ? Math.round(c / t * 100) : 0, txt: t ? `${Math.round(c / t * 100)} % · ${c}/${t}` : 'sin vencidos' };
+      }).sort((a, b) => a.pct - b.pct).map(x => barra(x.sd, x.pct, x.txt)).join('') || '<p class="text-muted mb-0">Sin datos.</p>';
+      const sedesInd = unicos(D.indicador.map(f => f.sede)).filter(x => !E.sede || x === E.sede);
+      $('inicio-cobertura').innerHTML = sedesInd.map(sd => {
+        const f = D.indicador.filter(x => x.sede === sd && !x.tot);
+        const b = f.reduce((n, x) => n + x.bri, 0), m = f.reduce((n, x) => n + x.meta, 0);
+        return { sd, pct: m ? Math.min(Math.round(b / m * 100), 999) : 0, txt: `${b} de ${Math.round(m)}` };
+      }).sort((a, b) => a.pct - b.pct).map(x => barra(x.sd, x.pct, x.txt)).join('') || '<p class="text-muted mb-0">Sin datos del Indicador.</p>';
       const pend = sesionesSinRegistro().slice(0, 8);
       $('inicio-sin-registro').innerHTML = pend.length ? pend.map(x => `<div class="d-flex align-items-center gap-3 py-2 border-bottom">${chipFecha(x.iso)}
           <div class="flex-grow-1"><div class="fw-semibold">${esc(nombreSesion(x.s))} · ${esc(x.s.titulo)}</div><div class="text-muted">${esc(x.sede)} · ${x.total} brigadistas · hace ${diasEntre(x.iso, D.hoy)} días</div></div>
