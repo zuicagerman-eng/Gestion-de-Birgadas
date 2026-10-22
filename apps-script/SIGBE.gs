@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.1.0';
+const SIGBE_VERSION = '4.2.0';
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -107,6 +107,8 @@ function getContexto(token) {
   return {
     version: SIGBE_VERSION, setup: setup, usuario: sigbeUsuarioSesion_(token), perfil: sigbePerfil_(sigbeUsuarioSesion_(token)),
     lecturaPublica: sigbeLecturaPublica_(), corte: !!prop_('LIBRO_NUEVO_CORTE'),
+    acceso: sigbeAcceso_(), visitante: sigbeAcceso_() === 'cedula' ? sigbeVisita_(token) : null,
+    reducido: sigbeVistaReducida_(token), textosIngreso: sigbeAcceso_() === 'cedula' ? sigbeTextosIngreso_() : null,
   };
 }
 
@@ -116,13 +118,14 @@ function getContexto(token) {
  */
 function getDatos(token, forzar) {
   sigbeExigirLectura_(token);
+  const salida = m => sigbeVistaReducida_(token) ? sigbeReducir_(m) : m;
   if (!forzar) {
     const m = sigbeCacheLeer_('sigbe_m_' + sigbeGen_());
-    if (m) { m.desdeCache = true; return m; }
+    if (m) { m.desdeCache = true; return salida(m); }
   }
   const m = sigbeConstruirModelo_();
   sigbeCacheGuardar_('sigbe_m_' + sigbeGen_(), m);
-  return m;
+  return salida(m);
 }
 
 /**
@@ -847,13 +850,13 @@ function getTemarioCapacitacion(token, nombreHoja) {
 
 /** Pestañas visibles que no tienen pantalla propia (Seguimiento, Datos de contacto, Evacuadores…). */
 function getHojasExtra(token) {
-  sigbeExigirLectura_(token);
+  sigbeExigirLectura_(token, true);
   return sigbeFuentes_().datos.getSheets().filter(h => !h.isSheetHidden() && !sigbeEsHojaPropia_(h.getName())).map(h => h.getName());
 }
 
 /** Una pestaña como tabla: { nombre, titulo, encabezados, filas }. Detecta la fila de títulos sola. */
 function getHojaExtra(token, nombre) {
-  sigbeExigirLectura_(token);
+  sigbeExigirLectura_(token, true);
   const clave = 'sigbe_x_' + sigbeGen_() + '_' + Utilities.base64EncodeWebSafe(String(nombre)).slice(0, 120);
   const c = sigbeCacheLeer_(clave);
   if (c) return c;
@@ -891,7 +894,7 @@ function sigbeEsHojaPropia_(nombre) {
 
 /** Historial: cambios hechos desde la app y cambios detectados en el Excel (los más recientes primero). */
 function getCambios(token) {
-  sigbeExigirLectura_(token);
+  sigbeExigirLectura_(token, true);
   const reg = sigbeFuentes_().registro;
   const sh = reg && reg.getSheetByName(SIGBE_HOJA_BITACORA);
   if (!sh || sh.getLastRow() < 2) return [];
@@ -1020,7 +1023,7 @@ function sigbeQuitarHechosPorApp_(cambios) {
 // ═════════════════════════════ ESTADO DEL SISTEMA ═════════════════════════════
 
 function getEstadoSistema(token) {
-  sigbeExigirLectura_(token);
+  sigbeExigirLectura_(token, true);
   const props = props_();
   const archivo = (prop, nombre) => {
     const id = idDesdeTexto_(prop_(prop));
@@ -1062,7 +1065,7 @@ function actualizarAhora(token) {
 
 /** Revisa todo lo que puede fallar y dice qué hacer en cada caso. */
 function diagnosticoSistema(token) {
-  sigbeExigirLectura_(token);
+  sigbeExigirLectura_(token, true);
   const R = [];
   const add = (estado, titulo, detalle, solucion) => R.push({ estado: estado, titulo: titulo, detalle: detalle || '', solucion: solucion || '' });
   const props = props_();
@@ -1122,7 +1125,8 @@ function diagnosticoSistema(token) {
 
   if (props.getProperty('SIGBE_USUARIO') && (props.getProperty('SIGBE_CLAVE_HASH') || props.getProperty('SIGBE_CLAVE_INICIAL'))) add(props.getProperty('SIGBE_CLAVE_INICIAL') ? 'aviso' : 'ok', 'Usuario y clave', 'Configurados (usuario: ' + props.getProperty('SIGBE_USUARIO') + ')' + (props.getProperty('SIGBE_CLAVE_INICIAL') ? '. La clave inicial sigue en texto en las propiedades: se cifra y se borra al primer inicio de sesión.' : '.'), props.getProperty('SIGBE_CLAVE_INICIAL') ? 'Inicia sesión una vez y después cambia la clave en Configuración.' : '');
   else add('error', 'Usuario y clave', 'No están configurados: nadie puede guardar.', 'Pon SIGBE_USUARIO y SIGBE_CLAVE_INICIAL en las Propiedades del script.');
-  add(sigbeLecturaPublica_() ? 'aviso' : 'ok', 'Lectura sin iniciar sesión', sigbeLecturaPublica_() ? 'Permitida: cualquiera con el enlace ve nombres y cédulas.' : 'Exigida: hay que iniciar sesión para ver.', sigbeLecturaPublica_() ? 'En una cuenta pública conviene exigir sesión (Configuración → Acceso).' : '');
+  const acceso = sigbeAcceso_();
+  add(acceso === 'publico' ? 'aviso' : 'ok', 'Acceso para ver', acceso === 'publico' ? 'Público: cualquiera con el enlace ve la información sin registrarse.' : acceso === 'cedula' ? 'Con cédula, nombre y aceptación de datos; cada ingreso queda en "' + SIGBE_HOJA_INGRESOS + '"' + (sigbeVistaReducida_('') ? ' (visitantes con vista reducida).' : ' (visitantes ven todo).') : 'Solo administradores con usuario y clave.', acceso === 'publico' ? 'En Configuración → Acceso elige "Con cédula y nombre".' : '');
   add('info', 'La app se ejecuta como', cuentaScript_() + '. Esa cuenta necesita editar los archivos.');
   add('info', 'Versión', 'SIGBE ' + SIGBE_VERSION + '. Si las pantallas muestran otra versión, falta "Implementar → Nueva versión".');
   return { fecha: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'), revisiones: R,
@@ -1170,6 +1174,7 @@ function validarLoginAdmin(usuario, clave) {
     const x = sigbeUsuarios_()[escrito.toLowerCase()];
     if (x && x.activo !== false && sigbeHash_(clave, x.sal) === x.hash) quien = escrito.toLowerCase();
   }
+  sigbeAnotarIngreso_(quien ? ['Administrador' + ((sigbePerfil_(quien) || {}).org ? ' (' + sigbePerfil_(quien).org + ')' : ''), '', quien, '', '', '', '', ''] : ['Intento fallido de administrador', '', escrito.slice(0, 40), '', '', '', '', '']);
   if (quien) {
     cache.remove('sigbe_intentos');
     const token = Utilities.getUuid();
@@ -1307,16 +1312,152 @@ function sigbeHash_(texto, sal) {
   return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(sal || '') + String(texto || '')));
 }
 
-/** ¿Cualquiera con el enlace puede ver (no guardar)? Por defecto no. */
+/** ¿Cualquiera con el enlace puede ver (no guardar), sin registrarse? Por defecto no. */
 function sigbeLecturaPublica_() {
-  return /^(si|sí|true|1)$/i.test(String(PropertiesService.getScriptProperties().getProperty('SIGBE_LECTURA_PUBLICA') || 'no').trim());
+  return sigbeAcceso_() === 'publico';
 }
 
-/** Lanza error si la lectura exige sesión y no la hay. El frontend reconoce el prefijo SESION_REQUERIDA. */
-function sigbeExigirLectura_(token) {
-  if (sigbeLecturaPublica_()) return;
-  if (!sigbeUsuarioSesion_(token)) throw new Error('SESION_REQUERIDA: Inicia sesión para ver la información.');
+/**
+ * Lanza error si no puede ver: administrador, visitante registrado (acceso por cédula) o acceso público.
+ * completa = true: además exige vista completa (historial, otras hojas, estado). El frontend reconoce los prefijos.
+ */
+function sigbeExigirLectura_(token, completa) {
+  if (sigbeUsuarioSesion_(token)) return;
+  const acceso = sigbeAcceso_();
+  if (acceso !== 'publico' && !(acceso === 'cedula' && sigbeVisita_(token))) {
+    throw new Error(acceso === 'cedula' ? 'INGRESO_REQUERIDO: Registra tu ingreso para ver la información.' : 'SESION_REQUERIDA: Inicia sesión para ver la información.');
+  }
+  if (completa && sigbeVistaReducida_(token)) throw new Error('SESION_REQUERIDA: Esta parte la ven solo los administradores.');
 }
+
+// ═════════════════════════════ INGRESO CON CÉDULA (CONSULTA) ═════════════════════════════
+// SIGBE_ACCESO: 'cedula' (por defecto: para ver basta cédula, nombre y aceptar el tratamiento de datos y la
+// confidencialidad; cada ingreso queda en la hoja "Ingresos SIGBE"), 'clave' (solo administradores) o 'publico'.
+// Guardar cualquier cambio exige siempre usuario y clave de administrador.
+// Visitantes con vista reducida (por defecto): cédulas enmascaradas, sin grupo sanguíneo (dato de salud) y sin
+// historial, otras hojas ni estado del sistema. SIGBE_VISITA_COMPLETA = 'si' les muestra todo.
+
+const SIGBE_HOJA_INGRESOS = 'Ingresos SIGBE';
+const SIGBE_TEXTO_DATOS = 'AUTORIZACIÓN PARA EL TRATAMIENTO DE DATOS PERSONALES. En cumplimiento de la Ley 1581 de 2012 y sus ' +
+  'decretos reglamentarios, autorizo de manera previa, expresa e informada a {RESPONSABLE} para registrar mi número de cédula, mi ' +
+  'nombre y la fecha y hora de cada ingreso a SIGBE, con la finalidad de controlar y dejar trazabilidad del acceso a la información ' +
+  'del programa de brigadas de emergencia. Sé que puedo conocer, actualizar, rectificar y pedir la supresión de mis datos, y revocar ' +
+  'esta autorización, a través de {CONTACTO}, y que la política de tratamiento de datos personales de {RESPONSABLE} está disponible para consulta.';
+const SIGBE_TEXTO_CONFIDENCIALIDAD = 'COMPROMISO DE CONFIDENCIALIDAD Y NO DIVULGACIÓN. La información de SIGBE incluye datos ' +
+  'personales de los brigadistas (nombres, documentos, asistencia y otros). Me comprometo a usarla solo para la gestión de las brigadas, ' +
+  'a no copiarla, divulgarla, publicarla ni compartirla con terceros sin autorización, y entiendo que mi ingreso queda registrado.';
+
+function sigbeAcceso_() {
+  const a = String(prop_('SIGBE_ACCESO') || '').trim().toLowerCase();
+  if (a === 'cedula' || a === 'clave' || a === 'publico') return a;
+  return /^(si|sí|true|1)$/i.test(String(prop_('SIGBE_LECTURA_PUBLICA') || '').trim()) ? 'publico' : 'cedula'; // compatibilidad con v4.0
+}
+
+function sigbeVisita_(token) {
+  if (!token) return null;
+  try { return JSON.parse(CacheService.getScriptCache().get('sigbe_visita_' + token) || 'null'); } catch (e) { return null; }
+}
+
+/** Sin sesión de administrador y sin permiso de vista completa: datos reducidos. */
+function sigbeVistaReducida_(token) {
+  return !sigbeUsuarioSesion_(token) && !/^(si|sí|true|1)$/i.test(String(prop_('SIGBE_VISITA_COMPLETA') || '').trim());
+}
+
+function sigbeTextosIngreso_() {
+  const responsable = String(prop_('SIGBE_DATOS_RESPONSABLE') || 'Holcim Colombia').trim();
+  const contacto = String(prop_('SIGBE_DATOS_CONTACTO') || '').trim();
+  const poner = t => t.replace(/\{RESPONSABLE\}/g, responsable).replace(/\{CONTACTO\}/g, contacto || 'los canales de atención de datos personales de ' + responsable);
+  const datos = poner(prop_('SIGBE_TEXTO_DATOS') || SIGBE_TEXTO_DATOS), conf = poner(prop_('SIGBE_TEXTO_CONFIDENCIALIDAD') || SIGBE_TEXTO_CONFIDENCIALIDAD);
+  return { datos: datos, confidencialidad: conf, version: sigbeHash_(datos + '|' + conf, '').replace(/[^A-Za-z0-9]/g, '').slice(0, 8) };
+}
+
+/** Cédula 1012345678 → ••••5678 (para visitantes). */
+function sigbeEnmascarar_(c) {
+  const d = String(c || '').replace(/\D/g, '');
+  return d.length >= 5 ? '••••' + d.slice(-4) : String(c || '');
+}
+
+function sigbeReducir_(m) {
+  const quitar = p => Object.assign({}, p, { c: sigbeEnmascarar_(p.c), gs: '' });
+  return Object.assign({}, m, { holcim: m.holcim.map(quitar), inhouse: m.inhouse.map(quitar), reducido: true });
+}
+
+/**
+ * Ingreso para consultar. d: { cedula, nombre, aceptaDatos, aceptaConfidencialidad, navegador }
+ * Queda en "Ingresos SIGBE" con la versión del texto aceptado y si la cédula está en las listas.
+ */
+function registrarIngreso(d) {
+  try {
+    d = d || {};
+    if (sigbeAcceso_() === 'clave') return { exito: false, mensaje: 'Esta app solo se abre con usuario y clave de administrador.' };
+    const cache = CacheService.getScriptCache();
+    const n = Number(cache.get('sigbe_ingresos_min')) || 0;
+    if (n > 60) return { exito: false, mensaje: 'Demasiados ingresos seguidos. Espera un minuto e intenta de nuevo.' };
+    cache.put('sigbe_ingresos_min', String(n + 1), 60);
+    const cedula = String(d.cedula || '').replace(/\D/g, '');
+    const nombre = String(d.nombre || '').replace(/\s+/g, ' ').trim().toUpperCase();
+    if (cedula.length < 5 || cedula.length > 12) return { exito: false, mensaje: 'Escribe tu número de cédula (de 5 a 12 números).' };
+    if (nombre.length < 5 || nombre.split(' ').length < 2 || /\d/.test(nombre)) return { exito: false, mensaje: 'Escribe tu nombre y apellido.' };
+    if (d.aceptaDatos !== true || d.aceptaConfidencialidad !== true) return { exito: false, mensaje: 'Para entrar debes aceptar la autorización de datos y el compromiso de confidencialidad.' };
+    const textos = sigbeTextosIngreso_();
+    let enListas = '';
+    try {
+      let m = sigbeCacheLeer_('sigbe_m_' + sigbeGen_());
+      if (!m) { m = sigbeConstruirModelo_(); sigbeCacheGuardar_('sigbe_m_' + sigbeGen_(), m); }
+      const igual = p => String(p.c).replace(/\D/g, '') === cedula;
+      const h = m.holcim.find(igual), i = h ? null : m.inhouse.find(igual), p = h || i;
+      if (!p) enListas = 'No está en las listas';
+      else {
+        const palabras = sigbeNorm_(p.n).split(' '), coincide = sigbeNorm_(nombre).split(' ').filter(w => w.length > 2 && palabras.indexOf(w) !== -1).length >= 2;
+        enListas = (h ? 'Brigadista Holcim' : 'Contratista ' + (p.k || '')) + ' · ' + p.p + (coincide ? '' : ' · OJO: en la lista es ' + p.n);
+      }
+    } catch (e) { enListas = '(no se pudo revisar)'; }
+    sigbeAnotarIngreso_(['Consulta', cedula, nombre, enListas, 'Sí', 'Sí', textos.version, String(d.navegador || '').slice(0, 150)]);
+    const token = Utilities.getUuid();
+    cache.put('sigbe_visita_' + token, JSON.stringify({ c: cedula, n: nombre }), SIGBE_HORAS_SESION * 3600);
+    return { exito: true, token: token, visitante: { c: cedula, n: nombre }, mensaje: 'Bienvenido(a), ' + nombre + '.' };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
+}
+
+function salirVisita(token) {
+  if (token) CacheService.getScriptCache().remove('sigbe_visita_' + token);
+  return true;
+}
+
+/** Fila en "Ingresos SIGBE": [tipo, cédula, nombre, en las listas, autorizó datos, confidencialidad, versión, navegador]. */
+function sigbeAnotarIngreso_(fila) {
+  try {
+    const ss = sigbeFuentes_().registro;
+    let sh = ss.getSheetByName(SIGBE_HOJA_INGRESOS);
+    if (!sh) {
+      sh = ss.insertSheet(SIGBE_HOJA_INGRESOS);
+      sh.getRange(1, 1, 1, 9).setValues([['Fecha', 'Tipo', 'Cédula', 'Nombre o usuario', 'En las listas', 'Autorizó tratamiento de datos', 'Aceptó confidencialidad', 'Versión del texto', 'Navegador']])
+        .setFontWeight('bold').setBackground('#1a252f').setFontColor('#ffffff');
+      sh.setFrozenRows(1);
+      try { sh.protect().setDescription('Registro de ingresos a SIGBE (solo la app escribe aquí)').setWarningOnly(true); } catch (e) { /* sin permiso */ }
+    }
+    sh.getRange(sh.getLastRow() + 1, 1, 1, 9).setValues([[new Date()].concat(fila)]);
+  } catch (e) {
+    console.log('No se pudo anotar el ingreso: ' + e.message);
+  }
+}
+
+/** Últimos ingresos (solo administradores). */
+function getIngresos(token) {
+  sigbeExigirSesion_(token);
+  const reg = sigbeFuentes_().registro;
+  const sh = reg && reg.getSheetByName(SIGBE_HOJA_INGRESOS);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const n = Math.min(sh.getLastRow() - 1, 3000);
+  return sh.getRange(sh.getLastRow() - n + 1, 1, n, 9).getValues().reverse().map(f => ({
+    fecha: sigbeTexto_(f[0], true), iso: f[0] instanceof Date ? Utilities.formatDate(f[0], Session.getScriptTimeZone(), 'yyyy-MM-dd') : '',
+    tipo: String(f[1]), cedula: sigbeTexto_(f[2]), nombre: String(f[3]), listas: String(f[4]), datos: String(f[5]), conf: String(f[6]), version: String(f[7]), navegador: String(f[8]),
+  }));
+}
+
+
 
 /** Qué falta para que la app pueda funcionar. */
 function sigbeEstadoSetup_() {
@@ -1384,6 +1525,12 @@ function getConfiguracion(token) {
     libro: info(lnIdLibro_()),
     corte: props.getProperty('LIBRO_NUEVO_CORTE') || '',
     lecturaPublica: sigbeLecturaPublica_(),
+    acceso: sigbeAcceso_(),
+    visitaCompleta: !sigbeVistaReducida_(''),
+    responsable: prop_('SIGBE_DATOS_RESPONSABLE') || 'Holcim Colombia',
+    contacto: prop_('SIGBE_DATOS_CONTACTO') || '',
+    textoDatos: prop_('SIGBE_TEXTO_DATOS') || SIGBE_TEXTO_DATOS,
+    textoConfidencialidad: prop_('SIGBE_TEXTO_CONFIDENCIALIDAD') || SIGBE_TEXTO_CONFIDENCIALIDAD,
     automatica: sigbeActivadorAutomatico_(),
     carpetaRespaldos: CARPETA_RESPALDOS,
     respaldos: respaldos,
@@ -1419,10 +1566,28 @@ function guardarConfiguracion(token, cfg) {
     if (reiniciarEspejo) {
       Object.keys(props.getProperties()).filter(k => /^LIBRO_NUEVO_(HUELLA|CELDAS)_/.test(k)).forEach(k => props.deleteProperty(k));
     }
-    if (cfg.lecturaPublica !== undefined) {
-      const v = cfg.lecturaPublica ? 'si' : 'no';
-      if (v !== (sigbeLecturaPublica_() ? 'si' : 'no')) { props.setProperty('SIGBE_LECTURA_PUBLICA', v); cambios.push('Lectura sin sesión → ' + (cfg.lecturaPublica ? 'permitida' : 'exigida')); }
+    if (cfg.lecturaPublica !== undefined && cfg.acceso === undefined) cfg.acceso = cfg.lecturaPublica ? 'publico' : 'clave';
+    const nombresAcceso = { cedula: 'con cédula y nombre', clave: 'solo administradores', publico: 'público' };
+    if (cfg.acceso !== undefined) {
+      if (!nombresAcceso[cfg.acceso]) return { exito: false, mensaje: 'Modo de acceso no válido.' };
+      if (cfg.acceso !== sigbeAcceso_()) { props.setProperty('SIGBE_ACCESO', cfg.acceso); props.deleteProperty('SIGBE_LECTURA_PUBLICA'); cambios.push('Acceso para ver → ' + nombresAcceso[cfg.acceso]); }
     }
+    if (cfg.visitaCompleta !== undefined && !!cfg.visitaCompleta !== !sigbeVistaReducida_('')) {
+      props.setProperty('SIGBE_VISITA_COMPLETA', cfg.visitaCompleta ? 'si' : 'no');
+      cambios.push('Visitantes ven → ' + (cfg.visitaCompleta ? 'todo' : 'vista reducida'));
+    }
+    const texto = (campo, prop, defecto, etiqueta) => {
+      if (cfg[campo] === undefined) return;
+      const t = String(cfg[campo] || '').trim().slice(0, 4000);
+      const actual = props.getProperty(prop) || defecto;
+      if (t === actual || (!t && actual === defecto)) return;
+      if (!t || t === defecto) props.deleteProperty(prop); else props.setProperty(prop, t);
+      cambios.push(etiqueta + ' actualizado');
+    };
+    texto('responsable', 'SIGBE_DATOS_RESPONSABLE', 'Holcim Colombia', 'Responsable de los datos');
+    texto('contacto', 'SIGBE_DATOS_CONTACTO', '', 'Contacto de datos personales');
+    texto('textoDatos', 'SIGBE_TEXTO_DATOS', SIGBE_TEXTO_DATOS, 'Texto de autorización de datos');
+    texto('textoConfidencialidad', 'SIGBE_TEXTO_CONFIDENCIALIDAD', SIGBE_TEXTO_CONFIDENCIALIDAD, 'Texto de confidencialidad');
     sigbeLimpiarCaches_();
     sigbeInvalidar_();
     if (cambios.length) sigbeBitacora_(usuario, cambios.map(c => ['Configuración', 'Propiedades del script', '', '', '', c, '', '']));

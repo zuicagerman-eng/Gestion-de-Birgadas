@@ -119,6 +119,10 @@
     th.ordenable[aria-sort="ascending"]::after { content: " ▲"; font-size: .7em; }
     th.ordenable[aria-sort="descending"]::after { content: " ▼"; font-size: .7em; }
     .fila-click { cursor: pointer; }
+    .texto-legal { max-height: 150px; overflow-y: auto; font-size: .82rem; line-height: 1.45; background: #f6f8fb; border: 1px solid #dfe5ec; border-radius: .5rem; padding: .6rem .8rem; color: #33424f; white-space: pre-line; }
+    body.modo-ingreso .sidebar, body.modo-ingreso header.topbar { display: none !important; }
+    body.modo-ingreso #columna { flex: 0 0 100%; max-width: 100%; }
+    body.vista-reducida .solo-completo { display: none !important; }
     #sel-sede.sede-filtrada { border-color: #0d6efd; background-color: #eef4ff; font-weight: 600; }
     .sede-op:hover { background: #f1f5fb; }
     .sede-op .solo { visibility: hidden; font-size: .78rem; }
@@ -171,11 +175,12 @@
                 <li><a href="#" class="nav-link" data-vista="asistencia"><i class="fa-solid fa-clipboard-check"></i>Tomar asistencia</a></li>
                 <li><a href="#" class="nav-link" data-vista="cronograma"><i class="fa-solid fa-calendar-days"></i>Cronograma</a></li>
                 <li><a href="#" class="nav-link" data-vista="temarios"><i class="fa-solid fa-book-open"></i>Temarios</a></li>
-                <li><a href="#" class="nav-link sub" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
-                <li><a href="#" class="nav-link" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
+                <li><a href="#" class="nav-link sub solo-completo" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
+                <li><a href="#" class="nav-link solo-completo" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
                 <li><a href="#" class="nav-link sub" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
-                <li><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
-                <li><a href="#" class="nav-link sub" data-vista="configuracion"><i class="fa-solid fa-gear"></i>Configuración</a></li>
+                <li><a href="#" class="nav-link sub solo-completo" data-vista="ingresos"><i class="fa-solid fa-id-card"></i>Registro de ingresos</a></li>
+                <li><a href="#" class="nav-link solo-completo" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
+                <li><a href="#" class="nav-link sub solo-completo" data-vista="configuracion"><i class="fa-solid fa-gear"></i>Configuración</a></li>
                 <li><a href="#" class="nav-link" data-vista="ayuda"><i class="fa-solid fa-circle-question"></i>Ayuda</a></li>
               </ul>
             </nav>
@@ -186,7 +191,7 @@
         </div>
       </div>
 
-      <div class="col-md-9 col-lg-10 p-0">
+      <div class="col-md-9 col-lg-10 p-0" id="columna">
         <header class="topbar px-3 py-2 d-flex flex-wrap align-items-center gap-2 position-relative">
           <button class="btn btn-outline-secondary d-md-none" data-bs-toggle="offcanvas" data-bs-target="#menu" aria-label="Abrir menú"><i class="fa-solid fa-bars"></i></button>
           <div class="d-flex align-items-center gap-2">
@@ -419,6 +424,57 @@
             <div id="cob-plantas"></div>
           </section>
 
+          <!-- INGRESO CON CÉDULA -->
+          <section class="vista" id="v-ingreso" aria-labelledby="t-ingreso">
+            <div class="tarjeta p-4 mx-auto my-md-4" style="max-width: 760px;">
+              <div class="d-flex align-items-center gap-3 mb-3">
+                <i class="fa-solid fa-shield-halved fa-2x text-warning"></i>
+                <div><h1 class="h4 fw-bold mb-0" id="t-ingreso">Ingreso a SIGBE</h1><div class="small text-muted">Sistema de Gestión de Brigadas · consulta</div></div>
+              </div>
+              <p class="small text-muted">Para consultar la información de las brigadas registra tu ingreso. Para hacer cambios (asistencia, fechas, brigadistas) se piden usuario y clave de administrador.</p>
+              <form id="form-ingreso" novalidate>
+                <div class="row g-3">
+                  <div class="col-sm-5"><label class="form-label" for="ing-cedula">Cédula *</label><input id="ing-cedula" class="form-control" inputmode="numeric" autocomplete="off" required maxlength="15"></div>
+                  <div class="col-sm-7"><label class="form-label" for="ing-nombre">Nombre y apellido *</label><input id="ing-nombre" class="form-control" autocomplete="name" required maxlength="80"></div>
+                  <div class="col-12">
+                    <div class="texto-legal" id="ing-texto-datos" tabindex="0" aria-label="Autorización de tratamiento de datos"></div>
+                    <div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="ing-datos" required><label class="form-check-label small fw-semibold" for="ing-datos">Leí y autorizo el tratamiento de mis datos personales.</label></div>
+                  </div>
+                  <div class="col-12">
+                    <div class="texto-legal" id="ing-texto-conf" tabindex="0" aria-label="Compromiso de confidencialidad"></div>
+                    <div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="ing-conf" required><label class="form-check-label small fw-semibold" for="ing-conf">Acepto el compromiso de confidencialidad y no divulgación.</label></div>
+                  </div>
+                  <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="ing-recordar"><label class="form-check-label small" for="ing-recordar">Recordar mi cédula y nombre en este equipo (no lo marques en un computador compartido)</label></div></div>
+                  <div class="col-12"><div class="text-danger small" id="ing-error" role="alert"></div></div>
+                  <div class="col-12 d-grid"><button class="btn btn-primary btn-lg" type="submit"><i class="fa-solid fa-right-to-bracket me-2"></i>Ingresar</button></div>
+                </div>
+              </form>
+              <div class="text-center mt-3 small"><a href="#" data-accion="login"><i class="fa-solid fa-user-shield me-1"></i>Soy administrador: entrar con usuario y clave</a></div>
+            </div>
+          </section>
+
+          <!-- REGISTRO DE INGRESOS -->
+          <section class="vista" id="v-ingresos" aria-labelledby="t-ingresos">
+            <h1 class="titulo-vista" id="t-ingresos">Registro de ingresos</h1>
+            <p class="sub-vista">Quién entró y cuándo (pestaña <i>Ingresos SIGBE</i> del libro). Cada consulta guarda la cédula, el nombre, si está en las listas y la versión del texto de datos que aceptó.</p>
+            <div id="ing-sin-sesion" class="alert alert-info" style="display:none;"><i class="fa-solid fa-lock me-1"></i>Solo los administradores ven el registro de ingresos. <a href="#" data-accion="login">Iniciar sesión</a></div>
+            <div id="ing-contenido">
+              <div class="row g-3 mb-3" id="ing-kpis"></div>
+              <div class="tarjeta p-3 mb-2"><div class="filtros">
+                <input type="search" id="ing-buscar" class="form-control form-control-sm" placeholder="Buscar cédula, nombre o usuario…" aria-label="Buscar en el registro de ingresos">
+                <span role="group" aria-label="Tipo" id="ing-tipo" class="d-flex segmento">
+                  <button class="chip" data-tipo="" aria-pressed="true">Todos</button><button class="chip" data-tipo="Consulta" aria-pressed="false">Consultas</button>
+                  <button class="chip" data-tipo="Administrador" aria-pressed="false">Administradores</button><button class="chip" data-tipo="Intento" aria-pressed="false">Intentos fallidos</button>
+                </span>
+                <div class="form-check"><input class="form-check-input" type="checkbox" id="ing-fuera"><label class="form-check-label small" for="ing-fuera">Solo quienes no están en las listas o con nombre distinto</label></div>
+                <button class="btn btn-sm btn-outline-secondary ms-auto" data-accion="csv-ingresos"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
+              </div><div class="contador mt-2" id="ing-conteo"></div></div>
+              <div class="tarjeta tabla-fija"><table class="table table-sm table-hover align-middle mb-0 tabla-compacta"><caption class="visually-hidden">Registro de ingresos</caption>
+                <thead><tr><th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col">Cédula</th><th scope="col">Nombre o usuario</th><th scope="col">En las listas</th><th scope="col">Texto aceptado</th></tr></thead>
+                <tbody id="ing-tabla"></tbody></table></div>
+            </div>
+          </section>
+
           <!-- REVISIÓN -->
           <section class="vista" id="v-revision" aria-labelledby="t-rev">
             <h1 class="titulo-vista" id="t-rev">Revisión de datos</h1>
@@ -564,6 +620,17 @@
                   <div class="col-lg-2"><button class="btn btn-sm btn-success w-100" type="submit"><i class="fa-solid fa-user-plus me-1"></i>Agregar</button></div>
                 </form>
               </div>
+              <div class="tarjeta p-3 mb-3 conf-principal">
+                <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-file-shield me-2 text-primary"></i>Protección de datos en el ingreso</h2>
+                <p class="small text-muted mb-2">Textos que acepta quien entra con cédula y nombre. {RESPONSABLE} y {CONTACTO} se reemplazan solos. Cada ingreso guarda la versión del texto aceptado. Conviene que el área legal o de datos personales los revise.</p>
+                <div class="row g-2">
+                  <div class="col-md-6"><label class="form-label small mb-0" for="conf-responsable">Responsable del tratamiento</label><input id="conf-responsable" class="form-control form-control-sm" maxlength="120"></div>
+                  <div class="col-md-6"><label class="form-label small mb-0" for="conf-contacto">Contacto para consultas y reclamos (correo)</label><input id="conf-contacto" class="form-control form-control-sm" maxlength="120" placeholder="datospersonales@empresa.com"></div>
+                  <div class="col-lg-6"><label class="form-label small mb-0" for="conf-texto-datos">Autorización de tratamiento de datos</label><textarea id="conf-texto-datos" class="form-control form-control-sm" rows="6"></textarea></div>
+                  <div class="col-lg-6"><label class="form-label small mb-0" for="conf-texto-conf">Compromiso de confidencialidad y no divulgación</label><textarea id="conf-texto-conf" class="form-control form-control-sm" rows="6"></textarea></div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-2"><button class="btn btn-sm btn-primary" data-accion="guardar-textos">Guardar textos</button><button class="btn btn-sm btn-outline-secondary" data-accion="textos-defecto">Volver a los textos iniciales</button></div>
+              </div>
               <div class="row g-3">
                 <div class="col-lg-6 conf-principal"><div class="tarjeta p-3 h-100">
                   <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-table me-2 text-primary"></i>Archivos</h2>
@@ -576,8 +643,13 @@
                 <div class="col-lg-6 conf-principal">
                   <div class="tarjeta p-3 mb-3">
                     <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-eye me-2 text-primary"></i>Acceso</h2>
-                    <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="conf-lectura"><label class="form-check-label small" for="conf-lectura">Permitir <b>ver</b> sin iniciar sesión (guardar siempre la exige)</label></div>
-                    <p class="small text-muted mb-2">En una cuenta pública déjalo apagado: así nadie ve nombres ni cédulas sin la clave.</p>
+                    <label class="form-label small mb-0" for="conf-acceso">Para <b>ver</b> la información (guardar siempre exige usuario y clave)</label>
+                    <select id="conf-acceso" class="form-select form-select-sm mb-2">
+                      <option value="cedula">Con cédula y nombre + aceptar datos personales (cada ingreso queda registrado)</option>
+                      <option value="clave">Solo administradores (usuario y clave)</option>
+                      <option value="publico">Público: cualquiera con el enlace, sin registrarse (no recomendado)</option>
+                    </select>
+                    <div class="form-check form-switch mb-1"><input class="form-check-input" type="checkbox" id="conf-visita-completa"><label class="form-check-label small" for="conf-visita-completa">Los visitantes ven <b>todo</b> (apagado: cédulas ocultas salvo los 4 últimos números, sin grupo sanguíneo, historial, otras hojas ni estado del sistema)</label></div>
                     <button class="btn btn-sm btn-primary" data-accion="guardar-lectura">Guardar acceso</button>
                   </div>
                   <div class="tarjeta p-3">

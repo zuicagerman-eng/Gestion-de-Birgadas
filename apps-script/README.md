@@ -59,6 +59,22 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
 - **Temarios** y **Otras hojas** (Seguimiento, Datos de contacto, Evacuadores…): consulta con buscador y filtros.
 - **Estado del sistema** (archivos, tarea, respaldos, diagnóstico, "Actualizar ahora") y **Configuración**.
 
+## Ingreso con cédula y protección de datos
+
+Al abrir la app no se pide usuario ni clave: la persona escribe su **cédula y nombre**, lee y acepta la **autorización de
+tratamiento de datos** (Ley 1581 de 2012) y el **compromiso de confidencialidad y no divulgación**, y entra a consultar.
+Cada ingreso queda en la pestaña **"Ingresos SIGBE"** del libro (fecha, cédula, nombre, si está en las listas o si el nombre
+no coincide con el de esa cédula, versión del texto aceptado y navegador); también los ingresos e intentos fallidos de
+administradores. Los administradores lo ven en **Registro de ingresos** (filtros, CSV). Para **guardar cualquier cambio**
+se pide siempre usuario y clave de administrador (botón *Administrador* arriba).
+
+Vista de consulta (por defecto): cédulas ocultas salvo los 4 últimos números, sin grupo sanguíneo (dato de salud) y sin
+historial, otras hojas ni estado del sistema. En **Configuración → Acceso** el principal elige el modo
+(`SIGBE_ACCESO`: con cédula · solo administradores · público), si los visitantes ven todo (`SIGBE_VISITA_COMPLETA`) y, en
+**Protección de datos en el ingreso**, el responsable, el correo de contacto y los dos textos (conviene que los revise el
+área legal). La cédula y el nombre no se verifican contra un documento: el registro sirve para trazabilidad y para el
+consentimiento, no como contraseña.
+
 ## Usuarios (Holcim, Ambipar…)
 
 El usuario principal es el de la configuración inicial (`SIGBE_USUARIO`). En **Configuración → Usuarios administradores**
