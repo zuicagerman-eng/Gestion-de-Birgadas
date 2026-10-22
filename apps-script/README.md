@@ -52,7 +52,7 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   **Nuevo módulo** crea 4 columnas en la lista de asistencia (Sesión 1 y 2 con casilla, antes del cumplimiento) y su fila en
   el cronograma (en su mes, con prefijo de líneas si no es para todas) con la etiqueta `(M12)`, que es la que los une.
   También convierte en módulo un entrenamiento que ya está en el cronograma sin columnas (p. ej. Espacios confinados).
-  **Agregar sesión** da otra sesión de un módulo en una planta (p. ej. una Sesión 2 o 3 del M7 en Teleport): si la planta
+  **Programar / Agregar sesión** da otra sesión de un módulo en una planta (p. ej. una Sesión 2 o 3 del M7 en Teleport): si la planta
   ya tiene esa sesión con "-" en ese tema, la habilita; si no, agrega un bloque "Sesión N" de columnas junto a los de la
   planta en el cronograma (con "-" en los demás temas) y, si hace falta, las columnas `M7_Sesión_3` en la lista.
   Los módulos nuevos quedan con "-" en las sesiones extra que casi ningún tema usa.
