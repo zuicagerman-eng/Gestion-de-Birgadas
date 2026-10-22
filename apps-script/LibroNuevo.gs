@@ -307,20 +307,34 @@ function lnOrganizarAsistencia_(hoja, cronoHoja) {
     const valores = corta(p.valores).map((f, i) => f.map((v, j) => p.formulas[f0 + i][c0 + j] || v));
     const bloque = hoja.getRange(f0 + 1, c0 + 1, alto, ancho);
     bloque.setValues(valores);
-    bloque.setBackgrounds(corta(p.fondos));
-    bloque.setNumberFormats(corta(p.formatos));
+    // Colores, formato de números y casillas: columna por columna y solo donde cambió algo. Las columnas
+    // de una tabla de Google con tipo fijo (fecha, casilla…) no dejan cambiar su formato: esas se saltan,
+    // ya muestran las fechas y casillas con su tipo.
+    const bloqueadas = {};
+    const porColumna = (nueva, vieja, aplicar) => {
+      for (let j = 0; j < ancho; j++) {
+        const c = c0 + j;
+        let cambia = false;
+        for (let i = 0; i < alto && !cambia; i++) cambia = nueva[f0 + i][c] !== vieja[f0 + i][c];
+        if (!cambia) continue;
+        const col = [];
+        for (let i = 0; i < alto; i++) col.push([aplicar(f0 + i, c)]);
+        try { aplicar.escribir(hoja.getRange(f0 + 1, c + 1, alto, 1), col); } catch (e) { bloqueadas[lnLetra_(c)] = true; }
+      }
+    };
+    const fondos = (r, c) => p.fondos[r][c];
+    fondos.escribir = (rg, m) => rg.setBackgrounds(m);
+    porColumna(p.fondos, datos.fondos, fondos);
+    const formatos = (r, c) => p.formatos[r][c];
+    formatos.escribir = (rg, m) => rg.setNumberFormats(m);
+    porColumna(p.formatos, datos.formatos, formatos);
     const casilla = SpreadsheetApp.newDataValidation().requireCheckbox().build();
-    try {
-      bloque.setDataValidations(corta(p.casillas).map((f, i) => f.map((quiere, j) => {
-        const r = f0 + i, c = c0 + j;
-        if (quiere === datos.casillas[r][c]) return dvs[r][c];
-        return quiere ? casilla : null;
-      })));
-    } catch (e) {
-      // Si Google no deja cambiar las casillas (p. ej. columna de tabla con tipo fijo), igual no cuentan: la
-      // fórmula de cumplimiento ignora las marcas de las sesiones "No aplica".
-      p.avisos.push('No se pudieron quitar/poner casillas (' + e.message + '); las sesiones "No aplica" igual no cuentan.');
-    }
+    const validacion = (r, c) => p.casillas[r][c] === datos.casillas[r][c] ? dvs[r][c] : (p.casillas[r][c] ? casilla : null);
+    validacion.escribir = (rg, m) => rg.setDataValidations(m);
+    porColumna(p.casillas, datos.casillas, validacion);
+    const cols = Object.keys(bloqueadas);
+    if (cols.length) p.avisos.push('Columnas de la tabla con tipo fijo que Google no deja cambiar (' + cols.join(', ') +
+      '): conservan su formato o casilla; las sesiones "No aplica" igual quedan en gris y no cuentan en el cumplimiento.');
 
     // Formato condicional: "No aplica" siempre en gris (va primero para ganarle a los colores de asistencia)
     const a1 = lnLetra_(p.colMinModulo) + (f0 + 1), izq = lnLetra_(p.colMinModulo - 1) + (f0 + 1);
@@ -333,7 +347,7 @@ function lnOrganizarAsistencia_(hoja, cronoHoja) {
         .setBackground(LN_GRIS).setFontColor(LN_GRIS_LETRA)
         .setRanges([hoja.getRange(f0 + 1, p.colMinModulo + 1, alto, p.colMaxModulo - p.colMinModulo + 1)])
         .build();
-      hoja.setConditionalFormatRules([regla].concat(reglas));
+      try { hoja.setConditionalFormatRules([regla].concat(reglas)); } catch (e) { p.avisos.push('No se pudo agregar el gris de "No aplica" (' + e.message + ').'); }
     }
   }
   return p;
