@@ -63,6 +63,10 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   empresa y comparación con las listas de la app. Si las listas tienen menos brigadistas que el Indicador, **Traer
   faltantes** busca en todas las pestañas (también ocultas) del 1.0, el 2.0 y el libro nuevo a las personas con cédula y
   nombre que no están en las listas; se revisan, se ajusta planta, tipo y empresa, y se agregan. (También desde Brigadistas.)
+  **Cuadrar con el Indicador** compara empresa por empresa el Indicador con las listas (Holcim → fila "Holcim…",
+  contratistas → la fila de su empresa): donde las listas tienen más, propone llevar ese número al Indicador (marcado
+  cuando la sede completa tiene más) y lo escribe en la pestaña (solo celdas con número, nunca fórmulas); donde el
+  Indicador tiene más, dice cuántos faltan en las listas. El Dashboard muestra la misma vista de Cobertura.
 - **Sede** (arriba): se pueden elegir varias a la vez (o "solo" una); todas las vistas filtran por esas sedes.
 - **Revisión de datos**: posibles errores con filtros por gravedad y tipo (ver abajo).
 - **Historial de cambios**: lo hecho desde la app y lo detectado en el Excel, con filtros y CSV.

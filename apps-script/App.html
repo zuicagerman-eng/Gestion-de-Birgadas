@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.3.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.3.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), visita: leer('sessionStorage', 'sigbe_visita'), visitante: null, acceso: 'cedula', usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -101,6 +101,8 @@
       grupoChips('cob-orden', 'orden', () => pintarCobertura());
       $('cob-faltan').onchange = pintarCobertura;
       $('modal-faltantes').addEventListener('change', cambioFaltantes);
+      $('modal-cuadre').addEventListener('change', cambioCuadre);
+      $('modal-cuadre').addEventListener('input', cambioCuadre);
       $('falt-buscar').oninput = pintarFaltantes; $('falt-sede').onchange = pintarFaltantes; $('falt-desv').onchange = pintarFaltantes;
       $('form-ingreso').onsubmit = enviarIngreso;
       ['ing-buscar', 'ing-fuera'].forEach(id => { $(id).oninput = pintarIngresos; $(id).onchange = pintarIngresos; });
@@ -292,7 +294,9 @@
         completar: () => abrirFicha(d.tipo, +d.j, true, d.campo),
         'crono-editar': () => editarCrono(d.k),
         'salir-visita': salirVisita,
-        'faltantes': abrirFaltantes,
+        'faltantes': () => { modal('modal-cuadre').hide(); abrirFaltantes(); },
+        'cuadre': abrirCuadre,
+        'cua-guardar': revisarCuadre,
         'falt-traer': revisarFaltantes,
         'cob-abrir': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = true; }),
         'cob-cerrar': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = false; }),
@@ -475,13 +479,8 @@
         const a = cs.reduce((n, x) => n + x.c, 0), b = cs.reduce((n, x) => n + x.t, 0);
         return { sd, pct: b ? Math.round(a / b * 100) : 0, txt: b ? `${Math.round(a / b * 100)} % · ${a} de ${b} asistencias` : 'sin módulos dictados' };
       }).sort((x, y) => x.pct - y.pct).map(x => barraSede(x.sd, x.pct, x.txt, 'elegir-sede')).join('') || '<p class="text-muted mb-0">Sin datos.</p>';
-      // 2) Cobertura de brigadistas (pestaña Indicador.)
-      const cob = coberturaSedes();
-      $('inicio-cob-resumen').innerHTML = cob.length ? resumenCobertura(cob) : '';
-      $('inicio-cobertura').innerHTML = cob.map(x => barraSede(x.sd, x.pct, `<b class="text-body">${x.pct} %</b> · ${x.bri} de ${x.metaN}`, 'elegir-sede')).join('') || '<p class="text-muted mb-0">Sin datos del Indicador.</p>';
-      const Lt = brigadistasEnListas(), briInd = cob.reduce((n, x) => n + x.bri, 0);
-      $('inicio-cob-listas').innerHTML = !cob.length ? '' : Lt.t === briInd ? `<span class="text-success"><i class="fa-solid fa-check me-1"></i>Las listas de la app tienen los mismos ${Lt.t} (${Lt.h} Holcim · ${Lt.c} contratistas).</span>`
-        : `<span class="${Lt.t < briInd ? 'text-danger' : 'text-muted'}"><i class="fa-solid fa-scale-unbalanced me-1"></i>Las listas de la app tienen ${Lt.t} activos (${Lt.h} Holcim · ${Lt.c} contratistas)${Lt.t < briInd ? `: faltan ${briInd - Lt.t} por registrar.` : '.'}</span> <a href="#" data-accion="faltantes">Ver cuáles</a>`;
+      // 2) Cobertura de brigadistas: la misma vista de la pantalla Cobertura
+      pintarCobertura('inicio-cob');
       // 3) Próximas capacitaciones y revisión de datos
       const prox = D.crono.filter(c => enSede(c) && c.i && c.i >= D.hoy).sort((a, b) => a.i < b.i ? -1 : 1).slice(0, 7);
       $('inicio-proximas').innerHTML = prox.length ? prox.map(c => `<div class="d-flex align-items-center gap-3 py-2 border-bottom">${chipFecha(c.i, c.f)}
@@ -1273,24 +1272,28 @@
       return { h: h, c: c, t: h + c };
     }
     /** Cada tarjeta es una planta del Indicador; todo con números y % explícitos. */
-    function pintarCobertura() {
+    function pintarCobertura(pre) {
+      pre = typeof pre === 'string' ? pre : 'cob';
+      const enDash = pre !== 'cob';
       const plantas = plantasCobertura();
       const per = plantas.reduce((n, x) => n + x.per, 0), bri = plantas.reduce((n, x) => n + x.bri, 0), meta = plantas.reduce((n, x) => n + x.metaN, 0);
       const cumplen = plantas.filter(x => !x.faltan).length, L = brigadistasEnListas();
       const kpi = (eti, num, sub, color) => `<div class="col-6 col-lg-3"><div class="kpi"><div class="eti">${eti}</div><div class="num" style="color:${color || 'inherit'}">${num}</div><div class="small text-muted">${sub}</div></div></div>`;
-      $('cob-kpis').innerHTML = kpi('Personal', per, 'trabajadores según el Indicador') +
+      $(pre + '-kpis').innerHTML = kpi('Personal', per, 'trabajadores según el Indicador') +
         kpi('Brigadistas', bri, `${per ? Math.round(bri / per * 1000) / 10 : 0} % del personal (según el Indicador)`) +
         kpi('Meta (20 %)', meta, meta > bri ? `faltan ${meta - bri} brigadistas · vas en ${meta ? Math.round(bri / meta * 100) : 0} % de la meta` : `meta cumplida (${meta ? Math.round(bri / meta * 100) : 0} %)`, meta > bri ? 'var(--s-mal)' : 'var(--s-ok)') +
         kpi('Plantas que cumplen', cumplen + ' de ' + plantas.length, `${plantas.length ? Math.round(cumplen / plantas.length * 100) : 0} % de las plantas${plantas.length - cumplen ? ' · ' + (plantas.length - cumplen) + ' por debajo de la meta' : ''}`, cumplen === plantas.length ? 'var(--s-ok)' : '#e8590c');
-      $('cob-diferencia').innerHTML = L.t === bri ? '' : `<div class="alert ${L.t < bri ? 'alert-warning' : 'alert-info'} small d-flex flex-wrap align-items-center gap-2"><i class="fa-solid fa-scale-unbalanced"></i>
-        <span>El Indicador cuenta <b>${bri}</b> brigadistas y las listas de la app tienen <b>${L.t}</b> activos (${L.h} Holcim · ${L.c} contratistas)${L.t < bri ? `: faltan <b>${bri - L.t}</b> por registrar en las listas` : ''}.</span>
-        <button class="btn btn-sm btn-outline-dark ms-auto" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Ver y traer los que faltan</button></div>`;
-      const orden = (document.querySelector('#cob-orden [aria-pressed="true"]') || {}).dataset || {};
-      const lista = plantas.filter(x => !$('cob-faltan').checked || x.faltan)
+      $(pre + '-diferencia').innerHTML = L.t === bri ? '<div class="alert alert-success small py-2"><i class="fa-solid fa-check me-1"></i>El Indicador y las listas de la app coinciden: ' + bri + ' brigadistas.</div>'
+        : `<div class="alert alert-warning small d-flex flex-wrap align-items-center gap-2"><i class="fa-solid fa-scale-unbalanced"></i>
+        <span>Los números no coinciden: el Indicador cuenta <b>${bri}</b> brigadistas y las listas de la app tienen <b>${L.t}</b> activos (${L.h} Holcim · ${L.c} contratistas). Hay que cuadrarlos.</span>
+        <span class="ms-auto d-flex gap-2"><button class="btn btn-sm btn-dark" data-accion="cuadre"><i class="fa-solid fa-scale-balanced me-1"></i>Cuadrar con el Indicador</button>
+        <button class="btn btn-sm btn-outline-dark" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Traer los que faltan a las listas</button></span></div>`;
+      const orden = enDash ? {} : (document.querySelector('#cob-orden [aria-pressed="true"]') || {}).dataset || {};
+      const lista = plantas.filter(x => enDash || !$('cob-faltan').checked || x.faltan)
         .sort((a, b) => orden.orden === 'nombre' ? a.p.localeCompare(b.p, 'es') : a.pct - b.pct || b.faltan - a.faltan);
       const color = pct => pct >= 100 ? 'var(--s-ok)' : pct >= 60 ? '#f59f00' : 'var(--s-mal)';
       const estado = x => x.faltan ? `<span class="estado-cob bg-danger-subtle text-danger-emphasis">Faltan ${x.faltan}</span>` : '<span class="estado-cob bg-success-subtle text-success-emphasis"><i class="fa-solid fa-check me-1"></i>Cumple</span>';
-      $('cob-plantas').innerHTML = lista.map(x => {
+      $(pre + '-plantas').innerHTML = lista.map(x => {
         const emp = x.empresas.slice().sort((a, b) => b.faltan - a.faltan || a.pct - b.pct);
         const sola = plantas.filter(y => y.sede === x.sede).length === 1, Ls = brigadistasEnListas(x.sede);
         const listas = sola ? (Ls.t === x.bri ? `<span class="text-success"><i class="fa-solid fa-check me-1"></i>Las listas de la app tienen los mismos ${Ls.t}</span>`
@@ -1315,6 +1318,78 @@
             </table>
           </div></details>`;
       }).join('') || '<p class="text-muted">Sin datos para esta sede o filtro.</p>';
+    }
+
+    // Cuadrar las listas de la app con la pestaña Indicador. (empresa por empresa)
+    const cua = { datos: null, sel: {}, val: {} };
+    async function abrirCuadre() {
+      if (!E.usuario) return pedirSesion(abrirCuadre);
+      ocupado(true);
+      try { cua.datos = await api('getCuadreIndicador', E.token); ocupado(false); } catch (e) { return error(e); }
+      cua.sel = {}; cua.val = {};
+      // Marcado por defecto: en las sedes donde las listas suman más que el Indicador, hasta cubrir esa diferencia
+      const porSede = {};
+      cua.datos.filas.forEach(f => { const x = porSede[f.sede] = porSede[f.sede] || { ind: 0, lis: 0, filas: [] }; x.ind += f.bri; x.lis += f.listas; x.filas.push(f); });
+      Object.keys(porSede).forEach(sd => {
+        let resta = porSede[sd].lis - porSede[sd].ind;
+        porSede[sd].filas.forEach(f => {
+          cua.val[f.fila] = { bri: f.listas > f.bri ? f.listas : f.bri, per: f.per };
+          if (f.listas > f.bri && resta > 0 && !f.formula) { cua.sel[f.fila] = true; const d = Math.min(f.listas - f.bri, resta); cua.val[f.fila].bri = f.bri + d; resta -= d; }
+        });
+      });
+      cua.porSede = porSede;
+      pintarCuadre();
+      modal('modal-cuadre').show();
+    }
+    function pintarCuadre() {
+      const ps = cua.porSede, sedes = Object.keys(ps).sort((a, b) => Math.abs(ps[b].lis - ps[b].ind) - Math.abs(ps[a].lis - ps[a].ind) || a.localeCompare(b, 'es'));
+      $('cua-tabla').innerHTML = sedes.map(sd => {
+        const x = ps[sd], dif = x.lis - x.ind;
+        const filas = x.filas.filter(f => f.listas !== f.bri);
+        return `<div class="border rounded mb-2"><div class="d-flex flex-wrap align-items-center gap-2 px-3 py-2 ${dif ? 'bg-warning-subtle' : 'bg-success-subtle'}">
+          <b>${esc(sd)}</b><span class="small">Indicador <b>${x.ind}</b> · listas de la app <b>${x.lis}</b></span>
+          <span class="small ms-auto fw-semibold">${dif === 0 ? '<i class="fa-solid fa-check me-1"></i>Coinciden en total' : dif > 0 ? 'Las listas tienen ' + dif + ' más' : 'Faltan ' + (-dif) + ' en las listas'}</span></div>
+          ${filas.length ? `<table class="table table-sm small align-middle mb-0"><thead><tr><th></th><th>Planta</th><th>Empresa</th><th class="text-end">Personal</th><th class="text-end">Indicador</th><th class="text-end">Listas</th><th>Nuevo valor en el Indicador</th></tr></thead><tbody>` +
+            filas.map(f => { const v = cua.val[f.fila]; const mas = f.listas > f.bri; return `<tr><td>${mas && !f.formula ? `<input class="form-check-input cua-sel" type="checkbox" data-f="${f.fila}" ${cua.sel[f.fila] ? 'checked' : ''} aria-label="Actualizar ${esc(f.emp)}">` : ''}</td>
+              <td>${esc(f.p)}</td><td>${esc(f.emp)}${f.personas.length ? `<div class="text-muted" title="${esc(f.personas.join(', '))}">${esc(f.personas.slice(0, 3).join(', '))}${f.personas.length > 3 ? '…' : ''}</div>` : ''}</td>
+              <td class="text-end">${mas && !f.formula ? `<input type="number" min="0" class="form-control form-control-sm text-end cua-val d-inline-block" style="width:80px" data-f="${f.fila}" data-k="per" value="${v.per}">` : f.per}${v.bri > v.per ? '<div class="text-danger">menor que los brigadistas</div>' : ''}</td>
+              <td class="text-end">${f.bri}</td><td class="text-end fw-semibold">${f.listas}</td>
+              <td>${f.formula ? '<span class="text-muted">tiene fórmula: no se cambia</span>' : mas ? `<input type="number" min="0" class="form-control form-control-sm cua-val d-inline-block" style="width:80px" data-f="${f.fila}" data-k="bri" value="${v.bri}">` : `<span class="text-danger">faltan ${f.bri - f.listas} en las listas</span>`}</td></tr>`; }).join('') + '</tbody></table>' : ''}</div>`;
+      }).join('');
+      const n = Object.keys(cua.sel).filter(k => cua.sel[k]).length;
+      const totInd = sedes.reduce((t, sd) => t + ps[sd].ind, 0), totLis = sedes.reduce((t, sd) => t + ps[sd].lis, 0);
+      const nuevo = totInd + Object.keys(cua.sel).filter(k => cua.sel[k]).reduce((t, k) => t + (cua.val[k].bri - cua.datos.filas.find(f => f.fila === +k).bri), 0);
+      $('cua-resumen').innerHTML = `Hoy: Indicador ${totInd} · listas ${totLis}. Con lo marcado el Indicador quedaría en <b>${nuevo}</b>${nuevo > totLis ? ` (faltan ${nuevo - totLis} en las listas: tráelos con "Traer los que faltan")` : ''}.`;
+      $('cua-guardar').disabled = !n; $('cua-guardar').textContent = n ? 'Guardar ' + n + ' cambio(s) en el Indicador' : 'Guardar en el Indicador';
+    }
+    function cambioCuadre(ev) {
+      const el = ev.target, f = el.dataset.f;
+      if (!f) return;
+      if (el.classList.contains('cua-sel')) cua.sel[f] = el.checked;
+      if (el.classList.contains('cua-val')) { cua.val[f][el.dataset.k] = Math.max(0, Number(el.value) || 0); cua.sel[f] = true; }
+      if (ev.type === 'change') pintarCuadre();
+    }
+    function revisarCuadre() {
+      const cambios = cua.datos.filas.filter(f => cua.sel[f.fila]).map(f => {
+        const v = cua.val[f.fila], c = { fila: f.fila, emp: f.emp, p: f.p, anteriores: { bri: f.bri, per: f.per } };
+        if (v.bri !== f.bri) c.bri = v.bri; if (v.per !== f.per) c.per = v.per; return c; }).filter(c => c.bri !== undefined || c.per !== undefined);
+      if (!cambios.length) return avisar('No hay cambios marcados.', 'info');
+      $('conf-titulo').textContent = 'Actualizar ' + cambios.length + ' fila(s) del Indicador';
+      $('conf-cuerpo').innerHTML = '<table class="table table-sm small mb-2"><thead><tr><th>Planta</th><th>Empresa</th><th>Dato</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
+        cambios.map(c => ['bri', 'per'].filter(k => c[k] !== undefined).map(k => `<tr><td>${esc(c.p)}</td><td>${esc(c.emp)}</td><td>${k === 'bri' ? 'Brigadistas' : 'Personal'}</td><td class="text-muted">${c.anteriores[k]}</td><td class="fw-semibold">${c[k]}</td></tr>`).join('')).join('') +
+        '</tbody></table><p class="small text-muted mb-0">Se escribe en la pestaña Indicador. (antes se guarda un respaldo del día) y queda en el historial.</p>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar';
+      $('conf-ok').onclick = () => guardarCuadre(cambios);
+      modal('modal-cuadre').hide(); modal('modal-confirmar').show();
+    }
+    async function guardarCuadre(cambios) {
+      modal('modal-confirmar').hide(); ocupado(true);
+      try {
+        const r = await api('guardarIndicador', E.token, cambios);
+        ocupado(false); if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? (r.rechazos && r.rechazos.length ? 'warning' : 'success') : 'danger', 12000);
+        if (r.exito) { await cargarDatos(false); cargarVista(); }
+      } catch (e) { error(e); }
     }
 
     // Brigadistas que faltan en las listas (están en otras pestañas del 1.0 / 2.0 / libro nuevo)

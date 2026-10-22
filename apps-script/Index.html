@@ -261,21 +261,21 @@
             <h1 class="titulo-vista" id="t-inicio">Dashboard</h1>
             <p class="sub-vista" id="inicio-sub"></p>
             <div class="row g-3 mb-3">
-              <div class="col-xl-7"><div class="tarjeta p-3 h-100">
+              <div class="col-12"><div class="tarjeta p-3">
                 <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-clipboard-check me-2 text-success"></i>Asistencia a las capacitaciones</h2>
                 <p class="small text-muted mb-3">Personal Holcim de la lista de asistencia. Solo cuentan los módulos que aplican a cada planta y cuya fecha ya pasó según el cronograma.</p>
                 <div class="row g-3 mb-3" id="inicio-kpis"></div>
                 <div class="small fw-semibold text-muted text-uppercase mb-1" style="letter-spacing:.05em">Asistencia por sede</div>
                 <div id="inicio-por-sede" class="small"></div>
               </div></div>
-              <div class="col-xl-5"><div class="tarjeta p-3 h-100">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                  <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Cobertura de brigadistas <span class="small text-muted fw-normal">(brigadistas frente a la meta del 20 %)</span></h2>
-                  <a href="#" data-ir="cobertura" class="small">Ver detalle</a>
+              <div class="col-12"><div class="tarjeta p-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Cobertura de brigadistas <span class="small text-muted fw-normal">(meta: 20 % del personal, pestaña Indicador.)</span></h2>
+                  <a href="#" data-ir="cobertura" class="small">Abrir Cobertura</a>
                 </div>
-                <div id="inicio-cob-resumen" class="small text-muted mb-1"></div>
-                <div id="inicio-cob-listas" class="small mb-2"></div>
-                <div id="inicio-cobertura" class="small"></div>
+                <div class="row g-3 mb-3" id="inicio-cob-kpis"></div>
+                <div id="inicio-cob-diferencia"></div>
+                <div id="inicio-cob-plantas"></div>
               </div></div>
             </div>
             <div class="row g-3">
@@ -784,6 +784,21 @@
       </div></div>
       <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Revisar y guardar</button></div>
     </form></div>
+  </div>
+  <!-- MODAL: cuadrar listas e Indicador -->
+  <div class="modal fade" id="modal-cuadre" tabindex="-1" aria-labelledby="cua-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+      <div class="modal-header"><h2 class="modal-title h5" id="cua-titulo"><i class="fa-solid fa-scale-balanced text-primary me-2"></i>Cuadrar las listas con el Indicador</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body">
+        <p class="small text-muted mb-2">Empresa por empresa: lo que dice la pestaña <i>Indicador.</i> y cuántos brigadistas activos hay en las listas de la app (Holcim → fila "Holcim…", contratistas → la fila de su empresa).</p>
+        <ul class="small mb-3">
+          <li><b>Las listas tienen más</b> → se puede llevar ese número al Indicador (marcado cuando la sede completa tiene más en las listas).</li>
+          <li><b>El Indicador tiene más</b> → faltan personas en las listas: usa <a href="#" data-accion="faltantes">Traer los que faltan</a> o regístralas en Brigadistas.</li>
+        </ul>
+        <div id="cua-tabla"></div>
+      </div>
+      <div class="modal-footer"><span class="small text-muted me-auto" id="cua-resumen"></span><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button type="button" class="btn btn-success" data-accion="cua-guardar" id="cua-guardar">Guardar en el Indicador</button></div>
+    </div></div>
   </div>
   <!-- MODAL: brigadistas que faltan en las listas -->
   <div class="modal fade" id="modal-faltantes" tabindex="-1" aria-labelledby="falt-titulo" aria-hidden="true">

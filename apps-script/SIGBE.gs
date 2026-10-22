@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.3.1';
+const SIGBE_VERSION = '4.3.2';
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -966,6 +966,100 @@ function importarBrigadistas(token, lista) {
   });
   const ok = resultados.filter(r => r.exito).length;
   return { exito: true, resultados: resultados, mensaje: ok + ' de ' + resultados.length + ' brigadista(s) agregado(s) a las listas.' };
+}
+
+// ═════════════════════════════ CUADRAR LISTAS E INDICADOR ═════════════════════════════
+// La pestaña Indicador. tiene los brigadistas escritos a mano por planta y empresa. getCuadreIndicador cuenta, para
+// cada fila, cuántos brigadistas activos hay en las listas de la app (Holcim → fila "Holcim…"; contratistas → la
+// fila de su empresa) y propone llevar al Indicador los que las listas tienen de más. guardarIndicador lo escribe.
+
+function getCuadreIndicador(token) {
+  sigbeExigirSesion_(token);
+  const F = sigbeFuentes_();
+  const sh = sigbeHoja_(F.datos, SIGBE_HOJA_INDICADOR);
+  const t = sigbeTabla_(sh, ['PLANTA', 'EMPRESA']);
+  const col = (...ks) => { for (let i = 0; i < ks.length; i++) { const x = t.col(ks[i]); if (x) return x; } return 0; };
+  const cP = col('PLANTA'), cE = col('EMPRESA'), cPer = col('TOTAL PERSONAS', 'TOTAL TRABAJADORES'), cB = col('TOTAL BRIGADISTAS', 'BRIGADISTAS ACTUALES');
+  const formulas = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), Math.max(sh.getLastColumn(), 1)).getFormulas();
+  let planta = '';
+  const filas = [];
+  t.filas.forEach(f => {
+    const v = f.valores;
+    planta = String(v[cP - 1] || '').trim() || planta;
+    const emp = String(v[cE - 1] || '').trim();
+    if (!emp || !planta || sigbeNorm_(emp) === 'TOTAL') return;
+    filas.push({ fila: f.fila, p: planta, sede: sigbeSede_(planta), emp: emp, per: sigbeNum_(v[cPer - 1]), bri: sigbeNum_(v[cB - 1]), listas: 0, personas: [],
+      formula: !!(formulas[f.fila - 1][cB - 1] || formulas[f.fila - 1][cPer - 1]) });
+  });
+  const clave = x => sigbeNorm_(x).replace(/[^A-Z0-9 ]/g, ' ').replace(/\b(SAS|S A S|LTDA|SA|S A)\b/g, '').replace(/\s+/g, ' ').trim();
+  // "INVERSIONES MONDOÑEDO" = "Inv. Mondoñedo"; "SICME LTDA" = "Sicme"; "RIORION" = "Riorión"
+  const empresaIgual = (a, b) => {
+    const x = clave(a), y = clave(b);
+    if (!x || !y) return false;
+    if (x === y || x.indexOf(y) === 0 || y.indexOf(x) === 0) return true;
+    const px = x.split(' '), py = y.split(' ');
+    const pal = (u, w) => u.length >= 3 && w.length >= 3 && (u.indexOf(w) === 0 || w.indexOf(u) === 0);
+    return pal(px[0], py[0]) && (px.length === 1 || py.length === 1 || pal(px[1] || '', py[1] || ''));
+  };
+  // Planta del Indicador para una planta de las listas: la única de la sede o la que corresponde a su línea
+  const plantaDe = (plantaLista, sede) => {
+    const ps = sigbeUnicos_(filas.filter(f => f.sede === sede).map(f => f.p));
+    if (ps.length <= 1) return ps[0] || '';
+    const n = sigbeNorm_(plantaLista);
+    const por = (re, nombre) => re.test(n) ? ps.find(p => sigbeNorm_(p).indexOf(nombre) !== -1) : null;
+    return por(/^GEO/, 'GEOCYCLE') || por(/^CEM/, 'CEMENTO') || por(/^RMX/, 'RMX') || ps[0];
+  };
+  const sinFila = [];
+  const asignar = (persona, sede, plantaLista, empresa, esHolcim) => {
+    const pl = plantaDe(plantaLista, sede);
+    const candidatas = filas.filter(f => f.sede === sede);
+    const fila = esHolcim ? (candidatas.filter(f => f.p === pl).find(f => /HOLCIM|GEOCYCLE/.test(sigbeNorm_(f.emp))) || candidatas.find(f => /HOLCIM/.test(sigbeNorm_(f.emp))))
+      : (candidatas.filter(f => f.p === pl).find(f => empresaIgual(f.emp, empresa)) || candidatas.find(f => empresaIgual(f.emp, empresa)));
+    if (fila) { fila.listas++; fila.personas.push(persona); } else sinFila.push({ sede: sede, planta: plantaLista, empresa: empresa || 'HOLCIM', nombre: persona });
+  };
+  const h = sigbeLeerHolcim_(sigbeHoja_(F.asistencia, SIGBE_HOJA_HOLCIM));
+  h.personas.filter(p => !/desvinculado/i.test(p.estado)).forEach(p => asignar(p.nombre, sigbeSede_(p.planta), p.planta, p.empresa, !p.empresa || /HOLCIM/i.test(p.empresa)));
+  sigbeLeerInhouse_(sigbeHoja_(F.datos, SIGBE_HOJA_INHOUSE)).filter(p => !/desvinculado/i.test(p.e)).forEach(p => asignar(p.n, sigbeSede_(p.p), p.p, p.k, false));
+  return { hoja: sh.getName(), filas: filas.map(f => Object.assign(f, { personas: f.personas.slice(0, 60) })), sinFila: sinFila };
+}
+
+/** Escribe en el Indicador. cambios: [{ fila, emp, p, bri, per, anteriores: { bri, per } }] (solo celdas con número, no fórmulas). */
+function guardarIndicador(token, cambios) {
+  const lock = LockService.getScriptLock();
+  try {
+    const usuario = sigbeExigirSesion_(token);
+    if (!cambios || !cambios.length) return { exito: true, mensaje: 'No había cambios.' };
+    if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    const F = sigbeFuentes_();
+    sigbeExigirEscritura_(F, 'datos');
+    const sh = sigbeHoja_(F.datos, SIGBE_HOJA_INDICADOR);
+    const t = sigbeTabla_(sh, ['PLANTA', 'EMPRESA']);
+    const col = (...ks) => { for (let i = 0; i < ks.length; i++) { const x = t.col(ks[i]); if (x) return x; } return 0; };
+    const cE = col('EMPRESA'), cPer = col('TOTAL PERSONAS', 'TOTAL TRABAJADORES'), cB = col('TOTAL BRIGADISTAS', 'BRIGADISTAS ACTUALES');
+    const bit = [], rechazos = [];
+    let respaldo = false, n = 0;
+    cambios.forEach(c => {
+      const f = t.filas.find(x => x.fila === Number(c.fila));
+      if (!f || String(f.valores[cE - 1]).trim() !== c.emp) { rechazos.push(c.p + ' · ' + c.emp + ': la fila cambió, actualiza los datos'); return; }
+      [['bri', cB, 'Brigadistas'], ['per', cPer, 'Personal']].forEach(([k, cc, et]) => {
+        if (c[k] === undefined || c[k] === null || c[k] === '') return;
+        const nuevo = Number(c[k]), actual = sigbeNum_(f.valores[cc - 1]);
+        if (!(nuevo >= 0) || nuevo === actual) return;
+        if (c.anteriores && c.anteriores[k] !== undefined && Number(c.anteriores[k]) !== actual) { rechazos.push(c.p + ' · ' + c.emp + ' · ' + et + ': cambió en la hoja (ahora ' + actual + ')'); return; }
+        const celda = sh.getRange(f.fila, cc);
+        if (celda.getFormula()) { rechazos.push(c.p + ' · ' + c.emp + ' · ' + et + ': la celda tiene fórmula, no se toca'); return; }
+        if (!respaldo) { try { respaldoDelDia_(F.datos); } catch (e) { /* sigue */ } respaldo = true; }
+        celda.setValue(nuevo); n++;
+        bit.push(['Indicador', sh.getName(), f.fila, '', '', et + ' · ' + c.p + ' · ' + c.emp, actual, nuevo]);
+      });
+    });
+    if (bit.length) sigbeTrasGuardar_(F, usuario, bit);
+    return { exito: true, guardados: n, rechazos: rechazos, mensaje: n + ' dato(s) del Indicador actualizado(s).' + (rechazos.length ? ' No se aplicó: ' + rechazos.join('; ') : '') };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** Después de guardar: historial, caché nueva y actualización rápida del libro nuevo. */
