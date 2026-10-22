@@ -305,8 +305,7 @@ function lnOrganizarAsistencia_(hoja, cronoHoja) {
   if (alto > 0 && ancho > 0) {
     const corta = m => m.slice(f0).map(f => f.slice(c0, c1 + 1));
     const valores = corta(p.valores).map((f, i) => f.map((v, j) => p.formulas[f0 + i][c0 + j] || v));
-    const bloque = hoja.getRange(f0 + 1, c0 + 1, alto, ancho);
-    bloque.setValues(valores);
+    lnEscribirValores_(hoja, f0, c0, valores, datos, p.avisos);
     // Colores, formato de números y casillas: columna por columna y solo donde cambió algo. Las columnas
     // de una tabla de Google con tipo fijo (fecha, casilla…) no dejan cambiar su formato: esas se saltan,
     // ya muestran las fechas y casillas con su tipo.
@@ -337,20 +336,58 @@ function lnOrganizarAsistencia_(hoja, cronoHoja) {
       '): conservan su formato o casilla; las sesiones "No aplica" igual quedan en gris y no cuentan en el cumplimiento.');
 
     // Formato condicional: "No aplica" siempre en gris (va primero para ganarle a los colores de asistencia)
-    const a1 = lnLetra_(p.colMinModulo) + (f0 + 1), izq = lnLetra_(p.colMinModulo - 1) + (f0 + 1);
-    const formula = '=OR(' + a1 + '="' + LN_NO_APLICA + '",' + izq + '="' + LN_NO_APLICA + '")';
-    const reglas = hoja.getConditionalFormatRules();
-    const yaEsta = reglas.some(r => { try { return r.getBooleanCondition().getCriteriaValues()[0] === formula; } catch (e) { return false; } });
-    if (!yaEsta && p.colMinModulo > 0) {
-      const regla = SpreadsheetApp.newConditionalFormatRule()
-        .whenFormulaSatisfied(formula)
-        .setBackground(LN_GRIS).setFontColor(LN_GRIS_LETRA)
-        .setRanges([hoja.getRange(f0 + 1, p.colMinModulo + 1, alto, p.colMaxModulo - p.colMinModulo + 1)])
-        .build();
-      try { hoja.setConditionalFormatRules([regla].concat(reglas)); } catch (e) { p.avisos.push('No se pudo agregar el gris de "No aplica" (' + e.message + ').'); }
+    try {
+      const a1 = lnLetra_(p.colMinModulo) + (f0 + 1), izq = lnLetra_(p.colMinModulo - 1) + (f0 + 1);
+      const formula = '=OR(' + a1 + '="' + LN_NO_APLICA + '",' + izq + '="' + LN_NO_APLICA + '")';
+      const reglas = hoja.getConditionalFormatRules();
+      const yaEsta = reglas.some(r => { try { return r.getBooleanCondition().getCriteriaValues()[0] === formula; } catch (e) { return false; } });
+      if (!yaEsta && p.colMinModulo > 0) {
+        const regla = SpreadsheetApp.newConditionalFormatRule()
+          .whenFormulaSatisfied(formula)
+          .setBackground(LN_GRIS).setFontColor(LN_GRIS_LETRA)
+          .setRanges([hoja.getRange(f0 + 1, p.colMinModulo + 1, alto, p.colMaxModulo - p.colMinModulo + 1)])
+          .build();
+        hoja.setConditionalFormatRules([regla].concat(reglas));
+      }
+    } catch (e) {
+      p.avisos.push('No se pudo agregar la regla de color gris para "No aplica" (' + e.message + '); las celdas igual quedan con fondo gris.');
     }
   }
   return p;
+}
+
+/**
+ * Escribe el bloque de valores. Si Google lo rechaza (tablas con columnas de tipo fijo), lo intenta columna
+ * por columna y, en las columnas rechazadas, celda por celda solo donde cambió algo. Lo que no se pueda
+ * escribir se cuenta en los avisos; nunca detiene la actualización.
+ */
+function lnEscribirValores_(hoja, f0, c0, valores, datos, avisos) {
+  const alto = valores.length, ancho = valores[0].length;
+  try { hoja.getRange(f0 + 1, c0 + 1, alto, ancho).setValues(valores); return; } catch (e) { /* sigue por columnas */ }
+  const antes = (r, c) => datos.formulas[r][c] || datos.valores[r][c];
+  const igual = (a, b) => (a instanceof Date && b instanceof Date) ? a.getTime() === b.getTime() : a === b;
+  const fallidas = {}, motivos = {}, vacias = {};
+  let nCeldas = 0, nVacias = 0;
+  for (let j = 0; j < ancho; j++) {
+    const c = c0 + j;
+    const filas = [];
+    for (let i = 0; i < alto; i++) if (!igual(valores[i][j], antes(f0 + i, c))) filas.push(i);
+    if (!filas.length) continue;
+    try { hoja.getRange(f0 + 1, c + 1, alto, 1).setValues(valores.map(f => [f[j]])); continue; } catch (e) { motivos[e.message] = true; }
+    filas.forEach(i => {
+      const celda = hoja.getRange(f0 + i + 1, c + 1), v = valores[i][j];
+      try { celda.setValues([[v]]); return; } catch (e) { motivos[e.message] = true; }
+      // Columna que solo acepta fechas: "No aplica" no entra, la celda queda vacía (y gris)
+      if (typeof v === 'string' && v && v.charAt(0) !== '=') {
+        try { celda.setValues([['']]); nVacias++; vacias[lnLetra_(c)] = true; return; } catch (e) { /* abajo */ }
+      }
+      nCeldas++; fallidas[lnLetra_(c)] = true;
+    });
+  }
+  if (nVacias) avisos.push(nVacias + ' celda(s) "No aplica" quedaron vacías y en gris porque esas columnas de la tabla solo aceptan fechas (' +
+    Object.keys(vacias).join(', ') + ').');
+  if (nCeldas) avisos.push(nCeldas + ' celda(s) que Google no dejó escribir en las columnas ' + Object.keys(fallidas).join(', ') +
+    ' (' + Object.keys(motivos).join(' / ') + '). Esas celdas quedaron como en el 2.0.');
 }
 
 // ───────────────────────────── LÓGICA (sin llamadas a Google) ─────────────────────────────
