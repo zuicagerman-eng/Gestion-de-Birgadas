@@ -1,39 +1,26 @@
 /**
- * SINCRONIZACIÓN AUTOMÁTICA: archivo ORIGINAL ("Gestion de Brigadas") → archivo 2.0 ("Gestion de Brigadas 2.0")
+ * ARCHIVOS, COPIAS Y RESPALDOS (utilidades compartidas por SIGBE.gs y LibroNuevo.gs).
  *
- * Este archivo forma parte de un PROYECTO INDEPENDIENTE de Apps Script (no va dentro de ninguna hoja).
- * Los archivos se configuran en las Propiedades del script (Configuración del proyecto → Propiedades del
- * script) o desde la pantalla "Configuración" de la app SIGBE:
- *   SIGBE_ID_DESTINO  → URL o ID del archivo 2.0 (obligatorio)
- *   SIGBE_ID_ORIGEN   → URL o ID del archivo original, o NINGUNO si se trabaja solo con el 2.0
- *   SIGBE_CADA_HORAS  → cada cuántas horas corre la actualización automática (1, 2, 4, 6, 8 o 12)
+ * Desde la versión 4 ya NO existe la sincronización "original → 2.0" (copiaba la pestaña HOLCIM oculta del
+ * 1.0 encima de la lista de asistencia del 2.0). Lo que corre cada hora es libroNuevoActualizar (LibroNuevo.gs):
+ * trae el 1.0 y el 2.0 al libro nuevo hasta el corte y anota los cambios hechos directamente en el Excel.
  *
- * Las hojas de HOJAS_A_COPIAR quedan IDÉNTICAS a las del original: datos, colores, desplegables,
- * casillas, anchos de columna y filas. Sin IMPORTRANGE ni enlaces. En la actualización automática
- * solo se reemplaza una hoja si cambió algo en el original.
+ * Propiedades del script:
+ *   SIGBE_ID_ORIGEN   → URL o ID del 1.0 (archivo original), o NINGUNO
+ *   SIGBE_ID_DESTINO  → URL o ID del 2.0 (donde está la lista de asistencia HOLCIM)
+ *   LIBRO_NUEVO_ID    → URL o ID del libro nuevo (lo crea libroNuevoCrear)
+ *   SIGBE_CADA_HORAS  → cada cuántas horas corre la tarea automática (1, 2, 4, 6, 8 o 12)
  *
- * SEGUROS:
- *  - Si el original se borra, está en la papelera o no se puede abrir: no se toca nada.
- *  - Si una hoja del original pierde de golpe más de MAXIMA_REDUCCION de su información respecto a la
- *    última vez que se copió (borrado masivo), esa hoja NO se copia y se avisa.
- *  - Antes del primer cambio de cada día se guarda una copia completa del 2.0 en la carpeta
- *    CARPETA_RESPALDOS de Drive (se guardan los últimos DIAS_RESPALDO). Se restaura desde la app.
+ * Seguros: si una pestaña de origen pierde de golpe más de MAXIMA_REDUCCION de su información, no se copia;
+ * antes del primer cambio del día que hace la app en un archivo se guarda una copia completa en Drive.
  */
 
 // Si una hoja del original queda con menos del 70 % de los datos que tenía la última vez que se copió, no se copia
 const MAXIMA_REDUCCION = 0.3;
 
 // Respaldos diarios (carpeta en el Drive de la cuenta que ejecuta el script)
-const CARPETA_RESPALDOS = 'Respaldos Gestion de Brigadas 2.0';
+const CARPETA_RESPALDOS = 'Respaldos Gestion de Brigadas 2.0'; // se conserva el nombre de siempre
 const DIAS_RESPALDO = 30;
-
-// Hojas que se traen completas del original. Basta con el comienzo del nombre de la pestaña.
-const HOJAS_A_COPIAR = [
-  '2026 Brigadistas HOLCIM',
-  '2026 Brigadistas INHOUSE',
-  '2026 Cronograma Nacional Brigadas',
-  // '2026 TEMARIO NACIONAL BRIGADAS',  ← quitar las // del inicio para traerla también
-];
 
 // Pestañas que Google no deja copiar completas entre archivos: se actualizan celda por celda
 // (datos, fórmulas, colores y formato de números) sobre la pestaña que ya existe en el 2.0.
@@ -115,115 +102,31 @@ function revisarArchivo_(id, cual) {
 
 // ───────────────────────────── ACTIVADOR AUTOMÁTICO ─────────────────────────────
 
-/** Crea (o reemplaza) el activador que llama a sincronizar() cada N horas. */
+/** Crea (o reemplaza) el activador de la tarea de cada N horas (libroNuevoActualizar). */
 function activarAutomatico_(cadaHoras) {
   const n = [1, 2, 4, 6, 8, 12].indexOf(Number(cadaHoras)) === -1 ? cadaHoras_() : Number(cadaHoras);
   desactivarAutomatico_();
-  ScriptApp.newTrigger('sincronizar').timeBased().everyHours(n).create();
+  ScriptApp.newTrigger('libroNuevoActualizar').timeBased().everyHours(n).create();
   props_().setProperty('SIGBE_CADA_HORAS', String(n));
   return n;
 }
 
+/** Quita el activador de la tarea y también el de la sincronización vieja (versión 3), si quedó alguno. */
 function desactivarAutomatico_() {
   ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'sincronizar')
+    .filter(t => ['libroNuevoActualizar', 'sincronizar'].indexOf(t.getHandlerFunction()) !== -1)
     .forEach(t => ScriptApp.deleteTrigger(t));
 }
 
 function automaticoActivo_() {
-  return ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'sincronizar');
+  return ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'libroNuevoActualizar');
 }
 
-// ───────────────────────────── PROCESO PRINCIPAL ─────────────────────────────
+/** Compatibilidad con la versión 3: si quedó un activador viejo, ahora hace la tarea nueva (nunca copia 1.0 → 2.0). */
+function sincronizar() { return libroNuevoActualizar(); }
 
-/** La llama el activador automático: si hay un error, Google le envía un correo al dueño. */
-function sincronizar() {
-  const r = sincronizar_(false, false, 'automatica');
-  if (r.error) throw new Error(r.resumen);
-}
-
-/**
- * forzar = true copia todas las hojas aunque no hayan cambiado.
- * aceptarBorrado = true desactiva el seguro contra borrados masivos.
- * origenLlamada: 'automatica' (activador) o 'app' (SIGBE).
- * Deja el resultado en ULTIMO_RESULTADO (texto) y ULTIMO_RESULTADO_JSON (para la app).
- */
-function sincronizar_(forzar, aceptarBorrado, origenLlamada) {
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) return { resumen: 'Ya había una sincronización en curso.', error: false, enCurso: true };
-  const inicio = Date.now();
-  const log = [];
-  try {
-    const cfg = configOrigen_();
-    if (cfg.modo === 'ninguno') {
-      log.push('ℹ Se trabaja solo con el archivo 2.0 (sin archivo original): no hay nada que sincronizar.');
-    } else {
-      const destino = destino_();
-      const origen = abrirOrigen_();
-      const props = props_();
-      if (origen.getSpreadsheetTimeZone() !== destino.getSpreadsheetTimeZone()) {
-        log.push('ℹ Zonas horarias distintas (original: ' + origen.getSpreadsheetTimeZone() + ', 2.0: ' + destino.getSpreadsheetTimeZone() +
-          '). Las fechas podrían correrse un día; iguálalas en Archivo → Configuración de cada hoja.');
-      }
-      limpiarCopiasDanadas_(destino);
-      HOJAS_A_COPIAR.forEach(nombre => {
-        try {
-          const ho = buscarHoja_(origen, nombre);
-          if (!ho) throw new Error('no existe en el archivo original');
-          const hd = buscarHoja_(destino, nombre);
-          const huella = huella_(ho);
-          if (!forzar && hd && props.getProperty('HUELLA_' + nombre) === huella) {
-            log.push('= ' + nombre + ': sin cambios.');
-            return;
-          }
-          // Base para detectar un borrado masivo: lo que tenía el original la última vez que se copió
-          const ahora = celdasConDatos_(ho);
-          let antes = Number(props.getProperty('CELDAS_' + nombre)) || 0;
-          if (!antes && hd && props.getProperty('HUELLA_' + nombre)) antes = celdasConDatos_(hd);
-          if (!aceptarBorrado && antes && ahora < antes * (1 - MAXIMA_REDUCCION)) {
-            log.push('⚠ ' + nombre + ': NO se copió. En el original quedan ' + ahora + ' celdas con datos y la última vez había ' +
-              antes + ' (posible borrado masivo). Si el cambio es correcto usa "Sincronizar aceptando un borrado grande" en Configuración.');
-            return;
-          }
-          respaldoDelDia_(destino, log);
-          const modo = copiarHoja_(ho, destino, hd);
-          props.setProperty('HUELLA_' + nombre, huella);
-          props.setProperty('CELDAS_' + nombre, String(ahora));
-          log.push('✔ ' + nombre + ': actualizada' + (modo === 'contenido' ? ' (celda por celda).' : '.'));
-        } catch (e) {
-          log.push('✖ ' + nombre + ': ' + e.message);
-        }
-      });
-    }
-  } catch (e) {
-    log.push('✖ ' + e.message);
-  } finally {
-    lock.releaseLock();
-  }
-  const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-  const resumen = fecha + '\n' + log.join('\n');
-  const error = log.some(l => l.indexOf('✖') === 0 || l.indexOf('⚠') === 0);
-  const prefijos = [['✔', 'ok'], ['=', 'igual'], ['⚠', 'aviso'], ['✖', 'error'], ['💾', 'respaldo'], ['ℹ', 'info']];
-  const clasificar = l => {
-    const p = prefijos.find(x => l.indexOf(x[0]) === 0);
-    return p ? { tipo: p[1], texto: l.slice(p[0].length).trim() } : { tipo: 'info', texto: l };
-  };
-  const detalle = {
-    fecha: fecha,
-    duracionSeg: Math.round((Date.now() - inicio) / 1000),
-    origen: origenLlamada || 'app',
-    error: error,
-    lineas: log.map(clasificar),
-  };
-  try {
-    const props = props_();
-    props.setProperty('ULTIMO_RESULTADO', resumen);
-    props.setProperty('ULTIMO_RESULTADO_JSON', JSON.stringify(detalle));
-    if (!error) props.setProperty('ULTIMA_SYNC_OK', fecha);
-  } catch (e) { /* sin propiedades (no debería pasar) */ }
-  console.log(resumen);
-  return { resumen: resumen, error: error, detalle: detalle };
-}
+/** Compatibilidad con la versión 3 (actualización rápida tras guardar desde la app). */
+function sincronizarPendiente() { return libroNuevoPendiente(); }
 
 /** Pestañas del archivo que se pueden usar (Google a veces deja copias dañadas que fallan al tocarlas). */
 function hojasSanas_(ss) {
@@ -235,16 +138,6 @@ function hojasSanas_(ss) {
 function empiezaIgual_(a, b) {
   const clave = s => String(s).replace(/\s+/g, ' ').trim().toUpperCase().slice(0, 31);
   return clave(a) === clave(b);
-}
-
-/** Borra las pestañas "Copia de …" / "Copy of …" de las hojas sincronizadas que dejaron intentos fallidos. */
-function limpiarCopiasDanadas_(destino) {
-  destino.getSheets().forEach(h => {
-    try {
-      const n = h.getName().replace(/^(Copia de |Copy of )/, '');
-      if (n !== h.getName() && HOJAS_A_COPIAR.some(x => empiezaIgual_(n, x))) destino.deleteSheet(h);
-    } catch (x) { /* si Google no la deja borrar, se ignora */ }
-  });
 }
 
 /** Busca la pestaña por su nombre exacto o, si no, por cómo empieza (sin importar mayúsculas ni espacios). */
@@ -269,25 +162,28 @@ function carpetaRespaldos_() {
   return it.hasNext() ? it.next() : DriveApp.createFolder(CARPETA_RESPALDOS);
 }
 
-/** Una copia completa del 2.0 por día, antes del primer cambio. Borra (a la papelera) las más viejas. */
-function respaldoDelDia_(destino, log) {
+/**
+ * Copia completa del archivo antes del primer cambio del día que hace la app en él
+ * ("Respaldo <nombre> yyyy-MM-dd"). Guarda los últimos DIAS_RESPALDO de cada archivo.
+ */
+function respaldoDelDia_(ss) {
   const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  const nombre = 'Respaldo 2.0 ' + hoy;
+  const prefijo = 'Respaldo ' + ss.getName() + ' ';
   const carpeta = carpetaRespaldos_();
-  if (carpeta.getFilesByName(nombre).hasNext()) return;
-  DriveApp.getFileById(destino.getId()).makeCopy(nombre, carpeta);
-  log.push('💾 Respaldo guardado: ' + nombre);
-  const respaldos = [];
+  if (carpeta.getFilesByName(prefijo + hoy).hasNext()) return false;
+  DriveApp.getFileById(ss.getId()).makeCopy(prefijo + hoy, carpeta);
+  const viejos = [];
   const it = carpeta.getFiles();
   while (it.hasNext()) {
     const f = it.next();
-    if (f.getName().indexOf('Respaldo 2.0 ') === 0) respaldos.push(f);
+    if (f.getName().indexOf(prefijo) === 0 && /\d{4}-\d{2}-\d{2}$/.test(f.getName())) viejos.push(f);
   }
-  respaldos.sort((a, b) => b.getName().localeCompare(a.getName()));
-  respaldos.slice(DIAS_RESPALDO).forEach(f => f.setTrashed(true));
+  viejos.sort((a, b) => b.getName().localeCompare(a.getName()));
+  viejos.slice(DIAS_RESPALDO).forEach(f => f.setTrashed(true));
+  return true;
 }
 
-/** Respaldos disponibles en la carpeta: [{ tipo: '2.0' | 'original', fecha, nombre, id }], más recientes primero. */
+/** Respaldos de la carpeta: [{ archivo, fecha, nombre, url }], más recientes primero. */
 function listarRespaldos_() {
   const it = DriveApp.getFoldersByName(CARPETA_RESPALDOS);
   if (!it.hasNext()) return [];
@@ -295,27 +191,10 @@ function listarRespaldos_() {
   const lista = [];
   while (files.hasNext()) {
     const f = files.next();
-    const n = f.getName();
-    if (n.indexOf('Respaldo 2.0 ') === 0) lista.push({ tipo: '2.0', fecha: n.replace('Respaldo 2.0 ', ''), nombre: n, id: f.getId() });
-    else if (n.indexOf('Respaldo ORIGINAL ') === 0) lista.push({ tipo: 'original', fecha: n.replace('Respaldo ORIGINAL ', ''), nombre: n, id: f.getId() });
+    const m = f.getName().match(/^Respaldo (.+) (\d{4}-\d{2}-\d{2})$/);
+    if (m) lista.push({ archivo: m[1], fecha: m[2], nombre: f.getName(), url: f.getUrl() });
   }
-  return lista.sort((a, b) => b.fecha.localeCompare(a.fecha) || a.tipo.localeCompare(b.tipo));
-}
-
-/** Vuelve a poner en el 2.0 las hojas sincronizadas tal como estaban en el respaldo del 2.0 de esa fecha. */
-function restaurarRespaldo_(fecha) {
-  const r = listarRespaldos_().find(x => x.tipo === '2.0' && x.fecha === fecha);
-  if (!r) throw new Error('No hay respaldo del 2.0 con fecha ' + fecha + '.');
-  const destino = destino_();
-  const respaldo = SpreadsheetApp.openById(r.id);
-  const log = [];
-  HOJAS_A_COPIAR.forEach(nombre => {
-    const h = buscarHoja_(respaldo, nombre);
-    if (!h) { log.push('– ' + nombre + ': no estaba en el respaldo.'); return; }
-    copiarHoja_(h, destino, buscarHoja_(destino, nombre));
-    log.push('✔ ' + nombre + ': restaurada.');
-  });
-  return { nombre: r.nombre, lineas: log };
+  return lista.sort((a, b) => b.fecha.localeCompare(a.fecha) || a.archivo.localeCompare(b.archivo));
 }
 
 /**

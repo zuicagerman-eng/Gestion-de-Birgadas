@@ -17,8 +17,11 @@
  *
  * Hasta el CORTE el libro nuevo es un espejo: cada actualización vuelve a traer lo que cambió en el
  * 1.0 y en el 2.0 (lo que se escriba directamente en el libro nuevo en esas pestañas se pierde).
- * Después del corte (libroNuevoCorte) ya no se toca: el 1.0 y el 2.0 quedan como archivo histórico
- * y se trabaja solo en el libro nuevo.
+ * Después del corte (libroNuevoCorte) ya no se copia nada: el 1.0 y el 2.0 quedan como archivo histórico
+ * y se trabaja solo en el libro nuevo (la app también pasa a leer y guardar ahí).
+ *
+ * En cada pasada, antes y después del corte, sigbeVigilar_ (SIGBE.gs) compara los datos con la pasada
+ * anterior y anota en el historial ("Bitácora SIGBE") lo que alguien cambió directamente en el Excel.
  *
  * Se maneja desde el editor de Apps Script (menú Ejecutar), con la cuenta dueña del proyecto:
  *   libroNuevoCrear()                 → crea el archivo (junto al 2.0 en Drive) y lo llena
@@ -28,7 +31,7 @@
  *   libroNuevoDesactivarAutomatico()
  *   libroNuevoProbarAcceso()          → revisa que la cuenta pueda abrir el 1.0, el 2.0 y el libro nuevo
  *   libroNuevoEstado()                → muestra en el registro cómo está todo
- *   libroNuevoCorte()                 → última actualización y fin del espejo
+ *   libroNuevoCorte()                 → última actualización y fin del espejo (la tarea sigue anotando cambios)
  *   libroNuevoQuitarCorte()           → por si el corte se hizo antes de tiempo
  *
  * Usa del mismo proyecto: abrirOrigen_ (1.0), destino_ (2.0), copiarHoja_, buscarHoja_, huella_,
@@ -110,11 +113,31 @@ function libroNuevoCrear() {
   return lnMostrar_('Libro nuevo creado: ' + libro.getUrl() + '\n\n' + r.resumen);
 }
 
-/** La llama el activador automático. Solo trae las pestañas que cambiaron. */
+/**
+ * La llama el activador automático (cada SIGBE_CADA_HORAS horas). Hasta el corte trae al libro nuevo
+ * las pestañas que cambiaron; antes y después del corte anota en el historial los cambios hechos
+ * directamente en el Excel (los que no se hicieron desde la app). Si algo falla, Google avisa por correo.
+ */
 function libroNuevoActualizar() {
   const r = lnActualizar_(false);
-  if (r.error) throw new Error(r.resumen);
-  return lnMostrar_(r.resumen);
+  let vig = '';
+  if (props_().getProperty('LIBRO_NUEVO_CORTE')) {
+    try { const t = lnReorganizarTrasCorte_(); if (t) r.resumen += '\n' + t; } catch (e) { r.resumen += '\n✖ Reorganizar la lista con el cronograma: ' + e.message; r.error = true; }
+  }
+  try { vig = sigbeVigilar_(); } catch (e) { vig = '✖ Revisión de cambios en el Excel: ' + e.message; }
+  const texto = r.resumen + (vig ? '\n' + vig : '');
+  if (r.error || /^✖/.test(vig)) throw new Error(texto);
+  return lnMostrar_(texto);
+}
+
+/** Actualización rápida ~1 minuto después de guardar desde la app (activador de un solo uso). */
+function libroNuevoPendiente() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => ['libroNuevoPendiente', 'sincronizarPendiente'].indexOf(t.getHandlerFunction()) !== -1)
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  props_().deleteProperty('SIGBE_SYNC_PENDIENTE');
+  if (!lnIdLibro_() || props_().getProperty('LIBRO_NUEVO_CORTE')) return 'Nada que actualizar.';
+  return lnMostrar_(lnActualizar_(false).resumen);
 }
 
 function libroNuevoActualizarTodo() {
@@ -127,17 +150,15 @@ function libroNuevoActualizarTodo() {
 function libroNuevoActivarAutomatico() {
   lnSoloDueno_();
   if (!lnIdLibro_()) throw new Error('Primero ejecuta libroNuevoCrear.');
-  if (props_().getProperty('LIBRO_NUEVO_CORTE')) throw new Error('Ya se hizo el corte: el libro nuevo no se actualiza más desde el 1.0 y el 2.0.');
-  lnQuitarActivador_();
-  const n = cadaHoras_();
-  ScriptApp.newTrigger('libroNuevoActualizar').timeBased().everyHours(n).create();
-  return lnMostrar_('Actualización automática del libro nuevo: cada ' + n + ' hora(s).');
+  const n = activarAutomatico_(cadaHoras_());
+  return lnMostrar_('Tarea automática activa cada ' + n + ' hora(s)' + (props_().getProperty('LIBRO_NUEVO_CORTE')
+    ? ': después del corte solo anota los cambios hechos directamente en el Excel.' : ': actualiza el libro nuevo y anota los cambios hechos en el Excel.'));
 }
 
 function libroNuevoDesactivarAutomatico() {
   lnSoloDueno_();
-  lnQuitarActivador_();
-  return lnMostrar_('Actualización automática del libro nuevo desactivada.');
+  desactivarAutomatico_();
+  return lnMostrar_('Tarea automática desactivada.');
 }
 
 /** Revisa, sin cambiar nada, que la cuenta del script pueda abrir el 1.0, el 2.0 y el libro nuevo. */
@@ -167,7 +188,7 @@ function libroNuevoEstado() {
   const id = lnIdLibro_();
   let url = '(no creado: ejecuta libroNuevoCrear)';
   if (id) { try { url = SpreadsheetApp.openById(id).getUrl(); } catch (e) { url = '(no se puede abrir ' + id + ')'; } }
-  const auto = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'libroNuevoActualizar');
+  const auto = automaticoActivo_();
   return lnMostrar_([
     'Libro nuevo: ' + url,
     'Corte: ' + (props.getProperty('LIBRO_NUEVO_CORTE') || 'no (sigue siendo espejo del 1.0 y el 2.0)'),
@@ -183,16 +204,18 @@ function libroNuevoCorte() {
   // Actualización normal (no forzada): si hay un borrado masivo o un error, el corte no se hace
   const r = lnActualizar_(false);
   if (r.error) throw new Error('No se hizo el corte porque la última actualización tuvo avisos o errores: ' + r.resumen);
-  lnQuitarActivador_();
   const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
   props.setProperty('LIBRO_NUEVO_CORTE', fecha);
-  return lnMostrar_('Corte hecho (' + fecha + '). Desde ahora se trabaja solo en el libro nuevo; ' +
-    'el 1.0 y el 2.0 quedan como histórico.\n\n' + r.resumen);
+  sigbeInvalidar_();
+  return lnMostrar_('Corte hecho (' + fecha + '). Desde ahora la app y el equipo trabajan solo en el libro nuevo; ' +
+    'el 1.0 y el 2.0 quedan como histórico. La tarea automática sigue: ahora solo anota los cambios hechos directamente ' +
+    'en el libro nuevo (los que no pasen por la app).\n\n' + r.resumen);
 }
 
 function libroNuevoQuitarCorte() {
   lnSoloDueno_();
   props_().deleteProperty('LIBRO_NUEVO_CORTE');
+  sigbeInvalidar_();
   return lnMostrar_('Corte quitado. Ojo: la próxima actualización vuelve a traer las pestañas del 1.0 y el 2.0 ' +
     'y reemplaza lo que se haya escrito en esas pestañas del libro nuevo.');
 }
@@ -281,6 +304,30 @@ function lnActualizar_(forzar) {
   const resumen = fecha + '\n' + log.join('\n');
   try { props.setProperty('LIBRO_NUEVO_ULTIMO', resumen.slice(0, 8000)); } catch (e) { /* sin propiedades */ }
   return { resumen: resumen, error: error };
+}
+
+/**
+ * Después del corte nadie copia nada: si el cronograma del libro nuevo cambió, se vuelve a organizar
+ * la lista de asistencia (fechas, "No aplica", fórmulas) para que siga de acuerdo con él.
+ */
+function lnReorganizarTrasCorte_() {
+  const id = lnIdLibro_();
+  if (!id) return '';
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return '';
+  try {
+    const libro = SpreadsheetApp.openById(id);
+    const crono = buscarHoja_(libro, LN_HOJA_CRONOGRAMA);
+    const lista = libro.getSheetByName(LN_HOJA_ASISTENCIA);
+    if (!crono || !lista) return '';
+    const huella = huella_(crono);
+    if (props_().getProperty('LIBRO_NUEVO_HUELLA_CRONO_CORTE') === huella) return '';
+    const r = lnOrganizarAsistencia_(lista, crono);
+    props_().setProperty('LIBRO_NUEVO_HUELLA_CRONO_CORTE', huella);
+    return '✔ El cronograma cambió: lista de asistencia reorganizada (' + r.resumen + ')';
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** Aplica el cronograma a la pestaña de asistencia ya copiada en el libro nuevo. */
@@ -574,12 +621,6 @@ function lnPlanAsistencia_(datos, crono, hoy) {
 // ───────────────────────────── UTILIDADES ─────────────────────────────
 
 function lnIdLibro_() { return idDesdeTexto_(prop_('LIBRO_NUEVO_ID')); }
-
-function lnQuitarActivador_() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'libroNuevoActualizar')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-}
 
 /** Estas funciones cambian archivos: solo la cuenta dueña, desde el editor (no desde la app publicada). */
 function lnSoloDueno_() {
