@@ -181,6 +181,7 @@
         <div id="banner" class="alert alert-warning rounded-0 mb-0 small" style="display:none;" role="alert"></div>
 
         <main class="main" id="contenido" tabindex="-1">
+          <div id="arranque" class="tarjeta p-4 mb-3" role="status" aria-live="polite"><span class="spinner-border spinner-border-sm me-2" id="arranque-spin"></span><span id="arranque-txt">Abriendo la app…</span></div>
 
           <!-- INICIO -->
           <section class="vista" id="v-inicio" aria-labelledby="t-inicio">
@@ -631,7 +632,7 @@
       ocupado(false);
       const msg = e && e.message ? e.message : String(e);
       if (/SESION_REQUERIDA/.test(msg)) { olvidarSesion(); bloqueo(true); pedirSesion(async () => { await arrancar(); }); return; }
-      avisar('<b>No se pudo completar.</b> ' + esc(msg.replace(/^Error:\s*/, '')), 'danger', 10000);
+      avisar('<b>No se pudo completar.</b> ' + esc(msg.replace(/^Error:\s*/, '')), 'danger', 30000);
     }
     function revisarSesion(r) {
       if (r && !r.exito && /sesión no es válida/i.test(r.mensaje || '')) { olvidarSesion(); avisar('Tu sesión expiró. Inicia sesión otra vez.', 'warning'); pedirSesion(); return true; }
@@ -697,8 +698,29 @@
       });
     }
 
+    /** Mensajes del arranque: se quedan en pantalla (no desaparecen como los avisos). */
+    let relojArranque = null;
+    function pasoArranque(texto) {
+      $('arranque').style.display = 'block'; $('arranque').className = 'tarjeta p-4 mb-3';
+      $('arranque-spin').style.display = ''; $('arranque-txt').innerHTML = esc(texto);
+      clearTimeout(relojArranque);
+      relojArranque = setTimeout(() => { $('arranque-txt').innerHTML = esc(texto) + '<div class="small text-muted mt-2">Está tardando más de lo normal. La primera lectura después de un cambio puede tomar hasta un minuto; si pasan más de dos, recarga la página.</div>'; }, 45000);
+    }
+    function finArranque() { clearTimeout(relojArranque); $('arranque').style.display = 'none'; }
+    function errorArranque(msg) {
+      clearTimeout(relojArranque);
+      $('arranque').style.display = 'block'; $('arranque').className = 'alert alert-danger mb-3';
+      $('arranque-spin').style.display = 'none';
+      $('arranque-txt').innerHTML = '<b>La app no pudo cargar los datos.</b><div class="mt-1">' + esc(String(msg).replace(/^Error:\s*/, '')) + '</div>' +
+        '<div class="small mt-2">Si el mensaje no es claro: en el editor de Apps Script ejecuta <b>probarApp</b> y revisa el registro de ejecución.</div>' +
+        '<button class="btn btn-sm btn-outline-danger mt-2" data-accion="reintentar"><i class="fa-solid fa-rotate me-1"></i>Reintentar</button>';
+    }
+    window.addEventListener('error', ev => { if (!D) errorArranque('Error en la pantalla: ' + ev.message); });
+    window.addEventListener('unhandledrejection', ev => { if (!D) errorArranque('Error en la pantalla: ' + (ev.reason && ev.reason.message || ev.reason)); });
+
     async function arrancar() {
       leyendo(true);
+      pasoArranque('Conectando con el servidor…');
       try {
         const ctx = await api('getContexto', E.token);
         E.usuario = ctx.usuario; E.lecturaPublica = !!ctx.lecturaPublica; E.listo = !!(ctx.setup && ctx.setup.listo); E.setup = ctx.setup;
@@ -707,12 +729,17 @@
         if (ctx.version && ctx.version !== VERSION_HTML) banner('Los archivos de la app tienen versiones distintas (pantallas ' + esc(VERSION_HTML) + ', servidor ' + esc(ctx.version) + '). Vuelve a pegar <b>SIGBE.gs</b> e <b>Index.html</b> y publica una nueva versión.');
         if (!E.usuario) olvidarSesion(true);
         pintarSesion();
-        if (!E.listo) { pintarSetup(ctx.setup); mostrar('setup'); return; }
-        if (!E.lecturaPublica && !E.usuario) { bloqueo(true); pedirSesion(async () => { await arrancar(); }); return; }
+        if (!E.listo) { finArranque(); pintarSetup(ctx.setup); mostrar('setup'); return; }
+        if (!E.lecturaPublica && !E.usuario) { finArranque(); bloqueo(true); pedirSesion(async () => { await arrancar(); }); return; }
         bloqueo(false);
-        await cargarDatos(false);
+        pasoArranque('Leyendo las hojas de cálculo… (la primera vez puede tardar hasta un minuto)');
+        D = await api('getDatos', E.token, false);
+        preparar();
+        finArranque();
         ir(E.vista === 'setup' ? 'inicio' : E.vista);
-      } catch (e) { error(e); } finally { leyendo(false); }
+      } catch (e) {
+        if (/SESION_REQUERIDA/.test(e && e.message || '')) { finArranque(); error(e); } else errorArranque(e && e.message ? e.message : e);
+      } finally { leyendo(false); }
     }
 
     async function cargarDatos(forzar) {
@@ -787,6 +814,7 @@
       const a = el.dataset.accion, d = el.dataset;
       const acciones = {
         refrescar: async () => { await cargarDatos(true); cargarVista(); },
+        reintentar: () => arrancar(),
         login: () => pedirSesion(),
         registrar: abrirRegistro,
         'csv-brig': csvBrigadistas, 'csv-matriz': csvMatriz, 'csv-cambios': csvCambios, 'csv-hoja': csvHoja,

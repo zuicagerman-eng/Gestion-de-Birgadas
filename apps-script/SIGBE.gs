@@ -202,6 +202,37 @@ function sigbeFechaComun_(personas, col) {
   return Object.keys(c).sort((a, b) => c[b] - c[a])[0] || '';
 }
 
+/**
+ * PARA EL EDITOR: revisa paso a paso lo que hace la app al abrir y dice dónde falla y cuánto tarda.
+ * Ejecútala desde el editor (menú Ejecutar → probarApp) y mira el registro de ejecución.
+ */
+function probarApp() {
+  lnSoloDueno_();
+  const L = ['SIGBE ' + SIGBE_VERSION + ' · cuenta que ejecuta: ' + cuentaScript_()];
+  const paso = (nombre, f) => {
+    const t = Date.now();
+    try { const r = f(); L.push('✔ ' + nombre + ' (' + ((Date.now() - t) / 1000).toFixed(1) + ' s)' + (r ? ': ' + r : '')); return true; }
+    catch (e) { L.push('✖ ' + nombre + ': ' + e.message + (e.stack ? '\n   ' + String(e.stack).split('\n').slice(0, 4).join('\n   ') : '')); return false; }
+  };
+  paso('Configuración', () => { const s = sigbeEstadoSetup_(); return 'lista=' + s.listo + ' · usuario y clave=' + s.credenciales + (s.destinoError ? ' · ' + s.destinoError : ''); });
+  let F = null;
+  if (!paso('Archivos', () => { F = sigbeFuentes_(); return 'asistencia en "' + F.asistencia.getName() + '" · datos en "' + F.datos.getName() + '"' + (F.corte ? ' · después del corte' : ' · antes del corte') + (F.avisos.length ? ' · ' + F.avisos.join(' | ') : ''); })) return lnMostrar_(L.join('\n'));
+  paso('Lista de asistencia', () => { const h = sigbeLeerHolcim_(sigbeHoja_(F.asistencia, SIGBE_HOJA_HOLCIM)); return h.personas.length + ' personas · ' + h.sesiones.length + ' sesiones'; });
+  paso('Cronograma', () => { const c = sigbeLeerCronograma_(sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA)); return c.bloques.length + ' bloques · ' + c.filas.length + ' temas'; });
+  paso('INHOUSE', () => sigbeLeerInhouse_(sigbeHoja_(F.datos, SIGBE_HOJA_INHOUSE)).length + ' personas');
+  paso('Indicador', () => sigbeLeerIndicador_(sigbeHoja_(F.datos, SIGBE_HOJA_INDICADOR)).length + ' filas');
+  paso('Datos completos para la app', () => {
+    const m = sigbeConstruirModelo_();
+    const fechas = [];
+    const buscar = (o, ruta) => { if (o instanceof Date) fechas.push(ruta); else if (o && typeof o === 'object') Object.keys(o).forEach(k => buscar(o[k], ruta + '.' + k)); };
+    buscar(m, 'datos');
+    if (fechas.length) throw new Error('hay fechas que el navegador no puede recibir: ' + fechas.slice(0, 5).join(', '));
+    return m.holcim.length + ' Holcim · ' + m.inhouse.length + ' contratistas · ' + m.crono.length + ' sesiones de cronograma · ' + Math.round(JSON.stringify(m).length / 1024) + ' KB' + (m.avisos.length ? ' · avisos: ' + m.avisos.join(' | ') : '');
+  });
+  paso('Caché', () => { sigbeCacheGuardar_('sigbe_prueba', { ok: 1 }); return sigbeCacheLeer_('sigbe_prueba') ? 'funciona' : 'no guarda (la app funciona igual, pero más lenta)'; });
+  return lnMostrar_(L.join('\n'));
+}
+
 // ═════════════════════════════ ASISTENCIA Y BRIGADISTAS (ESCRITURA) ═════════════════════════════
 
 /**
