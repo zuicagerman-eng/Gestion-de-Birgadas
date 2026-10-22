@@ -59,6 +59,16 @@
     .segmento .chip + .chip { margin-left: -1px; }
     .segmento .chip:first-child { border-radius: 6px 0 0 6px; } .segmento .chip:last-child { border-radius: 0 6px 6px 0; }
     .segmento .chip[aria-pressed="true"] { background: var(--s-azul); color: #fff; }
+    .planta-cob { background: #fff; border: 1px solid var(--s-borde); border-radius: var(--s-radio); margin-bottom: 10px; }
+    .planta-cob > summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+    .planta-cob > summary::-webkit-details-marker { display: none; }
+    .planta-cob > summary .flecha { transition: transform .15s; color: #8c959f; }
+    .planta-cob[open] > summary .flecha { transform: rotate(90deg); }
+    .planta-cob[open] > summary { border-bottom: 1px solid var(--s-borde); }
+    .planta-cob .nombre { font-weight: 700; min-width: 150px; }
+    .planta-cob .avance { flex: 1 1 220px; min-width: 180px; }
+    .planta-cob .barrita { height: 10px; }
+    .estado-cob { font-weight: 700; border-radius: 999px; padding: 3px 12px; font-size: .85rem; white-space: nowrap; }
     .fila-sede { cursor: pointer; border-radius: 6px; padding: 4px 6px; } .fila-sede:hover { background: #f6f9ff; }
     .contador { font-size: .85rem; color: #5f6b76; }
 
@@ -371,15 +381,20 @@
           <!-- COBERTURA -->
           <section class="vista" id="v-cobertura" aria-labelledby="t-cob">
             <h1 class="titulo-vista" id="t-cob">Cobertura de brigadistas</h1>
-            <p class="sub-vista">Brigadistas frente a la meta (20 % del personal) según la pestaña <i>Indicador.</i> La columna "En las listas" cuenta los activos de las listas para comparar.</p>
+            <p class="sub-vista">Meta: brigadistas = 20 % del personal (pestaña <i>Indicador.</i>). Cada tarjeta es una planta; ábrela para ver el detalle por empresa. Los requeridos se redondean hacia arriba (no se puede tener 0,6 brigadistas).</p>
             <div class="row g-3 mb-3" id="cob-kpis"></div>
-            <div class="tarjeta tabla-fija">
-              <table class="table align-middle mb-0">
-                <caption class="visually-hidden">Cobertura por planta y empresa</caption>
-                <thead><tr><th scope="col">Planta</th><th scope="col">Empresa</th><th scope="col" class="text-end">Personal</th><th scope="col" class="text-end">Brigadistas</th><th scope="col" class="text-end">Meta</th><th scope="col" style="min-width:170px">Avance a la meta</th><th scope="col" class="text-end">Faltan</th><th scope="col" class="text-end">En las listas</th></tr></thead>
-                <tbody id="cob-tabla"></tbody>
-              </table>
+            <div class="tarjeta p-3 mb-2">
+              <div class="filtros">
+                <span role="group" aria-label="Orden" id="cob-orden" class="d-flex segmento">
+                  <button class="chip" data-orden="critica" aria-pressed="true">Más críticas primero</button>
+                  <button class="chip" data-orden="nombre" aria-pressed="false">Por nombre</button>
+                </span>
+                <div class="form-check ms-2"><input class="form-check-input" type="checkbox" id="cob-faltan"><label class="form-check-label small" for="cob-faltan">Solo plantas que no cumplen</label></div>
+                <button class="btn btn-sm btn-outline-secondary ms-auto" data-accion="cob-abrir">Abrir todas</button>
+                <button class="btn btn-sm btn-outline-secondary" data-accion="cob-cerrar">Cerrar todas</button>
+              </div>
             </div>
+            <div id="cob-plantas"></div>
           </section>
 
           <!-- REVISIÓN -->

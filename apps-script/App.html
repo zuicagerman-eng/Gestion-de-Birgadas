@@ -95,6 +95,8 @@
       grupoChips('crono-cuando', 'cuando', v => { crono.cuando = v; pintarCronograma(); });
       grupoChips('rev-grav', 'g', v => { rev.g = v; pintarRevision(); });
       grupoChips('cam-origen', 'o', v => { cam.o = v; cam.limite = 200; pintarCambios(); });
+      grupoChips('cob-orden', 'orden', () => pintarCobertura());
+      $('cob-faltan').onchange = pintarCobertura;
       document.querySelectorAll('#brig-cab th.ordenable').forEach(th => { th.tabIndex = 0; th.onclick = th.onkeydown = ev => { if (ev.type === 'keydown' && ev.key !== 'Enter') return; const k = th.dataset.orden; brig.dir = brig.orden === k ? -brig.dir : 1; brig.orden = k; pintarBrigadistas(); }; });
       window.addEventListener('beforeunload', ev => { if (hayCambios()) { ev.preventDefault(); ev.returnValue = ''; } });
       await arrancar();
@@ -233,6 +235,8 @@
         ficha: () => abrirFicha(d.tipo, +d.j),
         'asis-sede': () => { $('sel-sede').value = d.sede; cambiarSede(d.sede); },
         'elegir-sede': () => { $('sel-sede').value = d.sede; cambiarSede(d.sede); },
+        'cob-abrir': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = true; }),
+        'cob-cerrar': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = false; }),
         'asis-sesion': () => elegirSesion(d.key),
         'asis-volver': volverASesiones,
         'asis-filtro': () => { asis.filtro = d.f; pintarAsistencia(); },
@@ -819,22 +823,54 @@
     }
 
     // ══════════ COBERTURA ══════════
+    /**
+     * Cobertura por planta: el total de cada planta es el encabezado de su tarjeta (no una fila más);
+     * el detalle por empresa queda plegado. Metas y faltantes en personas enteras (no 0,6 personas).
+     */
     function pintarCobertura() {
       const filas = D.indicador.filter(enSede);
-      const enListas = f => { if (f.tot) return null; const h = /holcim/i.test(f.emp); return (h ? P : I).filter(p => p.activo && p.sede === f.sede && (h || norm(p.k).includes(norm(f.emp).split(' ')[0]))).length; };
-      const base = filas.filter(f => !f.tot);
-      const per = base.reduce((n, f) => n + f.per, 0), bri = base.reduce((n, f) => n + f.bri, 0), meta = base.reduce((n, f) => n + f.meta, 0);
-      const kpi = (eti, num, sub) => `<div class="col-sm-4"><div class="kpi"><div class="eti">${eti}</div><div class="num">${num}</div><div class="small text-muted">${sub}</div></div></div>`;
-      $('cob-kpis').innerHTML = kpi('Personal', per, 'según el Indicador') + kpi('Brigadistas', bri, (per ? Math.round(bri / per * 1000) / 10 : 0) + ' % del personal') + kpi('Meta (20 %)', Math.round(meta * 10) / 10, meta > bri ? 'faltan ' + Math.round((meta - bri) * 10) / 10 : 'meta cumplida');
-      $('cob-tabla').innerHTML = filas.map(f => {
-        const pct = f.meta ? Math.round(f.bri / f.meta * 100) : (f.bri ? 100 : 0);
-        const color = pct >= 100 ? 'var(--s-ok)' : pct >= 60 ? '#f59f00' : 'var(--s-mal)';
-        const l = enListas(f);
-        return `<tr class="${f.tot ? 'table-light fw-bold' : ''}"><td>${esc(f.p)}</td><td>${esc(f.emp)}</td><td class="text-end">${f.per}</td><td class="text-end">${f.bri}</td><td class="text-end">${f.meta}</td>
-          <td><div class="d-flex align-items-center gap-2"><div class="flex-grow-1">${pctBarra(pct, color)}</div><span class="small">${pct} %</span></div></td>
-          <td class="text-end">${f.bre > 0 ? `<span class="badge bg-danger-subtle text-danger-emphasis">${f.bre}</span>` : '<i class="fa-solid fa-check text-success" aria-label="Cumplida"></i>'}</td>
-          <td class="text-end">${l === null ? '' : !/holcim/i.test(f.emp) ? `<span class="text-muted" title="Contratistas activos de las listas cuya empresa se parece">${l}</span>` : l === f.bri ? l : `<span class="badge bg-warning-subtle text-warning-emphasis" title="El Indicador dice ${f.bri}">${l}</span>`}</td></tr>`;
-      }).join('') || '<tr><td colspan="8" class="text-muted text-center py-4">Sin datos para esta sede.</td></tr>';
+      const enteros = x => Math.ceil(Math.round(x * 10) / 10);
+      const plantas = [];
+      filas.forEach(f => { let pl = plantas.find(x => x.p === f.p); if (!pl) plantas.push(pl = { p: f.p, sede: f.sede, tot: null, emp: [] }); if (f.tot) pl.tot = f; else pl.emp.push(f); });
+      plantas.forEach(pl => {
+        const sum = k => pl.emp.reduce((n, f) => n + f[k], 0);
+        pl.per = pl.tot ? pl.tot.per : sum('per'); pl.bri = pl.tot ? pl.tot.bri : sum('bri'); pl.meta = pl.tot ? pl.tot.meta : sum('meta');
+        pl.metaN = enteros(pl.meta); pl.faltan = Math.max(0, pl.metaN - pl.bri);
+        pl.pct = pl.metaN ? Math.round(pl.bri / pl.metaN * 100) : 100;
+        pl.lista = P.filter(p => p.activo && p.sede === pl.sede).length + I.filter(p => p.activo && p.sede === pl.sede).length;
+      });
+      const per = plantas.reduce((n, x) => n + x.per, 0), bri = plantas.reduce((n, x) => n + x.bri, 0), meta = plantas.reduce((n, x) => n + x.metaN, 0);
+      const cumplen = plantas.filter(x => !x.faltan).length;
+      const kpi = (eti, num, sub, color) => `<div class="col-6 col-lg-3"><div class="kpi"><div class="eti">${eti}</div><div class="num" style="color:${color || 'inherit'}">${num}</div><div class="small text-muted">${sub}</div></div></div>`;
+      $('cob-kpis').innerHTML = kpi('Personal', per, 'trabajadores según el Indicador') + kpi('Brigadistas', bri, (per ? Math.round(bri / per * 1000) / 10 : 0) + ' % del personal') +
+        kpi('Meta (20 %)', meta, meta > bri ? 'faltan ' + (meta - bri) + ' brigadistas' : 'meta cumplida', meta > bri ? 'var(--s-mal)' : 'var(--s-ok)') +
+        kpi('Plantas que cumplen', cumplen + ' de ' + plantas.length, plantas.length - cumplen ? (plantas.length - cumplen) + ' por debajo de la meta' : 'todas cumplen', cumplen === plantas.length ? 'var(--s-ok)' : '#e8590c');
+      const orden = (document.querySelector('#cob-orden [aria-pressed="true"]') || {}).dataset || {};
+      const lista = plantas.filter(x => !$('cob-faltan').checked || x.faltan)
+        .sort((a, b) => orden.orden === 'nombre' ? a.p.localeCompare(b.p, 'es') : a.pct - b.pct || b.faltan - a.faltan);
+      const color = pct => pct >= 100 ? 'var(--s-ok)' : pct >= 60 ? '#f59f00' : 'var(--s-mal)';
+      const estado = x => x.faltan ? `<span class="estado-cob bg-danger-subtle text-danger-emphasis">Faltan ${x.faltan}</span>` : '<span class="estado-cob bg-success-subtle text-success-emphasis"><i class="fa-solid fa-check me-1"></i>Cumple</span>';
+      $('cob-plantas').innerHTML = lista.map(x => {
+        const emp = x.emp.filter(f => f.per > 0).map(f => Object.assign({}, f, { metaN: enteros(f.meta) })).map(f => Object.assign(f, { faltan: Math.max(0, f.metaN - f.bri), pct: f.metaN ? Math.round(f.bri / f.metaN * 100) : 100 }))
+          .sort((a, b) => b.faltan - a.faltan || a.pct - b.pct);
+        return `<details class="planta-cob">
+          <summary>
+            <i class="fa-solid fa-chevron-right flecha" aria-hidden="true"></i>
+            <span class="nombre">${esc(x.p)}</span>
+            <span class="avance">${pctBarra(Math.min(x.pct, 100), color(x.pct))}<span class="small text-muted"><b class="text-body">${x.bri}</b> brigadistas de <b class="text-body">${x.metaN}</b> requeridos · ${x.per} personas</span></span>
+            ${estado(x)}
+            <span class="small text-muted">${emp.length} empresa(s)</span>
+          </summary>
+          <div class="p-2">
+            <table class="table table-sm align-middle mb-1 tabla-compacta">
+              <thead><tr><th scope="col">Empresa</th><th scope="col" class="text-end">Personal</th><th scope="col" class="text-end">Brigadistas</th><th scope="col" class="text-end">Requeridos</th><th scope="col" style="min-width:140px">Avance</th><th scope="col" class="text-end">Estado</th></tr></thead>
+              <tbody>${emp.map(f => `<tr><td>${esc(f.emp)}</td><td class="text-end">${f.per}</td><td class="text-end">${f.bri}</td><td class="text-end" title="20 % exacto: ${f.meta}">${f.metaN}</td>
+                <td><div class="d-flex align-items-center gap-2"><div class="flex-grow-1">${pctBarra(Math.min(f.pct, 100), color(f.pct))}</div><span class="small" style="width:42px">${f.pct} %</span></div></td>
+                <td class="text-end">${f.faltan ? `<span class="badge bg-danger-subtle text-danger-emphasis">Faltan ${f.faltan}</span>` : '<i class="fa-solid fa-check text-success" aria-label="Cumple"></i>'}</td></tr>`).join('') || '<tr><td colspan="6" class="text-muted">Sin empresas con personal.</td></tr>'}</tbody>
+            </table>
+            ${plantas.filter(y => y.sede === x.sede).length === 1 && x.lista !== x.bri ? `<div class="small text-muted px-1"><i class="fa-solid fa-circle-info me-1"></i>En las listas de la app hay ${x.lista} brigadistas activos en ${esc(x.sede)}; el Indicador dice ${x.bri}.</div>` : ''}
+          </div></details>`;
+      }).join('') || '<p class="text-muted">Sin datos para esta sede o filtro.</p>';
     }
 
     // ══════════ REVISIÓN DE DATOS ══════════
