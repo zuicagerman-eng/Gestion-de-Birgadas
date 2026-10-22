@@ -1,34 +1,33 @@
 /**
- * SINCRONIZACIÓN AUTOMÁTICA: "Gestion de Brigadas" (ORIGEN) → "Gestion de Brigadas 2.0" (DESTINO)
+ * SINCRONIZACIÓN AUTOMÁTICA: archivo ORIGINAL ("Gestion de Brigadas") → archivo 2.0 ("Gestion de Brigadas 2.0")
  *
- * Este script va pegado en el archivo DESTINO (Extensiones > Apps Script).
- * Las hojas de HOJAS_A_COPIAR quedan IDÉNTICAS a las del origen: datos, colores,
- * desplegables, casillas, anchos de columna y filas. Sin IMPORTRANGE ni enlaces.
- * En la actualización automática solo se reemplaza una hoja si cambió algo en el origen.
+ * Este archivo forma parte de un PROYECTO INDEPENDIENTE de Apps Script (no va dentro de ninguna hoja).
+ * Los archivos se configuran en las Propiedades del script (Configuración del proyecto → Propiedades del
+ * script) o desde la pantalla "Configuración" de la app SIGBE:
+ *   SIGBE_ID_DESTINO  → URL o ID del archivo 2.0 (obligatorio)
+ *   SIGBE_ID_ORIGEN   → URL o ID del archivo original, o NINGUNO si se trabaja solo con el 2.0
+ *   SIGBE_CADA_HORAS  → cada cuántas horas corre la actualización automática (1, 2, 4, 6, 8 o 12)
+ *
+ * Las hojas de HOJAS_A_COPIAR quedan IDÉNTICAS a las del original: datos, colores, desplegables,
+ * casillas, anchos de columna y filas. Sin IMPORTRANGE ni enlaces. En la actualización automática
+ * solo se reemplaza una hoja si cambió algo en el original.
  *
  * SEGUROS:
- *  - Si el archivo origen se borra, está en la papelera o no se puede abrir: no se toca nada.
- *  - Si una hoja del origen pierde de golpe más de MAXIMA_REDUCCION de su información respecto
- *    a la última vez que se copió (borrado masivo), esa hoja NO se copia y se avisa.
+ *  - Si el original se borra, está en la papelera o no se puede abrir: no se toca nada.
+ *  - Si una hoja del original pierde de golpe más de MAXIMA_REDUCCION de su información respecto a la
+ *    última vez que se copió (borrado masivo), esa hoja NO se copia y se avisa.
  *  - Antes del primer cambio de cada día se guarda una copia completa del 2.0 en la carpeta
- *    CARPETA_RESPALDOS de Drive (se guardan los últimos DIAS_RESPALDO). Se restaura desde
- *    el menú: 🔄 Sincronización → Restaurar desde un respaldo.
+ *    CARPETA_RESPALDOS de Drive (se guardan los últimos DIAS_RESPALDO). Se restaura desde la app.
  */
 
-// ID del archivo ORIGEN (el de la info actualizada). Es la parte de la URL entre /d/ y /edit
-const ID_ORIGEN = '1yxSzgZAdRiGnLWssifVKfL0g1aPJlRRSkcYtjnYhpo0';
-
-// Cada cuántas horas se actualiza solo (1, 2, 4, 6, 8 o 12)
-const CADA_HORAS = 1;
-
-// Si una hoja del origen queda con menos del 70 % de los datos que tenía la última vez que se copió, no se copia
+// Si una hoja del original queda con menos del 70 % de los datos que tenía la última vez que se copió, no se copia
 const MAXIMA_REDUCCION = 0.3;
 
-// Respaldos diarios del 2.0
+// Respaldos diarios (carpeta en el Drive de la cuenta que ejecuta el script)
 const CARPETA_RESPALDOS = 'Respaldos Gestion de Brigadas 2.0';
 const DIAS_RESPALDO = 30;
 
-// Hojas que se traen completas del origen. Basta con el comienzo del nombre de la pestaña.
+// Hojas que se traen completas del original. Basta con el comienzo del nombre de la pestaña.
 const HOJAS_A_COPIAR = [
   '2026 Brigadistas HOLCIM',
   '2026 Brigadistas INHOUSE',
@@ -42,33 +41,71 @@ const HOJAS_CELDA_POR_CELDA = [
   '2026 Cronograma Nacional Brigadas',
 ];
 
-// ───────────────────────────── MENÚ Y ACTIVADOR ─────────────────────────────
+// ───────────────────────────── CONFIGURACIÓN (propiedades del script) ─────────────────────────────
 
-function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('🔄 Sincronización')
-    .addItem('Sincronizar ahora', 'sincronizarAhora')
-    .addItem('Activar actualización automática', 'activarAutomatico')
-    .addItem('Desactivar actualización automática', 'desactivarAutomatico')
-    .addItem('Ver resultado de la última sincronización', 'verUltimoResultado')
-    .addSeparator()
-    .addItem('Sincronizar aceptando un borrado grande', 'sincronizarAceptandoBorrado')
-    .addItem('Restaurar desde un respaldo', 'restaurarRespaldo')
-    .addSeparator()
-    .addItem('🔐 Configurar usuario y clave de la app SIGBE', 'configurarUsuarioApp')
-    .addItem('🩺 Diagnóstico del sistema', 'diagnosticoMenu')
-    .addToUi();
+function props_() { return PropertiesService.getScriptProperties(); }
+function prop_(k) { return props_().getProperty(k); }
+
+/** Acepta la URL completa de una hoja de cálculo o solo su ID. */
+function idDesdeTexto_(t) {
+  const s = String(t || '').trim();
+  const m = s.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+  return m ? m[1] : s;
 }
 
-function activarAutomatico() {
-  desactivarAutomatico_();
-  ScriptApp.newTrigger('sincronizar').timeBased().everyHours(CADA_HORAS).create();
-  avisar_('Listo: se actualizará automáticamente cada ' + CADA_HORAS + ' hora(s).');
+function idDestino_() { return idDesdeTexto_(prop_('SIGBE_ID_DESTINO')); }
+
+/** { modo: 'configurado' | 'ninguno' | 'sin_configurar', id } */
+function configOrigen_() {
+  const v = String(prop_('SIGBE_ID_ORIGEN') || '').trim();
+  if (!v) return { modo: 'sin_configurar', id: '' };
+  if (/^NINGUNO$/i.test(v)) return { modo: 'ninguno', id: '' };
+  return { modo: 'configurado', id: idDesdeTexto_(v) };
 }
 
-function desactivarAutomatico() {
+function cadaHoras_() {
+  const n = Number(prop_('SIGBE_CADA_HORAS')) || 1;
+  return [1, 2, 4, 6, 8, 12].indexOf(n) === -1 ? 1 : n;
+}
+
+/** El archivo 2.0 (donde viven Indicador, Cronograma, la bitácora y las copias de HOLCIM/INHOUSE). */
+function destino_() {
+  const id = idDestino_();
+  if (!id) throw new Error('No está configurado el archivo 2.0 (propiedad SIGBE_ID_DESTINO). Configúralo en la app o en Configuración del proyecto → Propiedades del script.');
+  try {
+    return SpreadsheetApp.openById(id);
+  } catch (e) {
+    throw new Error('No se pudo abrir el archivo 2.0 (' + id + '): ' + e.message + '. Revisa el ID y que la cuenta que ejecuta el script tenga permiso de edición.');
+  }
+}
+
+function abrirOrigen_() {
+  const cfg = configOrigen_();
+  if (cfg.modo === 'sin_configurar') throw new Error('No hay archivo original configurado (propiedad SIGBE_ID_ORIGEN). Pon su URL o escribe NINGUNO si se trabaja solo con el 2.0.');
+  if (cfg.modo === 'ninguno') throw new Error('Está configurado trabajar sin archivo original (NINGUNO).');
+  let archivo;
+  try {
+    archivo = DriveApp.getFileById(cfg.id);
+  } catch (e) {
+    throw new Error('no se pudo abrir el archivo original (¿se borró, está mal el ID o ya no hay acceso?). No se tocó nada. ' +
+      'Si ya no se usa, escribe NINGUNO en el archivo original y desactiva la actualización automática.');
+  }
+  if (archivo.isTrashed()) {
+    throw new Error('el archivo original está en la papelera. No se tocó nada. ' +
+      'Si ya no se usa, escribe NINGUNO en el archivo original y desactiva la actualización automática.');
+  }
+  return SpreadsheetApp.openById(cfg.id);
+}
+
+// ───────────────────────────── ACTIVADOR AUTOMÁTICO ─────────────────────────────
+
+/** Crea (o reemplaza) el activador que llama a sincronizar() cada N horas. */
+function activarAutomatico_(cadaHoras) {
+  const n = [1, 2, 4, 6, 8, 12].indexOf(Number(cadaHoras)) === -1 ? cadaHoras_() : Number(cadaHoras);
   desactivarAutomatico_();
-  avisar_('Actualización automática desactivada.');
+  ScriptApp.newTrigger('sincronizar').timeBased().everyHours(n).create();
+  props_().setProperty('SIGBE_CADA_HORAS', String(n));
+  return n;
 }
 
 function desactivarAutomatico_() {
@@ -77,20 +114,8 @@ function desactivarAutomatico_() {
     .forEach(t => ScriptApp.deleteTrigger(t));
 }
 
-function sincronizarAhora() {
-  SpreadsheetApp.getUi().alert('Sincronización terminada\n\n' + sincronizar_(true, false, 'manual').resumen);
-}
-
-function sincronizarAceptandoBorrado() {
-  const ui = SpreadsheetApp.getUi();
-  const ok = ui.alert('¿Seguro?', 'Se copiarán las hojas aunque en el origen se haya borrado mucha información ' +
-    '(antes se guarda un respaldo).', ui.ButtonSet.YES_NO);
-  if (ok === ui.Button.YES) ui.alert('Sincronización terminada\n\n' + sincronizar_(true, true, 'manual').resumen);
-}
-
-function verUltimoResultado() {
-  const txt = PropertiesService.getDocumentProperties().getProperty('ULTIMO_RESULTADO');
-  SpreadsheetApp.getUi().alert(txt || 'Todavía no se ha sincronizado.');
+function automaticoActivo_() {
+  return ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'sincronizar');
 }
 
 // ───────────────────────────── PROCESO PRINCIPAL ─────────────────────────────
@@ -104,51 +129,56 @@ function sincronizar() {
 /**
  * forzar = true copia todas las hojas aunque no hayan cambiado.
  * aceptarBorrado = true desactiva el seguro contra borrados masivos.
- * origenLlamada: 'manual' (menú), 'automatica' (activador) o 'app' (SIGBE).
+ * origenLlamada: 'automatica' (activador) o 'app' (SIGBE).
  * Deja el resultado en ULTIMO_RESULTADO (texto) y ULTIMO_RESULTADO_JSON (para la app).
  */
 function sincronizar_(forzar, aceptarBorrado, origenLlamada) {
-  const lock = LockService.getDocumentLock() || LockService.getScriptLock();
+  const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return { resumen: 'Ya había una sincronización en curso.', error: false, enCurso: true };
   const inicio = Date.now();
   const log = [];
   try {
-    const destino = SpreadsheetApp.getActiveSpreadsheet();
-    const origen = abrirOrigen_();
-    const props = PropertiesService.getDocumentProperties();
-    if (origen.getSpreadsheetTimeZone() !== destino.getSpreadsheetTimeZone()) {
-      log.push('ℹ Zonas horarias distintas (origen: ' + origen.getSpreadsheetTimeZone() + ', 2.0: ' + destino.getSpreadsheetTimeZone() +
-        '). Las fechas podrían correrse un día; iguálalas en Archivo → Configuración.');
-    }
-    limpiarCopiasDanadas_(destino);
-    HOJAS_A_COPIAR.forEach(nombre => {
-      try {
-        const ho = buscarHoja_(origen, nombre);
-        if (!ho) throw new Error('no existe en el archivo origen');
-        const hd = buscarHoja_(destino, nombre);
-        const huella = huella_(ho);
-        if (!forzar && hd && props.getProperty('HUELLA_' + nombre) === huella) {
-          log.push('= ' + nombre + ': sin cambios.');
-          return;
-        }
-        // Base para detectar un borrado masivo: lo que tenía el origen la última vez que se copió
-        const ahora = celdasConDatos_(ho);
-        let antes = Number(props.getProperty('CELDAS_' + nombre)) || 0;
-        if (!antes && hd && props.getProperty('HUELLA_' + nombre)) antes = celdasConDatos_(hd);
-        if (!aceptarBorrado && antes && ahora < antes * (1 - MAXIMA_REDUCCION)) {
-          log.push('⚠ ' + nombre + ': NO se copió. En el origen quedan ' + ahora + ' celdas con datos y la última vez había ' +
-            antes + ' (posible borrado masivo). Si el cambio es correcto usa "Sincronizar aceptando un borrado grande".');
-          return;
-        }
-        respaldoDelDia_(destino, log);
-        const modo = copiarHoja_(ho, destino, hd);
-        props.setProperty('HUELLA_' + nombre, huella);
-        props.setProperty('CELDAS_' + nombre, String(ahora));
-        log.push('✔ ' + nombre + ': actualizada' + (modo === 'contenido' ? ' (celda por celda).' : '.'));
-      } catch (e) {
-        log.push('✖ ' + nombre + ': ' + e.message);
+    const cfg = configOrigen_();
+    if (cfg.modo === 'ninguno') {
+      log.push('ℹ Se trabaja solo con el archivo 2.0 (sin archivo original): no hay nada que sincronizar.');
+    } else {
+      const destino = destino_();
+      const origen = abrirOrigen_();
+      const props = props_();
+      if (origen.getSpreadsheetTimeZone() !== destino.getSpreadsheetTimeZone()) {
+        log.push('ℹ Zonas horarias distintas (original: ' + origen.getSpreadsheetTimeZone() + ', 2.0: ' + destino.getSpreadsheetTimeZone() +
+          '). Las fechas podrían correrse un día; iguálalas en Archivo → Configuración de cada hoja.');
       }
-    });
+      limpiarCopiasDanadas_(destino);
+      HOJAS_A_COPIAR.forEach(nombre => {
+        try {
+          const ho = buscarHoja_(origen, nombre);
+          if (!ho) throw new Error('no existe en el archivo original');
+          const hd = buscarHoja_(destino, nombre);
+          const huella = huella_(ho);
+          if (!forzar && hd && props.getProperty('HUELLA_' + nombre) === huella) {
+            log.push('= ' + nombre + ': sin cambios.');
+            return;
+          }
+          // Base para detectar un borrado masivo: lo que tenía el original la última vez que se copió
+          const ahora = celdasConDatos_(ho);
+          let antes = Number(props.getProperty('CELDAS_' + nombre)) || 0;
+          if (!antes && hd && props.getProperty('HUELLA_' + nombre)) antes = celdasConDatos_(hd);
+          if (!aceptarBorrado && antes && ahora < antes * (1 - MAXIMA_REDUCCION)) {
+            log.push('⚠ ' + nombre + ': NO se copió. En el original quedan ' + ahora + ' celdas con datos y la última vez había ' +
+              antes + ' (posible borrado masivo). Si el cambio es correcto usa "Sincronizar aceptando un borrado grande" en Configuración.');
+            return;
+          }
+          respaldoDelDia_(destino, log);
+          const modo = copiarHoja_(ho, destino, hd);
+          props.setProperty('HUELLA_' + nombre, huella);
+          props.setProperty('CELDAS_' + nombre, String(ahora));
+          log.push('✔ ' + nombre + ': actualizada' + (modo === 'contenido' ? ' (celda por celda).' : '.'));
+        } catch (e) {
+          log.push('✖ ' + nombre + ': ' + e.message);
+        }
+      });
+    }
   } catch (e) {
     log.push('✖ ' + e.message);
   } finally {
@@ -156,7 +186,7 @@ function sincronizar_(forzar, aceptarBorrado, origenLlamada) {
   }
   const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
   const resumen = fecha + '\n' + log.join('\n');
-  const error = log.some(l => l.startsWith('✖') || l.startsWith('⚠'));
+  const error = log.some(l => l.indexOf('✖') === 0 || l.indexOf('⚠') === 0);
   const prefijos = [['✔', 'ok'], ['=', 'igual'], ['⚠', 'aviso'], ['✖', 'error'], ['💾', 'respaldo'], ['ℹ', 'info']];
   const clasificar = l => {
     const p = prefijos.find(x => l.indexOf(x[0]) === 0);
@@ -165,42 +195,18 @@ function sincronizar_(forzar, aceptarBorrado, origenLlamada) {
   const detalle = {
     fecha: fecha,
     duracionSeg: Math.round((Date.now() - inicio) / 1000),
-    origen: origenLlamada || 'manual',
+    origen: origenLlamada || 'app',
     error: error,
     lineas: log.map(clasificar),
   };
   try {
-    const props = PropertiesService.getDocumentProperties();
+    const props = props_();
     props.setProperty('ULTIMO_RESULTADO', resumen);
     props.setProperty('ULTIMO_RESULTADO_JSON', JSON.stringify(detalle));
     if (!error) props.setProperty('ULTIMA_SYNC_OK', fecha);
-  } catch (e) { /* sin propiedades del documento (no debería pasar) */ }
+  } catch (e) { /* sin propiedades (no debería pasar) */ }
   console.log(resumen);
   return { resumen: resumen, error: error, detalle: detalle };
-}
-
-/** Menú del 2.0: muestra el diagnóstico que también ve la app SIGBE. */
-function diagnosticoMenu() {
-  if (typeof diagnosticoSistema !== 'function') { SpreadsheetApp.getUi().alert('Falta el archivo SIGBE.gs en el proyecto.'); return; }
-  const d = diagnosticoSistema();
-  const icono = { ok: '✔', aviso: '⚠', error: '✖', info: 'ℹ' };
-  SpreadsheetApp.getUi().alert('Diagnóstico del sistema\n\n' + d.revisiones.map(r =>
-    icono[r.estado] + ' ' + r.titulo + (r.detalle ? ': ' + r.detalle : '') + (r.solucion && r.estado !== 'ok' ? '\n    → ' + r.solucion : '')).join('\n'));
-}
-
-function abrirOrigen_() {
-  let archivo;
-  try {
-    archivo = DriveApp.getFileById(ID_ORIGEN);
-  } catch (e) {
-    throw new Error('no se pudo abrir el archivo origen (¿se borró o ya no hay acceso?). No se tocó nada. ' +
-      'Si ya no se usa, desactiva la actualización automática.');
-  }
-  if (archivo.isTrashed()) {
-    throw new Error('el archivo origen está en la papelera. No se tocó nada. ' +
-      'Si ya no se usa, desactiva la actualización automática.');
-  }
-  return SpreadsheetApp.openById(ID_ORIGEN);
 }
 
 /** Pestañas del archivo que se pueden usar (Google a veces deja copias dañadas que fallan al tocarlas). */
@@ -265,29 +271,27 @@ function respaldoDelDia_(destino, log) {
   respaldos.slice(DIAS_RESPALDO).forEach(f => f.setTrashed(true));
 }
 
-/** Menú: vuelve a poner en el 2.0 las hojas sincronizadas tal como estaban en un respaldo. */
-function restaurarRespaldo() {
-  const ui = SpreadsheetApp.getUi();
-  const carpeta = carpetaRespaldos_();
-  const nombres = [];
-  const archivos = {};
-  const it = carpeta.getFiles();
-  while (it.hasNext()) {
-    const f = it.next();
-    if (f.getName().indexOf('Respaldo 2.0 ') === 0) { nombres.push(f.getName()); archivos[f.getName()] = f; }
+/** Respaldos disponibles en la carpeta: [{ tipo: '2.0' | 'original', fecha, nombre, id }], más recientes primero. */
+function listarRespaldos_() {
+  const it = DriveApp.getFoldersByName(CARPETA_RESPALDOS);
+  if (!it.hasNext()) return [];
+  const files = it.next().getFiles();
+  const lista = [];
+  while (files.hasNext()) {
+    const f = files.next();
+    const n = f.getName();
+    if (n.indexOf('Respaldo 2.0 ') === 0) lista.push({ tipo: '2.0', fecha: n.replace('Respaldo 2.0 ', ''), nombre: n, id: f.getId() });
+    else if (n.indexOf('Respaldo ORIGINAL ') === 0) lista.push({ tipo: 'original', fecha: n.replace('Respaldo ORIGINAL ', ''), nombre: n, id: f.getId() });
   }
-  if (!nombres.length) { ui.alert('Todavía no hay respaldos en la carpeta "' + CARPETA_RESPALDOS + '".'); return; }
-  nombres.sort().reverse();
-  const r = ui.prompt('Restaurar desde un respaldo',
-    'Respaldos disponibles:\n' + nombres.map(n => n.replace('Respaldo 2.0 ', '')).join('\n') +
-    '\n\nEscribe la fecha (AAAA-MM-DD) o deja vacío para el más reciente:', ui.ButtonSet.OK_CANCEL);
-  if (r.getSelectedButton() !== ui.Button.OK) return;
-  const fecha = r.getResponseText().trim();
-  const elegido = fecha ? archivos['Respaldo 2.0 ' + fecha] : archivos[nombres[0]];
-  if (!elegido) { ui.alert('No hay respaldo con la fecha ' + fecha + '.'); return; }
+  return lista.sort((a, b) => b.fecha.localeCompare(a.fecha) || a.tipo.localeCompare(b.tipo));
+}
 
-  const destino = SpreadsheetApp.getActiveSpreadsheet();
-  const respaldo = SpreadsheetApp.openById(elegido.getId());
+/** Vuelve a poner en el 2.0 las hojas sincronizadas tal como estaban en el respaldo del 2.0 de esa fecha. */
+function restaurarRespaldo_(fecha) {
+  const r = listarRespaldos_().find(x => x.tipo === '2.0' && x.fecha === fecha);
+  if (!r) throw new Error('No hay respaldo del 2.0 con fecha ' + fecha + '.');
+  const destino = destino_();
+  const respaldo = SpreadsheetApp.openById(r.id);
   const log = [];
   HOJAS_A_COPIAR.forEach(nombre => {
     const h = buscarHoja_(respaldo, nombre);
@@ -295,23 +299,20 @@ function restaurarRespaldo() {
     copiarHoja_(h, destino, buscarHoja_(destino, nombre));
     log.push('✔ ' + nombre + ': restaurada.');
   });
-  ui.alert('Restaurado desde ' + elegido.getName() + '\n\n' + log.join('\n') +
-    '\n\nOjo: si el archivo origen sigue con el borrado, desactiva la actualización automática ' +
-    'o corrige el origen antes de la próxima sincronización.');
+  return { nombre: r.nombre, lineas: log };
 }
 
 /**
- * Trae la hoja completa del origen y reemplaza la del destino en la misma posición.
+ * Trae la hoja completa del original y reemplaza la del destino en la misma posición.
  * Si otras hojas del destino tienen fórmulas que apuntan a esta hoja, se vuelven a
  * escribir al final para que no queden en #REF!.
  */
 function copiarHoja_(hojaOrigen, destino, vieja) {
   const nombre = vieja ? vieja.getName() : hojaOrigen.getName();
-  const activa = destino.getActiveSheet();
   // Google a veces no deja copiar una pestaña completa entre archivos ("No se encontró la hoja …",
   // por ejemplo cuando tiene enlaces a otras pestañas). Entonces se actualiza la pestaña que ya
   // existe en el 2.0 celda por celda, y se recuerda para no volver a intentarlo cada hora.
-  const props = PropertiesService.getDocumentProperties();
+  const props = props_();
   const clave = 'SOLO_CONTENIDO_' + hojaOrigen.getName();
   const celdaPorCelda = HOJAS_CELDA_POR_CELDA.some(n => empiezaIgual_(hojaOrigen.getName(), n));
   if (vieja && (celdaPorCelda || props.getProperty(clave))) {
@@ -349,12 +350,11 @@ function copiarHoja_(hojaOrigen, destino, vieja) {
   destino.setActiveSheet(nueva);
   destino.moveActiveSheet(posicion);
   referencias.forEach(r => r.hoja.getRange(r.fila, r.col).setFormula(r.formula));
-  if (activa && activa.getName() !== nombre) destino.setActiveSheet(activa);
   return 'completa';
 }
 
 /**
- * Plan B: deja la pestaña del destino igual a la del origen sin reemplazarla:
+ * Plan B: deja la pestaña del destino igual a la del original sin reemplazarla:
  * datos, fórmulas, colores de fondo y de letra, negritas y formato de números.
  * Solo escribe lo que cambió, así que los enlaces y bordes de las celdas iguales no se tocan.
  */
@@ -433,8 +433,4 @@ function huella_(h) {
     r.getBackgrounds(), r.getNumberFormats(), r.getMergedRanges().map(m => m.getA1Notation()),
   ]);
   return Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, datos));
-}
-
-function avisar_(msg) {
-  try { SpreadsheetApp.getActiveSpreadsheet().toast(msg, 'Sincronización', 8); } catch (e) { console.log(msg); }
 }

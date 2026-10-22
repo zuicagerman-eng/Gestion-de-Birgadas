@@ -1,73 +1,76 @@
-# Sincronización automática de Gestión de Brigadas
+# SIGBE 2.0 — Sistema de Gestión de Brigadas (versión 3.0.0, proyecto independiente)
 
-Trae del archivo **ORIGEN** (*Gestion de Brigadas*, el actualizado) al archivo **DESTINO**
-(*Gestion de Brigadas 2.0*) las hojas completas, **idénticas** a como están en el origen:
-datos, colores, desplegables, casillas, anchos de columna y filas. No usa IMPORTRANGE ni enlaces.
+Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: brigadistas, asistencia a
+capacitaciones, cronograma, temarios, cobertura e historial. Incluye la **sincronización automática** del
+archivo original (donde marcan los proveedores) al archivo 2.0.
 
-Hojas que se traen (lista `HOJAS_A_COPIAR` al inicio del script):
+Desde la versión 3.0.0 es un **proyecto independiente de Apps Script**: no vive dentro de ninguna hoja de
+cálculo, sirve para cualquier cuenta de Google (Workspace o Gmail) y los archivos que usa se configuran
+desde la propia app.
 
-- `2026 Brigadistas HOLCIM`
-- `2026 Brigadistas INHOUSE`
-- `2026 Cronograma Nacional Brigadas`
-- `2026 TEMARIO NACIONAL BRIGADAS`: desactivada. Para traerla, quita las `//` del inicio de su línea.
+## Archivos del proyecto
 
-Cada hoja se reemplaza en la misma posición y con el mismo nombre. Si otra hoja del 2.0 (por
-ejemplo *Indicador*) tiene fórmulas que apuntan a ella, esas fórmulas se conservan.
-En la actualización automática una hoja solo se reemplaza si cambió algo en el origen.
-Si Google no permite copiar una pestaña completa entre archivos (error *"No se encontró la hoja …"*,
-pasa con el Cronograma), esa pestaña se actualiza **celda por celda** en el 2.0: datos, fórmulas,
-colores de fondo y de letra, negritas y formato de números. El resultado dice *"(celda por celda)"*.
+| Archivo | Qué es |
+|---|---|
+| [`SIGBE.gs`](SIGBE.gs) | Backend de la app: datos, asistencia, brigadistas, configuración, diagnóstico. |
+| [`SincronizarBrigadas.gs`](SincronizarBrigadas.gs) | Sincronización original → 2.0, respaldos, restauración, activador. |
+| [`Index.html`](Index.html) | Todas las pantallas. |
+| [`appsscript.json`](appsscript.json) | Manifiesto: zona horaria, permisos (scopes) y tipo de publicación. |
 
-## Seguros
+## Instalación en una cuenta de Google (Workspace o Gmail)
 
-- **Si el archivo origen se borra, está en la papelera o se pierde el acceso**, no se toca nada
-  del 2.0 (queda como estaba). Cuando el origen ya no se use, desactiva la actualización automática
-  y sigue trabajando en el 2.0.
-- **Borrado masivo**: si una hoja del origen queda con menos del 70 % de los datos que tenía la última vez que se copió,
-  esa hoja **no se copia** y se avisa (también por correo). Si el borrado era intencional:
-  *🔄 Sincronización → Sincronizar aceptando un borrado grande*.
-- **Respaldo diario**: antes del primer cambio de cada día se guarda una copia completa del 2.0 en la
-  carpeta de Drive **Respaldos Gestion de Brigadas 2.0** (se guardan los últimos 30 días).
-- **Restaurar**: *🔄 Sincronización → Restaurar desde un respaldo* → escribe la fecha o deja vacío
-  para el más reciente. Vuelve a poner las hojas sincronizadas tal como estaban ese día.
-  También puedes abrir cualquier respaldo de la carpeta directamente, o usar
-  *Archivo → Historial de versiones* de Google.
+1. **Archivos de datos**: ten en Drive de esa cuenta (o compartidos con ella con permiso de edición):
+   - el **archivo 2.0** (*Gestion de Brigadas 2.0*), con las pestañas Indicador, Cronograma, HOLCIM e INHOUSE;
+   - opcionalmente el **archivo original** (*Gestion de Brigadas*), si los proveedores siguen marcando ahí.
+   Ambos en formato Google Sheets (no `.xlsx`). Si vienen de otra cuenta y no se pueden copiar directamente,
+   descárgalos como `.xlsx` y súbelos; luego *Archivo → Guardar como Hojas de cálculo de Google*.
+2. **Proyecto**: entra a [script.google.com](https://script.google.com) → *Nuevo proyecto* → ponle nombre (p. ej. *SIGBE*).
+   - En *Código.gs* pega el contenido de `SIGBE.gs`.
+   - *➕ → Secuencia de comandos* → nómbrala `SincronizarBrigadas` → pega `SincronizarBrigadas.gs`.
+   - *➕ → HTML* → nómbrala `Index` → pega `Index.html`.
+   - ⚙️ *Configuración del proyecto* → marca *Mostrar el archivo de manifiesto "appsscript.json"* → en el
+     editor abre `appsscript.json` y pega el del repositorio (zona horaria America/Bogota y permisos exactos).
+   - Guarda (Ctrl + S).
+3. **Propiedades del script** (⚙️ *Configuración del proyecto → Propiedades del script → Añadir propiedad*):
 
-Los porcentajes y la cantidad de días se cambian al inicio del script (`MAXIMA_REDUCCION`,
-`DIAS_RESPALDO`).
+   | Propiedad | Valor |
+   |---|---|
+   | `SIGBE_ID_DESTINO` | URL del archivo 2.0 (obligatorio) |
+   | `SIGBE_ID_ORIGEN` | URL del archivo original, o `NINGUNO` si se trabaja solo con el 2.0 |
+   | `SIGBE_USUARIO` | usuario administrador (p. ej. `admin`) |
+   | `SIGBE_CLAVE_INICIAL` | clave de al menos 8 caracteres; en el primer inicio de sesión se guarda cifrada y se borra |
+   | `SIGBE_LECTURA_PUBLICA` | `no` (recomendado: ver exige sesión) o `si` (cualquiera con el enlace puede ver, no guardar) |
 
-## Instalación (una sola vez)
+   Alternativa: publicar la app y abrirla con la **misma cuenta dueña del proyecto**; aparece la pantalla
+   *Configuración inicial* con un formulario (solo funciona mientras no haya usuario y clave).
+4. **Publicar**: *Implementar → Nueva implementación → ⚙️ Aplicación web*:
+   - *Ejecutar como*: **Yo** (la cuenta dueña).
+   - *Quién tiene acceso*: en Gmail, **Cualquier usuario con cuenta de Google**; en Workspace puede ser
+     *Cualquier usuario de la organización*. (*Cualquier usuario*, sin cuenta, también funciona: la app tiene
+     su propia clave; en ese caso deja `SIGBE_LECTURA_PUBLICA = no`.)
+   - Autoriza los permisos (hojas de cálculo, Drive, activadores, correo de la cuenta).
+   - Copia la URL `…/exec`: es la de la app.
+5. **Primer uso**: abre la app → inicia sesión → **Estado del sistema** (el diagnóstico debe quedar sin rojos) →
+   **Configuración → Activar actualización automática** (si hay archivo original).
 
-1. **Ambos archivos deben estar en formato Google Sheets**, no `.xlsx`. Si en Drive aparece la
-   etiqueta `.XLSX` junto al nombre: *Archivo → Guardar como Hojas de cálculo de Google*.
-2. Abre el **ORIGEN** y copia su ID de la URL:
-   `https://docs.google.com/spreadsheets/d/`**`ESTE_ES_EL_ID`**`/edit`
-3. Abre el **DESTINO (2.0)** → *Extensiones → Apps Script*.
-4. En el archivo `SincronizarBrigadas.gs` pega todo [`SincronizarBrigadas.gs`](SincronizarBrigadas.gs)
-   (ya trae el ID del origen en `ID_ORIGEN`; verifica que coincida con el del paso 2).
-   **Guarda (💾 o Ctrl + S)** y espera a que desaparezca "Cambios sin guardar".
-5. Recarga el 2.0 → menú **🔄 Sincronización → Sincronizar ahora** (la primera vez Google pide
-   permisos, incluido el acceso a Drive para los respaldos: *Revisar permisos → tu cuenta → Configuración avanzada → Ir a … → Permitir*).
-6. **🔄 Sincronización → Activar actualización automática**: desde ahí corre sola cada hora.
+### Actualizar a una versión nueva
+Reemplaza el contenido de los archivos que cambiaron, guarda y luego *Implementar → Administrar
+implementaciones → ✏️ → Versión: Nueva versión → Implementar*. La URL no cambia. Si las pantallas y el
+servidor tienen versiones distintas, la app muestra un aviso amarillo.
 
-## Uso diario
+### Pasar de la cuenta corporativa a una cuenta pública (lista de verificación)
+1. Copiar el archivo 2.0 (y el original, si aplica) a la cuenta nueva (ver paso 1).
+2. Crear el proyecto y publicar (pasos 2–4). Las propiedades, activadores y respaldos **no** se copian solos:
+   se configuran de nuevo.
+3. En la app: Configuración → verificar archivos, activar actualización automática, cambiar la clave.
+4. En la cuenta antigua: desactivar la actualización automática (o borrar el activador en el editor) para que
+   dos sincronizaciones no corran a la vez contra el mismo original, y archivar la implementación anterior.
+5. Avisar la URL nueva a los usuarios. La carpeta *Respaldos Gestion de Brigadas 2.0* se crea en el Drive
+   de la cuenta nueva con el primer cambio.
 
-- Se trabaja **solo en el ORIGEN**. Lo que se escriba a mano en esas hojas del 2.0 se pierde
-  cuando la hoja se vuelve a traer.
-- *Sincronizar ahora* siempre trae las hojas completas, hayan cambiado o no.
-- *Ver resultado de la última sincronización* muestra qué hojas se actualizaron.
-- Si una corrida automática falla, Google envía un correo al dueño del activador.
-- Los botones del panel de control de HOLCIM (🔎 APLICAR / ↺ VER TODO) usan el script del
-  archivo origen; en el 2.0 se ven igual pero no filtran.
-
----
-
-# App web SIGBE 2.0 (versión 2.1.0)
-
-Archivos: [`SIGBE.gs`](SIGBE.gs) (backend) e [`Index.html`](Index.html) (pantallas). Van en el **mismo
-proyecto de Apps Script del 2.0**, junto a `SincronizarBrigadas.gs` (usa su `ID_ORIGEN`, su carpeta de
-respaldos y su función de sincronización). Los tres archivos trabajan juntos: la app muestra el estado de la
-sincronización y puede lanzarla; el menú del 2.0 muestra el diagnóstico de la app.
+> Nota: el archivo contiene nombres y cédulas (datos personales). Al moverlo a una cuenta fuera de la
+> organización, conviene dejar `SIGBE_LECTURA_PUBLICA = no`, compartir los archivos solo con quien los
+> necesita y usar una clave fuerte.
 
 ## Pantallas
 
@@ -79,14 +82,13 @@ sincronización y puede lanzarla; el menú del 2.0 muestra el diagnóstico de la
 | **Cronograma** | Sesiones por mes con fecha, planta, sesión y estado; oculta las pasadas. |
 | **Temarios** | Módulos de cada temario en acordeón. |
 | **Cobertura** | Hoja *Indicador*: brigadistas actuales frente a requeridos, con barra de avance. |
-| **Historial de cambios** | Todo lo guardado desde la app: quién, cuándo, antes y después. |
-| **Estado del sistema** | Fuente de datos, última sincronización (detalle por hoja), actualización automática, respaldos, **diagnóstico automático** con *qué hacer* en cada punto, y botón **Sincronizar ahora**. |
-| **Ayuda** | Cómo funciona todo, qué protege los datos y una tabla de "qué ves → qué significa → qué hacer". |
+| **Historial de cambios** | Todo lo guardado desde la app: quién, cuándo, antes y después (hoja *Bitácora SIGBE* del 2.0). |
+| **Estado del sistema** | Fuente de datos, última sincronización (detalle por hoja), actualización automática, respaldos, **diagnóstico automático** con *qué hacer* en cada punto y botón **Sincronizar ahora**. |
+| **Configuración** | Archivos (2.0 y original), lectura sin sesión, actualización automática (activar/desactivar, cada N horas), usuario y clave, respaldos (restaurar) y "sincronizar aceptando un borrado grande". Exige sesión. |
+| **Ayuda** | Cómo funciona, qué protege los datos y una tabla de "qué ves → qué significa → qué hacer". |
 
 Arriba se elige la **sede** (se recuerda en ese navegador) y todo se filtra por ella. Las plantas de las
 distintas hojas ("AGG - MONDOÑEDO", "Mondoñedo", "AGG - Mondoñedo") se agrupan por sede (`SIGBE_SEDES`).
-Abajo a la izquierda se ve la **versión** instalada y la hora de la última actualización del 2.0; si las
-pantallas y el servidor tienen versiones distintas, aparece un aviso amarillo (falta pegar un archivo o publicar).
 
 ## Qué sesiones ofrece la app en cada sede (regla del cronograma)
 
@@ -114,56 +116,57 @@ si un módulo no tiene fila.
 
 | Dato | Lee de | Escribe en |
 |---|---|---|
-| Brigadistas HOLCIM e INHOUSE (lista, ficha, asistencia, registro, edición) | **archivo original** (al instante) | **archivo original** |
+| Brigadistas HOLCIM e INHOUSE (lista, ficha, asistencia, registro, edición) | **archivo original** si está configurado y accesible; si no, el 2.0 | el mismo |
 | Indicador, Cronograma, Temarios | archivo 2.0 | — |
 | Historial (Bitácora SIGBE) | archivo 2.0 | archivo 2.0 |
 
-El 2.0 recibe lo guardado desde la app en 1 a 2 minutos (y lo de los proveedores con la sincronización
-de cada hora). Si el original se borra o va a la papelera, la app usa el 2.0 automáticamente.
+El 2.0 recibe lo guardado desde la app en 1 a 2 minutos y lo de los proveedores con la actualización
+automática (cada N horas). Con `SIGBE_ID_ORIGEN = NINGUNO` todo se hace directamente en el 2.0.
+
+## Sincronización original → 2.0
+
+Las hojas de `HOJAS_A_COPIAR` (HOLCIM, INHOUSE, Cronograma) quedan **idénticas** a las del original: datos,
+colores, desplegables, casillas, anchos de columna y filas. Sin IMPORTRANGE ni enlaces. En la actualización
+automática una hoja solo se reemplaza si cambió algo en el original. Si Google no permite copiar una pestaña
+completa (pasa con el Cronograma), se actualiza **celda por celda** (datos, fórmulas, colores, formato de
+números); el resultado dice *"(celda por celda)"*. Las fórmulas de otras hojas del 2.0 que apuntan a las
+hojas sincronizadas se conservan.
 
 ## Seguros contra daños
 
-- **Nada se guarda sin confirmar**: asistencia, registro y edición muestran un resumen antes de guardar.
+- **Nada se guarda sin confirmar**: asistencia, registro, edición y configuración muestran un resumen antes.
 - **Deshacer** inmediatamente después de guardar asistencia.
-- **No pisa cambios ajenos**: si una casilla o un dato cambió en la hoja desde que se abrió la pantalla
-  (por ejemplo, lo cambió un proveedor), ese cambio no se aplica y se avisa.
+- **No pisa cambios ajenos**: si una casilla o un dato cambió en la hoja desde que se abrió la pantalla,
+  ese cambio no se aplica y se avisa.
 - **Solo escribe en casillas de asistencia y en 4 campos** (estado, certificado, fecha de ingreso, contratista),
-  siempre con los valores que acepta la hoja (listas desplegables). Personas por cédula (+ nombre si la cédula
-  se repite) y columnas por encabezado, nunca por posición. La planta y el nombre no se editan desde la app.
-- **No deja registrar una cédula repetida** (ni en Holcim ni en contratistas).
-- **Respaldo diario del archivo original** antes del primer cambio del día (carpeta *Respaldos Gestion
-  de Brigadas 2.0*, últimos 30 días), además del respaldo diario del 2.0 y del historial de versiones de Google.
-- **Historial**: hoja *Bitácora SIGBE* del 2.0 con cada cambio (quién, cuándo, antes, después).
-- **Sesión con clave** para guardar (6 horas); la clave se guarda cifrada y se verifica en el servidor;
-  5 intentos fallidos bloquean 10 minutos. Sin sesión, la app es de solo lectura.
+  siempre con los valores que acepta la hoja. Personas por cédula (+ nombre si se repite) y columnas por
+  encabezado, nunca por posición. La planta y el nombre no se editan desde la app.
+- **No deja registrar una cédula repetida**.
+- **Borrado masivo**: si una hoja del original queda con menos del 70 % de los datos que tenía la última vez,
+  no se copia y se avisa; se acepta explícitamente desde Configuración.
+- **Respaldo diario** del 2.0 (antes del primer cambio del día) y del original (antes del primer cambio desde
+  la app) en la carpeta de Drive *Respaldos Gestion de Brigadas 2.0*, últimos 30 días; **restauración** desde
+  Configuración. Además, el historial de versiones de Google.
+- **Historial**: hoja *Bitácora SIGBE* del 2.0 con cada cambio (quién, cuándo, antes, después), incluidos
+  los cambios de configuración.
+- **Sesión con clave** (6 horas); la clave se guarda cifrada (SHA-256 con sal) y se verifica en el servidor;
+  5 intentos fallidos bloquean 10 minutos. Con `SIGBE_LECTURA_PUBLICA = no`, incluso ver exige sesión.
+- **Configuración inicial protegida**: desde la app solo la puede hacer la cuenta dueña del proyecto y
+  solo mientras no existan credenciales.
 
 ## Errores de sincronización que pueden aparecer (y qué hace el sistema)
 
 | Situación | Cómo se nota | Qué hace el sistema | Qué hacer |
 |---|---|---|---|
-| El original se borró, está en la papelera o se perdió el acceso | Estado del sistema: "Fuente de datos: Archivo 2.0"; sincronización con ✖ "no se pudo abrir el archivo origen" | No toca el 2.0; la app sigue funcionando con el 2.0; correo al dueño | Si ya no se usa, desactivar la actualización automática. Si debería existir, restaurarlo en Drive. |
-| Cambió el nombre de una pestaña en el original | ✖ "no existe en el archivo origen"; diagnóstico "Hojas en el original" en rojo | Esa hoja no se copia; las demás sí | Volver a ponerle el nombre exacto. |
-| Cambió un encabezado (p. ej. "CÉDULA") | Diagnóstico "Columnas de la hoja HOLCIM" en rojo; la app no puede ubicar personas | La sincronización sigue copiando la hoja completa; la app bloquea las escrituras | Volver a escribir el encabezado igual que antes. |
-| Se borró más del 30 % de una hoja en el original | ⚠ "posible borrado masivo" | Esa hoja **no** se copia al 2.0 (queda la versión anterior) | Si fue a propósito: menú 🔄 → "Sincronizar aceptando un borrado grande". Si no: restaurar el original desde Drive. |
-| Google no deja copiar la pestaña completa | "No se encontró la hoja …" (interno) | Se actualiza celda por celda (datos, fórmulas, colores); se recuerda para las siguientes veces | Nada. Solo bordes y celdas combinadas nuevas no se copian. |
-| Zona horaria distinta entre archivos | ℹ en la sincronización; diagnóstico en amarillo | Avisa | Archivo → Configuración → misma zona horaria en ambos. |
-| Activador apagado o dañado | Diagnóstico "Actualización automática" en amarillo; "Última sincronización" muy antigua | La app sigue programando la actualización rápida al guardar | Menú 🔄 → Desactivar y volver a Activar la actualización automática. |
+| El original se borró, está en la papelera o se perdió el acceso | Estado del sistema: "Fuente de datos: Archivo 2.0"; sincronización con ✖ | No toca el 2.0; la app sigue funcionando con el 2.0; correo al dueño | Si ya no se usa: Configuración → archivo original `NINGUNO`. Si debería existir, restaurarlo en Drive. |
+| Cambió el nombre de una pestaña en el original | ✖ "no existe en el archivo original"; diagnóstico "Hojas en el original" en rojo | Esa hoja no se copia; las demás sí | Volver a ponerle el nombre exacto. |
+| Cambió un encabezado (p. ej. "CÉDULA") | Diagnóstico "Columnas de la hoja HOLCIM" en rojo | La sincronización sigue; la app bloquea las escrituras | Volver a escribir el encabezado igual que antes. |
+| Se borró más del 30 % de una hoja en el original | ⚠ "posible borrado masivo" | Esa hoja **no** se copia | Si fue a propósito: Configuración → "Sincronizar aceptando un borrado grande". Si no: restaurar el original desde Drive. |
+| Google no deja copiar la pestaña completa | "No se encontró la hoja …" (interno) | Se actualiza celda por celda y se recuerda | Nada. |
+| Zona horaria distinta (archivos o proyecto) | Diagnóstico en amarillo | Avisa | Misma zona horaria en ambos archivos y en el proyecto (`appsscript.json`). |
+| Activador apagado | Diagnóstico "Actualización automática" en amarillo | La app sigue programando la actualización rápida al guardar | Configuración → Activar. |
 | La sincronización tarda más de 4 minutos | Diagnóstico "Duración" en amarillo | Avisa (Google corta a los 6 min) | Borrar filas/columnas vacías al final de las hojas del original. |
 | Alguien edita HOLCIM/INHOUSE a mano en el 2.0 | Diagnóstico "Diferencias entre el original y el 2.0" | Se sobrescribe en la próxima sincronización | Editar siempre en el original o desde la app. |
-| Dos sincronizaciones a la vez | "Ya había una sincronización en curso" | La segunda espera 30 s y, si no, se descarta | Nada; vuelve a correr sola. |
-| La app corre con una cuenta sin permiso de edición | Error al guardar; "La app se ejecuta como" en el diagnóstico | No escribe | Implementar como "Yo" (el propietario) o dar permiso de edición a esa cuenta en ambos archivos. |
-| Se pegó el código pero no se publicó | Aviso amarillo de versiones distintas; pantallas viejas | — | Implementar → Administrar implementaciones → ✏️ → Nueva versión. |
-
-## Instalación / actualización
-
-1. En el editor de Apps Script del 2.0:
-   - `Código.gs` → reemplazar todo por el contenido de `SIGBE.gs`.
-   - `Index.html` → reemplazar todo por el contenido de `Index.html`.
-   - `SincronizarBrigadas.gs` → reemplazar todo por la versión actual (trae el detalle de la sincronización y el menú 🩺).
-   - **Guardar (Ctrl + S).**
-2. Si aún no se hizo: recargar el 2.0 → **🔄 Sincronización → 🔐 Configurar usuario y clave de la app SIGBE**.
-3. **Implementar → Administrar implementaciones → ✏️ Editar → Versión: Nueva versión → Implementar.**
-   La URL no cambia. Recomendado: **Ejecutar como: Yo** y acceso para los usuarios de tu organización.
-   Google puede pedir de nuevo permisos (Drive y activadores): aceptarlos.
-4. Abrir la app → **Estado del sistema**: el diagnóstico debe quedar sin errores (los avisos de cédulas
-   repetidas o personas sin cédula son datos por corregir en el original, no fallas).
+| La app corre con una cuenta sin permiso de edición | Error al guardar; diagnóstico "Archivo 2.0" en rojo | No escribe | Compartir ambos archivos con permiso de edición a la cuenta que ejecuta la app. |
+| Se pegó el código pero no se publicó | Aviso amarillo de versiones distintas | — | Implementar → Administrar implementaciones → ✏️ → Nueva versión. |
+| "Inicia sesión para ver la información" | La lectura exige sesión | Pide la clave | Iniciar sesión; o Configuración → Acceso para permitir ver sin sesión. |

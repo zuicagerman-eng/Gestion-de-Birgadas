@@ -85,6 +85,7 @@
               <li><a href="#" class="nav-link" data-vista="indicadores"><i class="fa-solid fa-chart-column"></i> Cobertura</a></li>
               <li><a href="#" class="nav-link" data-vista="historial"><i class="fa-solid fa-clock-rotate-left"></i> Historial de cambios</a></li>
               <li><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i> Estado del sistema</a></li>
+              <li><a href="#" class="nav-link" data-vista="configuracion"><i class="fa-solid fa-gear"></i> Configuración</a></li>
               <li><a href="#" class="nav-link" data-vista="ayuda"><i class="fa-solid fa-circle-question"></i> Ayuda</a></li>
             </ul>
             <hr class="text-secondary">
@@ -260,6 +261,108 @@
           </section>
 
           <!-- ═════════ AYUDA ═════════ -->
+          <!-- ═════════ CONFIGURACIÓN INICIAL ═════════ -->
+          <section class="vista" id="v-setup">
+            <h1 class="h3 fw-bold mb-1">Configuración inicial</h1>
+            <p class="text-muted">La app todavía no está lista para usarse. Falta lo que se indica abajo.</p>
+            <div id="setup-faltantes" class="mb-3"></div>
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <div class="tarjeta p-4 h-100">
+                  <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-sliders me-2 text-primary"></i>Opción A: desde el editor de Apps Script</h2>
+                  <ol class="small">
+                    <li>Abre el proyecto en <b>script.google.com</b> → ⚙️ <b>Configuración del proyecto</b> → <b>Propiedades del script</b> → <i>Añadir propiedad</i>.</li>
+                    <li>Agrega estas propiedades:
+                      <table class="table table-sm small mt-2"><tbody>
+                        <tr><td><code>SIGBE_ID_DESTINO</code></td><td>URL del archivo <b>2.0</b> (obligatorio)</td></tr>
+                        <tr><td><code>SIGBE_ID_ORIGEN</code></td><td>URL del archivo <b>original</b>, o <code>NINGUNO</code> si se trabaja solo con el 2.0</td></tr>
+                        <tr><td><code>SIGBE_USUARIO</code></td><td>usuario administrador (p. ej. <code>admin</code>)</td></tr>
+                        <tr><td><code>SIGBE_CLAVE_INICIAL</code></td><td>clave de al menos 8 caracteres; se cifra y se borra en el primer inicio de sesión</td></tr>
+                        <tr><td><code>SIGBE_LECTURA_PUBLICA</code></td><td><code>no</code> (recomendado: ver exige sesión) o <code>si</code></td></tr>
+                      </tbody></table></li>
+                    <li>Comparte los dos archivos con permiso de <b>edición</b> a la cuenta que ejecuta la app: <b><span id="setup-cuenta"></span></b>.</li>
+                    <li>Recarga esta página.</li>
+                  </ol>
+                </div>
+              </div>
+              <div class="col-lg-6">
+                <div class="tarjeta p-4 h-100" id="setup-form-box">
+                  <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-wand-magic-sparkles me-2 text-primary"></i>Opción B: desde aquí (solo la cuenta dueña del proyecto)</h2>
+                  <div id="setup-no-propietario" class="alert alert-secondary small">Esta opción solo está disponible cuando abre la app la misma cuenta de Google que la ejecuta. Si eres tú, inicia sesión en Google con esa cuenta y recarga; si no, usa la opción A.</div>
+                  <form id="form-setup" style="display:none;">
+                    <div class="mb-2"><label class="form-label small">URL del archivo 2.0 *</label><input id="setup-destino" class="form-control form-control-sm" required placeholder="https://docs.google.com/spreadsheets/d/…"></div>
+                    <div class="mb-2"><label class="form-label small">URL del archivo original (o NINGUNO)</label><input id="setup-origen" class="form-control form-control-sm" placeholder="NINGUNO"></div>
+                    <div class="row g-2">
+                      <div class="col-sm-4"><label class="form-label small">Usuario *</label><input id="setup-usuario" class="form-control form-control-sm" value="admin" required></div>
+                      <div class="col-sm-4"><label class="form-label small">Clave *</label><input type="password" id="setup-clave" class="form-control form-control-sm" minlength="8" required></div>
+                      <div class="col-sm-4"><label class="form-label small">Repetir clave *</label><input type="password" id="setup-clave2" class="form-control form-control-sm" minlength="8" required></div>
+                    </div>
+                    <button class="btn btn-primary btn-sm mt-3" type="submit"><i class="fa-solid fa-check me-1"></i>Guardar configuración inicial</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ═════════ CONFIGURACIÓN ═════════ -->
+          <section class="vista" id="v-configuracion">
+            <h1 class="h3 fw-bold mb-1">Configuración</h1>
+            <p class="text-muted small mb-3">Archivos, acceso, actualización automática, usuario y respaldos. Todo queda registrado en el historial.</p>
+            <div id="conf-sin-sesion" class="alert alert-info" style="display:none;"><i class="fa-solid fa-lock me-1"></i>Inicia sesión para ver y cambiar la configuración. <a href="#" onclick="pedirSesion(cargarConfiguracion);return false;">Iniciar sesión</a></div>
+            <div id="conf-contenido" style="display:none;">
+              <div class="row g-3">
+                <div class="col-lg-6">
+                  <div class="tarjeta p-3 h-100">
+                    <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-table me-2 text-primary"></i>Archivos</h2>
+                    <div class="mb-2"><label class="form-label small mb-0">Archivo 2.0 (obligatorio)</label><input id="conf-destino" class="form-control form-control-sm"><div class="form-text" id="conf-destino-nombre"></div></div>
+                    <div class="mb-2"><label class="form-label small mb-0">Archivo original (URL) o <code>NINGUNO</code></label><input id="conf-origen" class="form-control form-control-sm"><div class="form-text" id="conf-origen-nombre"></div></div>
+                    <button class="btn btn-sm btn-primary" onclick="guardarArchivos()"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar archivos</button>
+                    <p class="small text-muted mt-2 mb-0">La cuenta <b id="conf-cuenta"></b> debe tener permiso de edición en ambos archivos. Al cambiar el original, la próxima sincronización copia todo de nuevo.</p>
+                  </div>
+                </div>
+                <div class="col-lg-6">
+                  <div class="tarjeta p-3 mb-3">
+                    <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-eye me-2 text-primary"></i>Acceso</h2>
+                    <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="conf-lectura"><label class="form-check-label small" for="conf-lectura">Permitir <b>ver</b> la información sin iniciar sesión (guardar siempre exige sesión)</label></div>
+                    <p class="small text-muted mb-2">Si la app es pública (cuenta de Gmail), déjalo apagado: así nadie ve nombres ni cédulas sin la clave.</p>
+                    <button class="btn btn-sm btn-primary" onclick="guardarLectura()"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar acceso</button>
+                  </div>
+                  <div class="tarjeta p-3">
+                    <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-rotate me-2 text-primary"></i>Actualización automática del 2.0</h2>
+                    <div class="small mb-2" id="conf-auto-estado"></div>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                      <select id="conf-horas" class="form-select form-select-sm" style="width:auto"><option value="1">cada 1 hora</option><option value="2">cada 2 horas</option><option value="4">cada 4 horas</option><option value="6">cada 6 horas</option><option value="8">cada 8 horas</option><option value="12">cada 12 horas</option></select>
+                      <button class="btn btn-sm btn-success" onclick="cambiarAutomatico(true)"><i class="fa-solid fa-play me-1"></i>Activar</button>
+                      <button class="btn btn-sm btn-outline-danger" onclick="cambiarAutomatico(false)"><i class="fa-solid fa-stop me-1"></i>Desactivar</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-lg-6">
+                  <div class="tarjeta p-3 h-100">
+                    <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-key me-2 text-primary"></i>Usuario y clave</h2>
+                    <form id="form-clave" onsubmit="cambiarClaveApp(event)">
+                      <div class="row g-2">
+                        <div class="col-sm-6"><label class="form-label small mb-0">Usuario</label><input id="clave-usuario" class="form-control form-control-sm"></div>
+                        <div class="col-sm-6"><label class="form-label small mb-0">Clave actual *</label><input type="password" id="clave-actual" class="form-control form-control-sm" required autocomplete="current-password"></div>
+                        <div class="col-sm-6"><label class="form-label small mb-0">Clave nueva *</label><input type="password" id="clave-nueva" class="form-control form-control-sm" minlength="8" required autocomplete="new-password"></div>
+                        <div class="col-sm-6"><label class="form-label small mb-0">Repetir clave nueva *</label><input type="password" id="clave-nueva2" class="form-control form-control-sm" minlength="8" required autocomplete="new-password"></div>
+                      </div>
+                      <button class="btn btn-sm btn-primary mt-3" type="submit"><i class="fa-solid fa-floppy-disk me-1"></i>Cambiar</button>
+                    </form>
+                  </div>
+                </div>
+                <div class="col-lg-6">
+                  <div class="tarjeta p-3 h-100">
+                    <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-box-archive me-2 text-primary"></i>Respaldos y recuperación</h2>
+                    <p class="small text-muted mb-2">Carpeta de Drive: <span id="conf-carpeta"></span>. Restaurar vuelve a poner en el 2.0 las hojas sincronizadas tal como estaban ese día.</p>
+                    <div class="table-responsive" style="max-height: 220px; overflow:auto;"><table class="table table-sm small mb-2"><thead class="table-light"><tr><th>Fecha</th><th>Archivo</th><th></th></tr></thead><tbody id="conf-respaldos"></tbody></table></div>
+                    <button class="btn btn-sm btn-outline-warning" onclick="sincronizarBorradoGrande()" title="Copia las hojas aunque en el original se haya borrado mucha información"><i class="fa-solid fa-triangle-exclamation me-1"></i>Sincronizar aceptando un borrado grande</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section class="vista ayuda" id="v-ayuda">
             <h1 class="h3 fw-bold mb-1">Ayuda</h1>
             <p class="text-muted small">SIGBE <span id="ayuda-version"></span> · Sistema de Gestión de Brigadas de Emergencia</p>
@@ -268,7 +371,8 @@
               <div class="paso"><div class="n">1</div><div><b>Archivo original</b> (<i>Gestion de Brigadas</i>): ahí marcan los proveedores y el personal Holcim, como siempre. Es la fuente de la verdad.</div></div>
               <div class="paso"><div class="n">2</div><div><b>Esta app</b> lee y guarda los brigadistas <u>directamente en el original</u>: lo que marques aquí lo ven los proveedores al instante, y lo que marquen ellos lo ves tú.</div></div>
               <div class="paso"><div class="n">3</div><div><b>Archivo 2.0</b>: recibe una copia idéntica de las hojas cada hora y, cuando guardas desde la app, en 1 a 2 minutos. No edites a mano las hojas HOLCIM, INHOUSE ni Cronograma del 2.0: se sobrescriben.</div></div>
-              <div class="paso"><div class="n">4</div><div><b>Si el original desaparece</b>, la app pasa sola a usar el 2.0 y nada se pierde.</div></div>
+              <div class="paso"><div class="n">4</div><div><b>Si el original desaparece</b>, la app pasa sola a usar el 2.0 y nada se pierde. Cuando ya no exista, en Configuración escribe <code>NINGUNO</code> como archivo original.</div></div>
+              <div class="paso"><div class="n">5</div><div><b>La app es un proyecto independiente</b> de Apps Script: no vive dentro de ninguna hoja. Sus archivos, usuario y clave se configuran en <b>Configuración</b> (o en las Propiedades del script del editor).</div></div>
 
               <h2><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Qué protege tus datos</h2>
               <ul class="small">
@@ -284,13 +388,14 @@
                 <thead class="table-light"><tr><th>Qué ves</th><th>Qué significa</th><th>Qué hacer</th></tr></thead>
                 <tbody>
                   <tr><td>"La sesión no es válida o expiró"</td><td>La sesión dura 6 horas.</td><td>Inicia sesión otra vez (botón arriba a la derecha).</td></tr>
-                  <tr><td>"Usuario o clave incorrectos" / "Falta configurar el usuario y la clave"</td><td>No hay credenciales o están mal.</td><td>En el 2.0: menú 🔄 Sincronización → 🔐 Configurar usuario y clave.</td></tr>
+                  <tr><td>"Usuario o clave incorrectos" / "Falta configurar el usuario y la clave"</td><td>No hay credenciales o están mal.</td><td>Configuración → Usuario y clave; o en el editor de Apps Script: Propiedades del script <code>SIGBE_USUARIO</code> y <code>SIGBE_CLAVE_INICIAL</code>.</td></tr>
+                  <tr><td>"Inicia sesión para ver la información"</td><td>La app está configurada para exigir sesión incluso para ver.</td><td>Inicia sesión. Para permitir ver sin sesión: Configuración → Acceso.</td></tr>
                   <tr><td>"alguien la cambió mientras tanto"</td><td>Un proveedor marcó esa casilla después de que abriste la lista.</td><td>Vuelve a abrir la sesión y revisa; tu otro cambio sí se guardó.</td></tr>
                   <tr><td>"Datos de brigadistas: archivo 2.0"</td><td>El original no está accesible.</td><td>Revisa que exista y que la cuenta que ejecuta la app pueda editarlo (ver Estado del sistema).</td></tr>
                   <tr><td>"no existe en el archivo origen" (en la sincronización)</td><td>Cambió el nombre de una pestaña en el original.</td><td>Vuelve a ponerle el nombre exacto.</td></tr>
-                  <tr><td>"posible borrado masivo"</td><td>En el original se borró más del 30 % de una hoja; por seguridad no se copió.</td><td>Si fue a propósito: 🔄 Sincronización → Sincronizar aceptando un borrado grande. Si no, restaura el original desde Drive.</td></tr>
+                  <tr><td>"posible borrado masivo"</td><td>En el original se borró más del 30 % de una hoja; por seguridad no se copió.</td><td>Si fue a propósito: Configuración → Sincronizar aceptando un borrado grande. Si no, restaura el original desde Drive.</td></tr>
                   <tr><td>"No se encontró la hoja …" (en la sincronización)</td><td>Google no dejó copiar la pestaña completa.</td><td>Nada: se actualiza celda por celda automáticamente.</td></tr>
-                  <tr><td>El 2.0 no refleja un cambio</td><td>La actualización automática está apagada o aún no corre.</td><td>Estado del sistema → Sincronizar ahora; o activa la actualización automática en el 2.0.</td></tr>
+                  <tr><td>El 2.0 no refleja un cambio</td><td>La actualización automática está apagada o aún no corre.</td><td>Estado del sistema → Sincronizar ahora; o activa la actualización automática en Configuración.</td></tr>
                   <tr><td>Las fechas aparecen un día corridas</td><td>Zona horaria distinta entre archivos.</td><td>Archivo → Configuración → misma zona horaria en ambos.</td></tr>
                   <tr><td>La app se ve "vieja" o sin alguna pantalla</td><td>Se guardó el código pero no se implementó la nueva versión.</td><td>Apps Script → Implementar → Administrar implementaciones → ✏️ → Nueva versión → Implementar.</td></tr>
                   <tr><td>Error inesperado</td><td>Algo en la hoja cambió de forma no prevista.</td><td>Ejecuta el diagnóstico en Estado del sistema: dice qué revisar y dónde.</td></tr>
@@ -376,8 +481,8 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
     // ══════════ estado ══════════
-    const VERSION_HTML = '2.1.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
-    const estado = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sede: leer('localStorage', 'sigbe_sede') || '', sedes: [] };
+    const VERSION_HTML = '3.0.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const estado = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sede: leer('localStorage', 'sigbe_sede') || '', sedes: [], listo: false, lecturaPublica: false, setup: null };
     const asis = { paso: 'sesiones', sesion: null, lista: null, cambios: {}, mostrarInactivos: false, buscar: '', verNoAplican: false };
     let brigadistas = null, brigadistasVisibles = [], cronograma = null, catalogos = null, temariosCargados = false, ultimoEstado = null;
     const modal = id => bootstrap.Modal.getOrCreateInstance(document.getElementById(id));
@@ -401,7 +506,24 @@
       $('avisos').appendChild(el);
       setTimeout(() => el.remove(), ms || 6000);
     }
-    function error(e) { cargando(false); avisar('<b>No se pudo completar.</b> ' + esc(e && e.message ? e.message : e), 'danger', 9000); }
+    function error(e) {
+      cargando(false);
+      const msg = e && e.message ? e.message : String(e);
+      if (/SESION_REQUERIDA/.test(msg)) { // la lectura exige sesión y no hay (o expiró)
+        estado.token = null; estado.usuario = null; guardar('sessionStorage', 'sigbe_token', null); pintarSesion();
+        mostrarBloqueo(true);
+        pedirSesion(async () => { await arrancar(); ir(estado.vista); });
+        return;
+      }
+      avisar('<b>No se pudo completar.</b> ' + esc(msg.replace(/^Error:\s*/, '')), 'danger', 9000);
+    }
+    /** Tapa el contenido cuando hay que iniciar sesión para ver. */
+    function mostrarBloqueo(si) {
+      let b = $('bloqueo');
+      if (!b) { b = document.createElement('div'); b.id = 'bloqueo'; b.className = 'alert alert-info m-4'; b.innerHTML = '<i class="fa-solid fa-lock me-2"></i>Esta aplicación exige iniciar sesión para ver la información. <a href="#" onclick="pedirSesion(async () => { await arrancar(); ir(estado.vista); });return false;">Iniciar sesión</a>'; document.querySelector('main.main').prepend(b); }
+      b.style.display = si ? 'block' : 'none';
+      document.querySelectorAll('.vista').forEach(v => { if (si) v.style.display = 'none'; });
+    }
     const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
     function chipFecha(iso, texto) {
       if (!iso) return `<div class="fecha-chip"><div class="mes">${esc(texto || 'sin fecha')}</div></div>`;
@@ -440,11 +562,22 @@
       $('brig-tabla').onclick = e => { const tr = e.target.closest('tr[data-i]'); if (tr) abrirFicha(brigadistasVisibles[+tr.dataset.i]); };
       window.addEventListener('beforeunload', e => { if (hayCambios()) { e.preventDefault(); e.returnValue = ''; } });
 
+      $('form-setup').onsubmit = enviarSetupInicial;
+      setInterval(() => { if (estado.listo && (estado.lecturaPublica || estado.usuario)) api('getEstadoSincronizacion', estado.token).then(pintarSync).catch(() => {}); }, 60000);
+      await arrancar();
+      ir(estado.listo ? 'inicio' : 'setup');
+    });
+
+    /** Carga el contexto (configuración, sesión, sedes). Se repite tras iniciar sesión o configurar. */
+    async function arrancar() {
       cargando(true);
       try {
         const ctx = await api('getContexto', estado.token);
-        estado.sedes = ctx.sedes;
+        cargando(false);
         estado.usuario = ctx.usuario;
+        estado.lecturaPublica = !!ctx.lecturaPublica;
+        estado.listo = !!(ctx.setup && ctx.setup.listo);
+        estado.setup = ctx.setup;
         $('txt-version').textContent = 'SIGBE v' + (ctx.version || '?');
         $('ayuda-version').textContent = 'v' + (ctx.version || '?');
         if (ctx.version && ctx.version !== VERSION_HTML) {
@@ -452,16 +585,45 @@
           $('banner-version').innerHTML = '<i class="fa-solid fa-triangle-exclamation me-1"></i>Los archivos de la app tienen versiones distintas (pantallas ' + esc(VERSION_HTML) + ', servidor ' + esc(ctx.version) + '). Vuelve a pegar <b>SIGBE.gs</b> e <b>Index.html</b> y publica una nueva versión.';
         }
         if (!estado.usuario) { estado.token = null; guardar('sessionStorage', 'sigbe_token', null); }
+        pintarSesion();
+        if (!estado.listo) { pintarSetup(ctx.setup); return; }
+        if (!estado.lecturaPublica && !estado.usuario) { mostrarBloqueo(true); pedirSesion(async () => { await arrancar(); ir(estado.vista); }); return; }
+        mostrarBloqueo(false);
+        estado.sedes = ctx.sedes || [];
         if (estado.sede && estado.sedes.indexOf(estado.sede) === -1) estado.sede = '';
         $('sel-sede').innerHTML = '<option value="">Todas las sedes</option>' + estado.sedes.map(s => `<option ${s === estado.sede ? 'selected' : ''}>${esc(s)}</option>`).join('');
-        pintarSesion();
         pintarSync(ctx.sync);
-        setInterval(() => api('getEstadoSincronizacion').then(pintarSync).catch(() => {}), 60000);
       } catch (e) { error(e); }
-      ir('inicio');
-    });
+    }
+
+    // ══════════ configuración inicial ══════════
+    function pintarSetup(st) {
+      const faltan = [];
+      if (!st.destinoConfigurado) faltan.push('<b>Archivo 2.0</b>: no está configurado (SIGBE_ID_DESTINO).');
+      else if (!st.destinoAccesible) faltan.push('<b>Archivo 2.0</b>: configurado pero no se puede abrir. ' + esc(st.destinoError));
+      if (!st.credenciales) faltan.push('<b>Usuario y clave</b>: no están configurados (SIGBE_USUARIO y SIGBE_CLAVE_INICIAL).');
+      if (st.origen === 'sin_configurar') faltan.push('<b>Archivo original</b>: no está configurado (SIGBE_ID_ORIGEN). Opcional: pon su URL o NINGUNO.');
+      $('setup-faltantes').innerHTML = faltan.map(f => `<div class="alert alert-warning py-2 mb-2 small"><i class="fa-solid fa-triangle-exclamation me-1"></i>${f}</div>`).join('');
+      $('setup-cuenta').textContent = st.ejecutaComo || '';
+      const puede = st.esPropietario && !st.credenciales;
+      $('setup-no-propietario').style.display = puede ? 'none' : 'block';
+      $('form-setup').style.display = puede ? 'block' : 'none';
+      if (!puede && st.esPropietario && st.credenciales) $('setup-no-propietario').innerHTML = 'Ya hay usuario y clave. Falta el archivo 2.0: inicia sesión y configúralo en <b>Configuración</b>, o ponlo en Propiedades del script.';
+    }
+    async function enviarSetupInicial(e) {
+      e.preventDefault();
+      if ($('setup-clave').value !== $('setup-clave2').value) return avisar('Las claves no coinciden.', 'warning');
+      cargando(true);
+      try {
+        const r = await api('configuracionInicial', { idDestino: $('setup-destino').value, idOrigen: $('setup-origen').value, usuario: $('setup-usuario').value, clave: $('setup-clave').value });
+        cargando(false);
+        avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000);
+        if (r.exito) { await arrancar(); ir(estado.listo ? 'inicio' : 'setup'); }
+      } catch (err) { error(err); }
+    }
 
     function ir(vista) {
+      if (!estado.listo && vista !== 'setup' && vista !== 'ayuda') vista = 'setup';
       if (estado.vista === 'asistencia' && vista !== 'asistencia' && hayCambios() &&
           !confirm('Tienes cambios de asistencia sin guardar. ¿Salir y descartarlos?')) return;
       if (vista !== 'asistencia') asis.cambios = {};
@@ -483,7 +645,8 @@
 
     function cargarVista() {
       ({ inicio: cargarInicio, asistencia: cargarAsistencia, brigadistas: cargarBrigadistas, cronograma: cargarCronograma,
-         temarios: cargarTemarios, indicadores: cargarIndicadores, historial: cargarHistorial, estado: cargarEstado, ayuda: () => {} })[estado.vista]();
+         temarios: cargarTemarios, indicadores: cargarIndicadores, historial: cargarHistorial, estado: cargarEstado, ayuda: () => {},
+         configuracion: cargarConfiguracion, setup: () => {} })[estado.vista]();
     }
 
     function pintarSync(s) {
@@ -522,13 +685,16 @@
         estado.token = r.token; estado.usuario = r.usuario; guardar('sessionStorage', 'sigbe_token', r.token);
         modal('modal-login').hide(); pintarSesion();
         avisar('Sesión iniciada. Ya puedes guardar cambios.');
-        if (trasLogin) { const f = trasLogin; trasLogin = null; f(); } else if (estado.vista === 'asistencia') pintarAsistencia();
+        if (!estado.sedes.length) await arrancar();
+        if (trasLogin) { const f = trasLogin; trasLogin = null; f(); } else if (estado.vista === 'asistencia') pintarAsistencia(); else if (estado.vista === 'configuracion') cargarConfiguracion();
       } catch (err) { error(err); }
     }
     function cerrarSesion() {
       api('cerrarSesionApp', estado.token).catch(() => {});
       estado.token = null; estado.usuario = null; guardar('sessionStorage', 'sigbe_token', null);
-      pintarSesion(); if (estado.vista === 'asistencia') pintarAsistencia();
+      pintarSesion();
+      if (!estado.lecturaPublica) { estado.sedes = []; mostrarBloqueo(true); return; }
+      if (estado.vista === 'asistencia') pintarAsistencia(); else if (estado.vista === 'configuracion') cargarConfiguracion();
     }
     /** Si el servidor dice que la sesión expiró, la pide de nuevo. */
     function revisarSesion(r) {
@@ -544,7 +710,7 @@
       $('inicio-sub').textContent = estado.sede ? 'Sede ' + estado.sede : 'Todas las sedes · elige tu sede arriba para ver solo la tuya';
       cargando(true);
       try {
-        const r = await api('getInicio', estado.sede);
+        const r = await api('getInicio', estado.token, estado.sede);
         cargando(false);
         const pctAsis = r.asistencia.conFecha ? Math.round(r.asistencia.marcadas / r.asistencia.conFecha * 100) : 0;
         const pctCert = r.brigadistas ? Math.round(r.certVigente / r.brigadistas * 100) : 0;
@@ -581,7 +747,7 @@
       if (asis.paso === 'lista' && asis.lista) return pintarAsistencia();
       asis.paso = 'sesiones';
       cargando(true);
-      try { asis.sesiones = await api('getSesionesAsistencia', estado.sede); cargando(false); pintarAsistencia(); }
+      try { asis.sesiones = await api('getSesionesAsistencia', estado.token, estado.sede); cargando(false); pintarAsistencia(); }
       catch (e) { error(e); }
     }
 
@@ -695,7 +861,7 @@
       cargando(true);
       try {
         asis.sesion = asis.sesiones.sesiones.find(x => x.key === key);
-        asis.lista = await api('getListaAsistencia', estado.sede, key);
+        asis.lista = await api('getListaAsistencia', estado.token, estado.sede, key);
         asis.cambios = {}; asis.buscar = ''; asis.paso = 'lista';
         cargando(false); pintarAsistencia(); window.scrollTo(0, 0);
       } catch (e) { error(e); }
@@ -736,12 +902,12 @@
         if (!r.exito) return avisar(esc(r.mensaje), 'danger', 9000);
         const aplicados = cambios.filter(c => !r.conflictos.some(x => x.indexOf(c.nombre) === 0));
         asis.cambios = {};
-        asis.lista = await api('getListaAsistencia', estado.sede, key);
+        asis.lista = await api('getListaAsistencia', estado.token, estado.sede, key);
         pintarAsistencia();
         avisar('<b>' + esc(r.mensaje) + '</b>' + (r.conflictos.length ? '<ul class="small mb-0 mt-1">' + r.conflictos.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' : ''),
           r.conflictos.length ? 'warning' : 'success', 15000,
           aplicados.length ? { texto: 'Deshacer', fn: () => deshacerAsistencia(key, aplicados) } : null);
-        api('getEstadoSincronizacion').then(pintarSync).catch(() => {});
+        api('getEstadoSincronizacion', estado.token).then(pintarSync).catch(() => {});
       } catch (e) { error(e); }
     }
     async function deshacerAsistencia(key, aplicados) {
@@ -751,14 +917,14 @@
         cargando(false);
         if (revisarSesion(r)) return;
         avisar(r.exito ? 'Cambios deshechos.' : esc(r.mensaje), r.exito ? 'info' : 'danger');
-        if (asis.lista) { asis.lista = await api('getListaAsistencia', estado.sede, key); pintarAsistencia(); }
+        if (asis.lista) { asis.lista = await api('getListaAsistencia', estado.token, estado.sede, key); pintarAsistencia(); }
       } catch (e) { error(e); }
     }
 
     // ══════════ BRIGADISTAS ══════════
     async function cargarBrigadistas() {
       cargando(true);
-      try { brigadistas = await api('getBrigadistas', estado.sede); cargando(false); pintarBrigadistas(); }
+      try { brigadistas = await api('getBrigadistas', estado.token, estado.sede); cargando(false); pintarBrigadistas(); }
       catch (e) { error(e); }
     }
     function pintarBrigadistas() {
@@ -792,7 +958,7 @@
     async function abrirFicha(p) {
       cargando(true);
       try {
-        ficha = await api('getFichaBrigadista', p.tipo, p.cedula, p.nombre);
+        ficha = await api('getFichaBrigadista', estado.token, p.tipo, p.cedula, p.nombre);
         cargando(false);
         pintarFicha(false);
         modal('modal-ficha').show();
@@ -836,7 +1002,7 @@
     }
     async function editarFicha() {
       if (!estado.usuario) return pedirSesion(editarFicha);
-      if (!catalogos) { cargando(true); try { catalogos = await api('getCatalogos'); cargando(false); } catch (e) { return error(e); } }
+      if (!catalogos) { cargando(true); try { catalogos = await api('getCatalogos', estado.token); cargando(false); } catch (e) { return error(e); } }
       pintarFicha(true);
     }
     function fechaIsoDesdeTexto(t) { const m = String(t || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? m[3] + '-' + m[2] + '-' + m[1] : ''; }
@@ -869,7 +1035,7 @@
         cargando(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? (r.rechazos && r.rechazos.length ? 'warning' : 'success') : 'danger', 9000);
-        if (r.exito) { brigadistas = null; if (estado.vista === 'brigadistas') cargarBrigadistas(); api('getEstadoSincronizacion').then(pintarSync).catch(() => {}); }
+        if (r.exito) { brigadistas = null; if (estado.vista === 'brigadistas') cargarBrigadistas(); api('getEstadoSincronizacion', estado.token).then(pintarSync).catch(() => {}); }
         else modal('modal-ficha').show();
       } catch (e) { error(e); }
     }
@@ -878,7 +1044,7 @@
       if (!estado.usuario) return pedirSesion(abrirRegistro);
       if (!catalogos) {
         cargando(true);
-        try { catalogos = await api('getCatalogos'); cargando(false); } catch (e) { return error(e); }
+        try { catalogos = await api('getCatalogos', estado.token); cargando(false); } catch (e) { return error(e); }
         $('reg-estado').innerHTML = catalogos.estados.map(x => `<option>${esc(x)}</option>`).join('');
         $('reg-cert').innerHTML = catalogos.certificados.map(x => `<option ${/pendiente/i.test(x) ? 'selected' : ''}>${esc(x)}</option>`).join('');
         $('reg-contratistas').innerHTML = catalogos.contratistas.map(x => `<option value="${esc(x)}">`).join('');
@@ -926,14 +1092,14 @@
         if (!r.exito) { modal('modal-registro').show(); return; }
         brigadistas = null;
         if (estado.vista === 'brigadistas') cargarBrigadistas();
-        api('getEstadoSincronizacion').then(pintarSync).catch(() => {});
+        api('getEstadoSincronizacion', estado.token).then(pintarSync).catch(() => {});
       } catch (e) { error(e); }
     }
 
     // ══════════ CRONOGRAMA ══════════
     async function cargarCronograma() {
       cargando(true);
-      try { cronograma = await api('getCronograma', estado.sede); cargando(false); pintarCronograma(); }
+      try { cronograma = await api('getCronograma', estado.token, estado.sede); cargando(false); pintarCronograma(); }
       catch (e) { error(e); }
     }
     function pintarCronograma() {
@@ -959,7 +1125,7 @@
       if (temariosCargados) return;
       cargando(true);
       try {
-        const nombres = await api('getListaTemarios');
+        const nombres = await api('getListaTemarios', estado.token);
         $('tem-hoja').innerHTML = nombres.map(n => `<option value="${esc(n)}">${esc(n.trim())}</option>`).join('');
         temariosCargados = true;
         cargarTemario();
@@ -968,7 +1134,7 @@
     async function cargarTemario() {
       cargando(true);
       try {
-        const r = await api('getTemarioCapacitacion', $('tem-hoja').value);
+        const r = await api('getTemarioCapacitacion', estado.token, $('tem-hoja').value);
         cargando(false);
         $('tem-acordeon').innerHTML = r.grupos.map((g, i) => `
           <div class="accordion-item">
@@ -986,7 +1152,7 @@
     async function cargarIndicadores() {
       cargando(true);
       try {
-        const filas = await api('getIndicadores', estado.sede);
+        const filas = await api('getIndicadores', estado.token, estado.sede);
         cargando(false);
         const n = x => Math.round(x * 10) / 10;
         $('ind-tabla').innerHTML = filas.map(f => {
@@ -1003,7 +1169,7 @@
     // ══════════ ESTADO DEL SISTEMA ══════════
     async function cargarEstado() {
       cargando(true);
-      try { ultimoEstado = await api('getEstadoSistema'); cargando(false); pintarEstado(); ejecutarDiagnostico(); }
+      try { ultimoEstado = await api('getEstadoSistema', estado.token); cargando(false); pintarEstado(); ejecutarDiagnostico(); }
       catch (e) { error(e); }
     }
     function pintarEstado() {
@@ -1015,7 +1181,7 @@
       $('estado-tarjetas').innerHTML =
         tarjeta(e.fuente === 'archivo original' ? 'ok' : 'aviso', 'Fuente de datos', e.fuente === 'archivo original' ? 'Archivo original' : 'Archivo 2.0', e.origen ? `<a href="${esc(e.origen.url)}" target="_blank">${esc(e.origen.nombre)}</a>` : 'El original no está accesible') +
         tarjeta(syncEstado, 'Última sincronización', s.ultima ? esc(s.ultima) : 'Nunca', s.pendiente ? '<span class="text-warning"><span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem"></span>Hay una actualización en curso</span>' : (d ? 'Duró ' + d.duracionSeg + ' s · ' + ({ manual: 'desde el menú', automatica: 'automática', app: 'desde la app' })[d.origen] : '')) +
-        tarjeta(s.automatica.desconocido ? 'info' : s.automatica.activa ? 'ok' : 'aviso', 'Actualización automática', s.automatica.desconocido ? 'Sin datos' : s.automatica.activa ? 'Activa' : 'Apagada', s.automatica.activa ? 'Cada ' + s.automatica.cadaHoras + ' hora(s)' : 'Actívala en el menú 🔄 del 2.0') +
+        tarjeta(s.automatica.desconocido ? 'info' : s.automatica.activa ? 'ok' : 'aviso', 'Actualización automática', s.automatica.desconocido ? 'Sin datos' : s.automatica.activa ? 'Activa' : 'Apagada', s.automatica.activa ? 'Cada ' + s.automatica.cadaHoras + ' hora(s)' : 'Actívala en Configuración') +
         tarjeta(e.respaldos.ultimos.length ? 'ok' : 'aviso', 'Respaldos', e.respaldos.ultimos.length ? 'Último: ' + esc(e.respaldos.ultimos[0]) : 'Ninguno aún', e.respaldos.url ? `<a href="${esc(e.respaldos.url)}" target="_blank">Abrir carpeta en Drive</a>` : '');
       const icono = { ok: '<i class="fa-solid fa-check text-success"></i>', igual: '<i class="fa-solid fa-equals text-secondary"></i>', aviso: '<i class="fa-solid fa-triangle-exclamation text-warning"></i>', error: '<i class="fa-solid fa-xmark text-danger"></i>', respaldo: '<i class="fa-solid fa-floppy-disk text-primary"></i>', info: '<i class="fa-solid fa-circle-info text-secondary"></i>' };
       $('estado-sync-detalle').innerHTML = d ? `<div class="mb-2">${esc(d.fecha)} · ${d.duracionSeg} s · ${({ manual: 'desde el menú del 2.0', automatica: 'automática', app: 'desde la app' })[d.origen]}${s.ultimaOk ? ' · última sin errores: ' + esc(s.ultimaOk) : ''}</div>` +
@@ -1049,7 +1215,7 @@
       $('btn-diagnostico').disabled = true;
       $('diag-lista').innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2"></span>Revisando accesos, hojas, columnas, activador, respaldos y datos… (unos segundos)</div>';
       try {
-        const d = await api('diagnosticoSistema');
+        const d = await api('diagnosticoSistema', estado.token);
         diagnosticoEnCurso = false; $('btn-diagnostico').disabled = false;
         $('diag-fecha').textContent = 'Revisado: ' + d.fecha;
         $('diag-resumen').innerHTML = `<span class="badge bg-success me-1">${d.resumen.ok} bien</span><span class="badge bg-warning text-dark me-1">${d.resumen.aviso} avisos</span><span class="badge bg-danger">${d.resumen.error} errores</span>`;
@@ -1061,11 +1227,83 @@
       } catch (e) { diagnosticoEnCurso = false; $('btn-diagnostico').disabled = false; $('diag-lista').innerHTML = ''; error(e); }
     }
 
+    // ══════════ CONFIGURACIÓN ══════════
+    let conf = null;
+    async function cargarConfiguracion() {
+      if (!estado.usuario) { $('conf-sin-sesion').style.display = 'block'; $('conf-contenido').style.display = 'none'; return; }
+      cargando(true);
+      try {
+        conf = await api('getConfiguracion', estado.token);
+        cargando(false);
+        if (revisarSesion(conf)) return;
+        $('conf-sin-sesion').style.display = 'none'; $('conf-contenido').style.display = 'block';
+        $('conf-destino').value = conf.idDestino ? 'https://docs.google.com/spreadsheets/d/' + conf.idDestino + '/edit' : '';
+        $('conf-destino-nombre').innerHTML = conf.destinoUrl ? `<a href="${esc(conf.destinoUrl)}" target="_blank">${esc(conf.destinoNombre)}</a>` : esc(conf.destinoNombre);
+        $('conf-origen').value = conf.origen === 'configurado' ? 'https://docs.google.com/spreadsheets/d/' + conf.idOrigen + '/edit' : (conf.origen === 'ninguno' ? 'NINGUNO' : '');
+        $('conf-origen-nombre').innerHTML = conf.origen === 'configurado' ? (conf.origenUrl ? `<a href="${esc(conf.origenUrl)}" target="_blank">${esc(conf.origenNombre)}</a>` : '<span class="text-danger">No se puede abrir con la cuenta que ejecuta la app</span>') : (conf.origen === 'ninguno' ? 'Se trabaja solo con el 2.0' : 'Sin configurar');
+        $('conf-cuenta').textContent = conf.ejecutaComo;
+        $('conf-lectura').checked = !!conf.lecturaPublica;
+        $('conf-horas').value = String(conf.automatica.cadaHoras || 1);
+        $('conf-auto-estado').innerHTML = conf.automatica.activa ? `<span class="punto punto-ok"></span>Activa cada ${conf.automatica.cadaHoras} hora(s).` : (conf.origen === 'configurado' ? '<span class="punto punto-aviso"></span>Apagada: el 2.0 solo se actualiza al guardar desde la app o con "Sincronizar ahora".' : '<span class="punto punto-info"></span>No aplica (no hay archivo original).');
+        $('clave-usuario').value = conf.usuario;
+        $('conf-carpeta').textContent = conf.carpetaRespaldos;
+        $('conf-respaldos').innerHTML = conf.respaldos.length ? conf.respaldos.map(r => `<tr><td>${esc(r.fecha)}</td><td>${r.tipo === '2.0' ? 'Archivo 2.0' : 'Original'}</td><td class="text-end">${r.tipo === '2.0' ? `<button class="btn btn-sm btn-outline-primary py-0" onclick="restaurarDesdeRespaldo('${esc(r.fecha)}')">Restaurar</button>` : ''}</td></tr>`).join('') : '<tr><td colspan="3" class="text-muted">Todavía no hay respaldos (se crean con el primer cambio o sincronización del día).</td></tr>';
+      } catch (e) { error(e); }
+    }
+    async function guardarArchivos() {
+      cargando(true);
+      try { const r = await api('guardarConfiguracion', estado.token, { idDestino: $('conf-destino').value, idOrigen: $('conf-origen').value }); cargando(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000); if (r.exito) { await arrancar(); cargarConfiguracion(); } }
+      catch (e) { error(e); }
+    }
+    async function guardarLectura() {
+      cargando(true);
+      try { const r = await api('guardarConfiguracion', estado.token, { lecturaPublica: $('conf-lectura').checked }); cargando(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger'); if (r.exito) { estado.lecturaPublica = $('conf-lectura').checked; } }
+      catch (e) { error(e); }
+    }
+    async function cambiarAutomatico(activar) {
+      cargando(true);
+      try { const r = await api('configurarAutomatico', estado.token, activar, Number($('conf-horas').value)); cargando(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000); cargarConfiguracion(); }
+      catch (e) { error(e); }
+    }
+    async function cambiarClaveApp(e) {
+      e.preventDefault();
+      if ($('clave-nueva').value !== $('clave-nueva2').value) return avisar('Las claves nuevas no coinciden.', 'warning');
+      cargando(true);
+      try {
+        const r = await api('cambiarClave', estado.token, $('clave-actual').value, $('clave-usuario').value.trim(), $('clave-nueva').value);
+        cargando(false); if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000);
+        if (r.exito) { $('form-clave').reset(); cerrarSesion(); pedirSesion(cargarConfiguracion); }
+      } catch (err) { error(err); }
+    }
+    function restaurarDesdeRespaldo(fecha) {
+      $('conf-titulo').textContent = 'Restaurar el respaldo del ' + fecha;
+      $('conf-cuerpo').innerHTML = '<p>Las hojas sincronizadas del <b>archivo 2.0</b> (HOLCIM, INHOUSE y Cronograma) volverán a quedar como estaban el <b>' + esc(fecha) + '</b>. Lo demás del 2.0 no se toca.</p><p class="small text-muted mb-0">Si el archivo original sigue con el problema, corrígelo o desactiva la actualización automática antes de la próxima sincronización; si no, se volverá a copiar.</p>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-rotate-left me-1"></i>Restaurar';
+      $('conf-ok').onclick = async () => {
+        modal('modal-confirmar').hide(); cargando(true);
+        try { const r = await api('restaurarRespaldo', estado.token, fecha); cargando(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 15000); }
+        catch (e) { error(e); }
+      };
+      modal('modal-confirmar').show();
+    }
+    function sincronizarBorradoGrande() {
+      $('conf-titulo').textContent = 'Sincronizar aceptando un borrado grande';
+      $('conf-cuerpo').innerHTML = '<p>Se copiarán las hojas del original al 2.0 <b>aunque en el original se haya borrado más del 30 %</b> de la información. Úsalo solo si ese borrado fue intencional.</p><p class="small text-muted mb-0">Antes se guarda el respaldo del día, así que podrás restaurar.</p>';
+      $('conf-ok').innerHTML = '<i class="fa-solid fa-triangle-exclamation me-1"></i>Sí, sincronizar';
+      $('conf-ok').onclick = async () => {
+        modal('modal-confirmar').hide(); cargando(true);
+        try { const r = await api('sincronizarAceptandoBorrado', estado.token); cargando(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'warning', 12000); }
+        catch (e) { error(e); }
+      };
+      modal('modal-confirmar').show();
+    }
+
     // ══════════ HISTORIAL ══════════
     async function cargarHistorial() {
       cargando(true);
       try {
-        const filas = await api('getBitacora');
+        const filas = await api('getBitacora', estado.token);
         cargando(false);
         $('hist-tabla').innerHTML = filas.map(f => `<tr><td class="small text-nowrap">${esc(f.fecha)}</td><td class="small">${esc(f.usuario)}</td><td class="small">${esc(f.accion)}</td>
           <td class="small"><b>${esc(f.nombre)}</b><br><span class="text-muted">${esc(f.cedula)}</span></td><td class="small">${esc(f.detalle)}</td>

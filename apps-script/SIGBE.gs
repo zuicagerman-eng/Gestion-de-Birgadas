@@ -1,8 +1,17 @@
 /**
  * SIGBE 2.0 - Sistema de Gestión de Brigadas (backend de la app web)
  *
- * Va en el mismo proyecto de Apps Script del archivo 2.0, junto a SincronizarBrigadas.gs
- * (usa su ID_ORIGEN y su carpeta de respaldos).
+ * PROYECTO INDEPENDIENTE de Apps Script (no va dentro de ninguna hoja). Archivos del proyecto:
+ * SIGBE.gs (este), SincronizarBrigadas.gs, Index.html y appsscript.json.
+ *
+ * CONFIGURACIÓN (Propiedades del script: Configuración del proyecto → Propiedades del script,
+ * o desde la pantalla "Configuración" de la app una vez iniciada la sesión):
+ *   SIGBE_ID_DESTINO        URL o ID del archivo 2.0 (obligatorio)
+ *   SIGBE_ID_ORIGEN         URL o ID del archivo original, o NINGUNO para trabajar solo con el 2.0
+ *   SIGBE_USUARIO           usuario administrador
+ *   SIGBE_CLAVE_INICIAL     clave inicial en texto; la primera vez que se usa se guarda cifrada y se borra
+ *   SIGBE_LECTURA_PUBLICA   "si" = cualquiera con el enlace puede VER (no guardar); "no" = hay que iniciar sesión
+ *   SIGBE_CADA_HORAS        frecuencia de la actualización automática (1, 2, 4, 6, 8 o 12)
  *
  * DÓNDE LEE Y ESCRIBE
  *  - Brigadistas HOLCIM e INHOUSE: en el ARCHIVO ORIGINAL (donde también marcan los proveedores).
@@ -23,7 +32,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '2.1.0';
+const SIGBE_VERSION = '3.0.0';
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -61,23 +70,29 @@ function doGet() {
 
 // ───────────────────────────── INICIO ─────────────────────────────
 
-/** Datos para arrancar la app: sedes disponibles, estado de la sesión y de la sincronización. */
+/**
+ * Datos para arrancar la app: configuración, sesión, sedes y estado de la sincronización.
+ * Si falta configurar algo (archivo 2.0 o credenciales), devuelve setup.listo = false y la app
+ * muestra la pantalla de configuración inicial en vez de los datos.
+ */
 function getContexto(token) {
+  const setup = sigbeEstadoSetup_();
+  const base = { version: SIGBE_VERSION, setup: setup, usuario: sigbeUsuarioSesion_(token), lecturaPublica: sigbeLecturaPublica_(), sedes: [], fuente: '', sync: null };
+  if (!setup.listo) return base;
+  if (!base.lecturaPublica && !base.usuario) return base; // sin sesión no se entregan datos
   const ss = sigbeArchivoDatos_();
   const h = sigbeLeerHolcim_(ss);
   const inh = sigbeLeerInhouse_(ss);
   const sedes = sigbeUnicos_(h.personas.concat(inh).map(p => sigbeSede_(p.planta)));
-  return {
-    version: SIGBE_VERSION,
-    sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1),
-    usuario: sigbeUsuarioSesion_(token),
-    fuente: sigbeFuente_(ss),
-    sync: getEstadoSincronizacion(),
-  };
+  base.sedes = SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1);
+  base.fuente = sigbeFuente_(ss);
+  base.sync = getEstadoSincronizacion(token);
+  return base;
 }
 
 /** Resumen de la sede (o de todas si sede = ''). */
-function getInicio(sede) {
+function getInicio(token, sede) {
+  sigbeExigirLectura_(token);
   const ss = sigbeArchivoDatos_();
   const h = sigbeLeerHolcim_(ss);
   const enSede = p => !sede || sigbeSede_(p.planta) === sede;
@@ -131,7 +146,8 @@ function getInicio(sede) {
 
 // ───────────────────────────── BRIGADISTAS ─────────────────────────────
 
-function getBrigadistas(sede) {
+function getBrigadistas(token, sede) {
+  sigbeExigirLectura_(token);
   const ss = sigbeArchivoDatos_();
   const lista = sigbeLeerHolcim_(ss).personas.map(p => ({
     planta: p.planta, sede: sigbeSede_(p.planta), tipo: 'HOLCIM', contratista: 'HOLCIM', estado: p.estado,
@@ -144,7 +160,8 @@ function getBrigadistas(sede) {
 }
 
 /** Listas para el formulario: plantas, estados y certificados tal como los acepta la hoja. */
-function getCatalogos() {
+function getCatalogos(token) {
+  sigbeExigirLectura_(token);
   const ss = sigbeArchivoDatos_();
   const h = sigbeLeerHolcim_(ss);
   const fila = h.filaEncabezado + 1;
@@ -231,7 +248,8 @@ function registrarBrigadistaNuevo(token, data) {
  * Sesiones de la sede (módulo + sesión) con su fecha, si aplican según el cronograma y cuántos
  * tienen asistencia marcada. Ver sigbeSesionesSede_ para la regla.
  */
-function getSesionesAsistencia(sede) {
+function getSesionesAsistencia(token, sede) {
+  sigbeExigirLectura_(token);
   const ss = sigbeArchivoDatos_();
   const h = sigbeLeerHolcim_(ss);
   const personas = h.personas.filter(p => sigbeSede_(p.planta) === sede && !/DESVINCULADO/.test(sigbeNorm_(p.estado)));
@@ -251,7 +269,8 @@ function getSesionesAsistencia(sede) {
 }
 
 /** Brigadistas de la sede con su asistencia en una sesión. */
-function getListaAsistencia(sede, key) {
+function getListaAsistencia(token, sede, key) {
+  sigbeExigirLectura_(token);
   const ss = sigbeArchivoDatos_();
   const h = sigbeLeerHolcim_(ss);
   const a = h.asistencias.find(x => x.key === key);
@@ -317,7 +336,8 @@ function guardarAsistenciaLote(token, key, cambios) {
 // ───────────────────────────── CRONOGRAMA, TEMARIOS, INDICADORES ─────────────────────────────
 
 /** Sesiones del cronograma de la sede, agrupadas por mes, listas para mostrar como lista. */
-function getCronograma(sede) {
+function getCronograma(token, sede) {
+  sigbeExigirLectura_(token);
   const hoy = sigbeHoy_();
   const sesiones = sigbeSesionesCronograma_().filter(s => !sede || s.sede === sede);
   sesiones.forEach(s => { s.pasada = !!s.fechaIso && s.fechaIso < hoy; });
@@ -325,9 +345,10 @@ function getCronograma(sede) {
 }
 
 /** Hojas de temario disponibles (en el 2.0 y, si existe, en el original). */
-function getListaTemarios() {
+function getListaTemarios(token) {
+  sigbeExigirLectura_(token);
   const nombres = [];
-  [SpreadsheetApp.getActiveSpreadsheet(), sigbeOrigenOpcional_()].forEach(ss => {
+  [sigbeDestino_(), sigbeOrigenOpcional_()].forEach(ss => {
     if (!ss) return;
     ss.getSheets().forEach(h => {
       const n = h.getName();
@@ -338,9 +359,10 @@ function getListaTemarios() {
 }
 
 /** Lee un temario: encabezados en la primera fila con 3 o más títulos; agrupa por la primera columna. */
-function getTemarioCapacitacion(nombreHoja) {
+function getTemarioCapacitacion(token, nombreHoja) {
+  sigbeExigirLectura_(token);
   const origen = sigbeOrigenOpcional_();
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(nombreHoja) || (origen && origen.getSheetByName(nombreHoja));
+  const sh = sigbeDestino_().getSheetByName(nombreHoja) || (origen && origen.getSheetByName(nombreHoja));
   if (!sh) throw new Error('No existe la hoja ' + nombreHoja);
   const v = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getDisplayValues();
   const r0 = v.findIndex(f => f.filter(x => String(x).trim()).length >= 3);
@@ -359,14 +381,16 @@ function getTemarioCapacitacion(nombreHoja) {
   return { encabezado: enc[0], grupos: grupos };
 }
 
-function getIndicadores(sede) {
+function getIndicadores(token, sede) {
+  sigbeExigirLectura_(token);
   return sigbeLeerIndicador_().filter(f => !sede || sigbeSede_(f.planta) === sede);
 }
 
 // ───────────────────────────── HISTORIAL ─────────────────────────────
 
-function getBitacora() {
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SIGBE_HOJA_BITACORA);
+function getBitacora(token) {
+  sigbeExigirLectura_(token);
+  const sh = sigbeDestino_().getSheetByName(SIGBE_HOJA_BITACORA);
   if (!sh || sh.getLastRow() < 2) return [];
   const n = Math.min(sh.getLastRow() - 1, 200);
   return sh.getRange(sh.getLastRow() - n + 1, 1, n, 10).getValues().reverse().map(f => ({
@@ -378,7 +402,8 @@ function getBitacora() {
 // ───────────────────────────── FICHA Y EDICIÓN DE BRIGADISTA ─────────────────────────────
 
 /** Todo lo de una persona: datos, certificado y, si es HOLCIM, cada sesión con su fecha y asistencia. */
-function getFichaBrigadista(tipo, cedula, nombre) {
+function getFichaBrigadista(token, tipo, cedula, nombre) {
+  sigbeExigirLectura_(token);
   const ss = sigbeArchivoDatos_();
   if (tipo === 'INHOUSE') {
     const p = sigbeBuscarPersona_(sigbeLeerInhouse_(ss), cedula, nombre);
@@ -476,26 +501,29 @@ function actualizarBrigadista(token, data) {
 // ───────────────────────────── ESTADO DEL SISTEMA Y DIAGNÓSTICO ─────────────────────────────
 
 /** Estado general para la pantalla "Estado del sistema". */
-function getEstadoSistema() {
+function getEstadoSistema(token) {
+  sigbeExigirLectura_(token);
   const ss = sigbeArchivoDatos_();
   const origen = sigbeOrigenOpcional_();
+  const destino = sigbeDestino_();
   let detalle = null;
   let ultimaOk = '';
   try {
-    const props = PropertiesService.getDocumentProperties();
+    const props = PropertiesService.getScriptProperties();
     detalle = JSON.parse(props.getProperty('ULTIMO_RESULTADO_JSON') || 'null');
     ultimaOk = props.getProperty('ULTIMA_SYNC_OK') || '';
   } catch (e) { /* sin propiedades */ }
   return {
     version: SIGBE_VERSION,
     fuente: sigbeFuente_(ss),
+    modoOrigen: configOrigen_().modo,
     origen: origen ? { nombre: origen.getName(), url: origen.getUrl() } : null,
-    destino: { nombre: SpreadsheetApp.getActiveSpreadsheet().getName(), url: SpreadsheetApp.getActiveSpreadsheet().getUrl() },
+    destino: { nombre: destino.getName(), url: destino.getUrl() },
     ejecutaComo: sigbeCorreoEjecucion_(),
-    sync: Object.assign(getEstadoSincronizacion(), { detalle: detalle, ultimaOk: ultimaOk, automatica: sigbeActivadorAutomatico_() }),
+    sync: Object.assign(getEstadoSincronizacion(token), { detalle: detalle, ultimaOk: ultimaOk, automatica: sigbeActivadorAutomatico_() }),
     respaldos: sigbeResumenRespaldos_(),
     bitacora: sigbeConteoBitacora_(),
-    hojasSincronizadas: typeof HOJAS_A_COPIAR !== 'undefined' ? HOJAS_A_COPIAR : [],
+    hojasSincronizadas: HOJAS_A_COPIAR,
   };
 }
 
@@ -503,7 +531,7 @@ function getEstadoSistema() {
 function sincronizarDesdeApp(token) {
   try {
     sigbeExigirSesion_(token);
-    if (typeof sincronizar_ !== 'function') return { exito: false, mensaje: 'Falta el archivo SincronizarBrigadas.gs en el proyecto.' };
+    if (configOrigen_().modo === 'ninguno') return { exito: true, mensaje: 'Se trabaja solo con el 2.0: no hay archivo original que sincronizar.' };
     const r = sincronizar_(true, false, 'app');
     if (r.enCurso) return { exito: true, enCurso: true, mensaje: 'Ya había una sincronización en curso; espera un momento y revisa el estado.' };
     return { exito: !r.error, mensaje: r.error ? 'Terminó con avisos o errores. Revisa el detalle.' : 'Sincronización completa.', detalle: r.detalle };
@@ -516,23 +544,42 @@ function sincronizarDesdeApp(token) {
  * Revisa todo lo que puede fallar en la sincronización y en la app, y dice qué hacer en cada caso.
  * Lo usa la pantalla "Estado del sistema" y el menú 🩺 del 2.0.
  */
-function diagnosticoSistema() {
+function diagnosticoSistema(token) {
+  sigbeExigirLectura_(token);
+  return sigbeDiagnostico_();
+}
+
+function sigbeDiagnostico_() {
   const R = [];
   const add = (clave, estado, titulo, detalle, solucion) => R.push({ clave: clave, estado: estado, titulo: titulo, detalle: detalle || '', solucion: solucion || '' });
-  const destino = SpreadsheetApp.getActiveSpreadsheet();
+  const cadaHoras = cadaHoras_();
+
+  // 0. Configuración del proyecto
+  let destino = null;
+  try {
+    destino = sigbeDestino_();
+    add('destino', 'ok', 'Archivo 2.0', 'Accesible: "' + destino.getName() + '".');
+  } catch (e) {
+    add('destino', 'error', 'Archivo 2.0', e.message, 'En Configuración (o en Propiedades del script) pon la URL del archivo 2.0 y comparte ese archivo con permiso de edición a ' + sigbeCorreoEjecucion_() + '.');
+    add('ejecucion', 'info', 'La app se ejecuta como', sigbeCorreoEjecucion_() + '. Esa cuenta necesita editar el original y el 2.0.');
+    return sigbeCerrarDiagnostico_(R);
+  }
+  const cfgOrigen = configOrigen_();
   const origen = sigbeOrigenOpcional_();
-  const cadaHoras = typeof CADA_HORAS !== 'undefined' ? CADA_HORAS : 1;
 
   // 1. Archivo original
-  if (origen) add('origen', 'ok', 'Archivo original', 'Accesible: "' + origen.getName() + '". La app lee y guarda ahí.');
-  else add('origen', 'aviso', 'Archivo original', 'No se puede abrir (borrado, en la papelera o sin acceso). La app está usando el 2.0.',
-    'Si el original ya no se usa, desactiva la actualización automática en el menú 🔄 del 2.0. Si debería existir, revisa Drive y los permisos de ' + sigbeCorreoEjecucion_() + '.');
+  if (cfgOrigen.modo === 'ninguno') add('origen', 'info', 'Archivo original', 'Configurado para trabajar solo con el 2.0 (NINGUNO). La app lee y guarda en el 2.0 y no hay nada que sincronizar.');
+  else if (cfgOrigen.modo === 'sin_configurar') add('origen', 'aviso', 'Archivo original', 'No está configurado. La app está usando el 2.0 mientras tanto.',
+    'En Configuración pon la URL del archivo original, o escribe NINGUNO si se trabaja solo con el 2.0.');
+  else if (origen) add('origen', 'ok', 'Archivo original', 'Accesible: "' + origen.getName() + '". La app lee y guarda ahí.');
+  else add('origen', 'aviso', 'Archivo original', 'No se puede abrir (ID incorrecto, borrado, en la papelera o sin acceso). La app está usando el 2.0.',
+    'Revisa la URL en Configuración y que ' + sigbeCorreoEjecucion_() + ' tenga permiso de edición en ese archivo. Si ya no se usa, escribe NINGUNO y desactiva la actualización automática.');
 
   // 2. Hojas en el original
   if (origen) {
-    const hojas = (typeof HOJAS_A_COPIAR !== 'undefined' ? HOJAS_A_COPIAR : [SIGBE_HOJA_HOLCIM, SIGBE_HOJA_INHOUSE, SIGBE_HOJA_CRONOGRAMA]);
+    const hojas = HOJAS_A_COPIAR;
     const faltan = hojas.filter(n => { try { sigbeHoja_(origen, n); return false; } catch (e) { return true; } });
-    if (faltan.length) add('hojasOrigen', 'error', 'Hojas en el original', 'No se encuentran: ' + faltan.join(', ') + '. La sincronización marcará "no existe en el archivo origen".',
+    if (faltan.length) add('hojasOrigen', 'error', 'Hojas en el original', 'No se encuentran: ' + faltan.join(', ') + '. La sincronización marcará "no existe en el archivo original".',
       'Alguien cambió el nombre de la pestaña en el original. Vuelve a ponerle el nombre exacto o actualiza HOJAS_A_COPIAR en SincronizarBrigadas.gs.');
     else add('hojasOrigen', 'ok', 'Hojas en el original', 'Están todas las que se sincronizan (' + hojas.length + ').');
   }
@@ -554,34 +601,39 @@ function diagnosticoSistema() {
 
   // 4. Hojas del 2.0
   const faltan20 = [SIGBE_HOJA_INDICADOR, SIGBE_HOJA_CRONOGRAMA, SIGBE_HOJA_HOLCIM, SIGBE_HOJA_INHOUSE].filter(n => { try { sigbeHoja_(destino, n); return false; } catch (e) { return true; } });
-  if (faltan20.length) add('hojas20', 'error', 'Hojas del archivo 2.0', 'Faltan: ' + faltan20.join(', ') + '.', 'Ejecuta "Sincronizar ahora" (trae HOLCIM, INHOUSE y Cronograma) o revisa el nombre de la pestaña Indicador.');
+  if (faltan20.length) add('hojas20', 'error', 'Hojas del archivo 2.0', 'Faltan: ' + faltan20.join(', ') + '.', 'Ejecuta "Sincronizar ahora" en Estado del sistema (trae HOLCIM, INHOUSE y Cronograma) o revisa el nombre de la pestaña Indicador.');
   else add('hojas20', 'ok', 'Hojas del archivo 2.0', 'Indicador, Cronograma, HOLCIM e INHOUSE presentes.');
 
   // 5. Zona horaria
+  const tzScript = Session.getScriptTimeZone(), tz20 = destino.getSpreadsheetTimeZone();
   if (origen) {
-    const a = origen.getSpreadsheetTimeZone(), b = destino.getSpreadsheetTimeZone();
-    if (a !== b) add('zonaHoraria', 'aviso', 'Zona horaria', 'Original: ' + a + ' · 2.0: ' + b + '. Las fechas pueden correrse un día al copiarse.', 'En cada archivo: Archivo → Configuración → Zona horaria, y deja la misma (America/Bogota).');
+    const a = origen.getSpreadsheetTimeZone();
+    if (a !== tz20) add('zonaHoraria', 'aviso', 'Zona horaria', 'Original: ' + a + ' · 2.0: ' + tz20 + '. Las fechas pueden correrse un día al copiarse.', 'En cada archivo: Archivo → Configuración → Zona horaria, y deja la misma (America/Bogota).');
     else add('zonaHoraria', 'ok', 'Zona horaria', 'Ambos archivos en ' + a + '.');
   }
+  if (tzScript !== tz20) add('zonaHorariaScript', 'aviso', 'Zona horaria del proyecto', 'El script usa ' + tzScript + ' y el 2.0 ' + tz20 + '. Las fechas y horas de la bitácora y los respaldos pueden salir corridas.',
+    'En el editor: Configuración del proyecto → Zona horaria → la misma del archivo (o pon "timeZone": "America/Bogota" en appsscript.json).');
 
   // 6. Activador automático
   const auto = sigbeActivadorAutomatico_();
-  if (auto.desconocido) add('activador', 'info', 'Actualización automática', 'No se pudo consultar desde aquí.', 'Revísalo en el menú 🔄 Sincronización del 2.0.');
+  if (cfgOrigen.modo === 'ninguno') add('activador', auto.activa ? 'aviso' : 'ok', 'Actualización automática', auto.activa ? 'Está activa pero no hay archivo original: corre sin hacer nada.' : 'No es necesaria (se trabaja solo con el 2.0).', auto.activa ? 'Desactívala en Configuración.' : '');
+  else if (auto.desconocido) add('activador', 'info', 'Actualización automática', 'No se pudo consultar desde aquí.', 'Revísala en Configuración.');
   else if (auto.activa) add('activador', 'ok', 'Actualización automática', 'Activa: cada ' + cadaHoras + ' hora(s).');
-  else add('activador', 'aviso', 'Actualización automática', 'No está activa: el 2.0 solo se actualiza cuando alguien sincroniza a mano o guarda desde la app.', 'En el 2.0: menú 🔄 Sincronización → Activar actualización automática.');
+  else add('activador', 'aviso', 'Actualización automática', 'No está activa: el 2.0 solo se actualiza cuando alguien sincroniza a mano o guarda desde la app.', 'Actívala en Configuración.');
 
   // 7. Última sincronización
-  const est = getEstadoSincronizacion();
+  const est = sigbeEstadoSync_();
   let detalle = null;
-  try { detalle = JSON.parse(PropertiesService.getDocumentProperties().getProperty('ULTIMO_RESULTADO_JSON') || 'null'); } catch (e) {}
-  if (!est.ultima) add('ultimaSync', 'aviso', 'Última sincronización', 'Nunca se ha sincronizado.', 'En el 2.0: menú 🔄 Sincronización → Sincronizar ahora.');
+  try { detalle = JSON.parse(PropertiesService.getScriptProperties().getProperty('ULTIMO_RESULTADO_JSON') || 'null'); } catch (e) {}
+  if (cfgOrigen.modo === 'ninguno') { /* sin original no hay sincronización que revisar */ }
+  else if (!est.ultima) add('ultimaSync', 'aviso', 'Última sincronización', 'Nunca se ha sincronizado.', 'En Estado del sistema pulsa "Sincronizar ahora".');
   else {
     const horas = sigbeHorasDesde_(est.ultima);
     const errores = detalle && detalle.lineas ? detalle.lineas.filter(l => l.tipo === 'error' || l.tipo === 'aviso') : [];
     if (errores.length) add('ultimaSync', 'error', 'Última sincronización', est.ultima + ': ' + errores.map(l => l.texto).join(' | '),
-      'Lee el mensaje: "no existe en el archivo origen" = pestaña renombrada; "posible borrado masivo" = se borró mucha información en el original (si es correcto, usa "Sincronizar aceptando un borrado grande"); "No se encontró la hoja" = Google no dejó copiar la pestaña (se reintenta celda por celda).');
+      'Lee el mensaje: "no existe en el archivo original" = pestaña renombrada; "posible borrado masivo" = se borró mucha información en el original (si es correcto, usa "Sincronizar aceptando un borrado grande" en Configuración); "No se encontró la hoja" = Google no dejó copiar la pestaña (se reintenta celda por celda).');
     else if (auto.activa && horas !== null && horas > cadaHoras * 2 + 0.5) add('ultimaSync', 'aviso', 'Última sincronización', est.ultima + ' (hace ' + Math.round(horas) + ' horas, más de lo esperado).',
-      'El activador puede haber fallado (Google avisa por correo al dueño). Prueba "Sincronizar ahora"; si falla, desactiva y vuelve a activar la actualización automática.');
+      'El activador puede haber fallado (Google avisa por correo al dueño). Prueba "Sincronizar ahora"; si falla, desactiva y vuelve a activar la actualización automática en Configuración.');
     else add('ultimaSync', 'ok', 'Última sincronización', est.ultima + (detalle ? ' · ' + detalle.duracionSeg + ' s · ' + ({ manual: 'desde el menú', automatica: 'automática', app: 'desde la app' })[detalle.origen] : '') + (est.pendiente ? ' · hay una actualización rápida en curso' : ''));
     if (detalle && detalle.duracionSeg > 240) add('duracionSync', 'aviso', 'Duración de la sincronización', detalle.duracionSeg + ' segundos. Google corta los scripts a los 6 minutos.',
       'Reduce filas/columnas vacías en las hojas del original (filas al final sin datos) o quita hojas de HOJAS_A_COPIAR que no necesites.');
@@ -606,12 +658,15 @@ function diagnosticoSistema() {
   const resp = sigbeResumenRespaldos_();
   if (!resp.carpeta) add('respaldos', 'aviso', 'Respaldos', 'Todavía no existe la carpeta de respaldos (se crea con el primer cambio o sincronización).');
   else add('respaldos', resp.ultimos.length || resp.ultimosOriginal.length ? 'ok' : 'aviso', 'Respaldos en Drive', resp.ultimos.length || resp.ultimosOriginal.length ? 'Último del 2.0: ' + (resp.ultimos[0] || 'ninguno aún') + ' · último del original: ' + (resp.ultimosOriginal[0] || 'ninguno aún') : 'La carpeta existe pero está vacía.',
-    'Se restaura desde el menú 🔄 Sincronización → Restaurar desde un respaldo, o abriendo la copia en Drive.');
+    'Se restaura desde Configuración → Respaldos, o abriendo la copia en Drive.');
 
-  // 10. Usuario y clave
+  // 10. Usuario, clave y lectura
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty('SIGBE_USUARIO') && props.getProperty('SIGBE_CLAVE_HASH')) add('credenciales', 'ok', 'Usuario y clave de la app', 'Configurados (usuario: ' + props.getProperty('SIGBE_USUARIO') + ').');
-  else add('credenciales', 'error', 'Usuario y clave de la app', 'No están configurados: nadie puede guardar desde la app.', 'En el 2.0: menú 🔄 Sincronización → 🔐 Configurar usuario y clave de la app SIGBE.');
+  if (props.getProperty('SIGBE_USUARIO') && (props.getProperty('SIGBE_CLAVE_HASH') || props.getProperty('SIGBE_CLAVE_INICIAL'))) add('credenciales', 'ok', 'Usuario y clave de la app', 'Configurados (usuario: ' + props.getProperty('SIGBE_USUARIO') + ')' + (props.getProperty('SIGBE_CLAVE_INICIAL') ? '. La clave inicial se cifrará en el primer inicio de sesión.' : '.'));
+  else add('credenciales', 'error', 'Usuario y clave de la app', 'No están configurados: nadie puede guardar desde la app.', 'En Propiedades del script pon SIGBE_USUARIO y SIGBE_CLAVE_INICIAL, o usa la configuración inicial de la app.');
+  add('lectura', sigbeLecturaPublica_() ? 'aviso' : 'ok', 'Lectura sin iniciar sesión', sigbeLecturaPublica_()
+    ? 'Permitida: cualquiera que tenga el enlace de la app puede ver nombres y cédulas (solo guardar exige sesión).'
+    : 'Exigida: hay que iniciar sesión para ver la información.', sigbeLecturaPublica_() ? 'Si la app es pública (cuenta de Gmail), conviene exigir sesión en Configuración.' : '');
 
   // 11. Calidad de datos
   if (holcim && inhouse) {
@@ -655,23 +710,25 @@ function diagnosticoSistema() {
   // 13. Ejecución y versión
   add('ejecucion', 'info', 'La app se ejecuta como', sigbeCorreoEjecucion_() + '. Esa cuenta necesita editar el original y el 2.0.');
   add('version', 'info', 'Versión instalada', 'SIGBE ' + SIGBE_VERSION + '. Si la app muestra otra versión, falta "Implementar → Nueva versión".');
+  return sigbeCerrarDiagnostico_(R);
+}
 
+function sigbeCerrarDiagnostico_(R) {
   return { fecha: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'), revisiones: R,
     resumen: { ok: R.filter(r => r.estado === 'ok').length, aviso: R.filter(r => r.estado === 'aviso').length, error: R.filter(r => r.estado === 'error').length } };
 }
 
 function sigbeActivadorAutomatico_() {
   try {
-    const t = ScriptApp.getProjectTriggers().filter(x => x.getHandlerFunction() === 'sincronizar');
-    return { activa: t.length > 0, cadaHoras: typeof CADA_HORAS !== 'undefined' ? CADA_HORAS : 1 };
+    return { activa: automaticoActivo_(), cadaHoras: cadaHoras_() };
   } catch (e) {
-    return { activa: false, desconocido: true };
+    return { activa: false, desconocido: true, cadaHoras: cadaHoras_() };
   }
 }
 
 function sigbeResumenRespaldos_() {
   try {
-    const nombre = typeof CARPETA_RESPALDOS !== 'undefined' ? CARPETA_RESPALDOS : 'Respaldos Gestion de Brigadas 2.0';
+    const nombre = CARPETA_RESPALDOS;
     const it = DriveApp.getFoldersByName(nombre);
     if (!it.hasNext()) return { carpeta: null, ultimos: [], ultimosOriginal: [] };
     const carpeta = it.next();
@@ -690,7 +747,7 @@ function sigbeResumenRespaldos_() {
 }
 
 function sigbeConteoBitacora_() {
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SIGBE_HOJA_BITACORA);
+  const sh = sigbeDestino_().getSheetByName(SIGBE_HOJA_BITACORA);
   return sh ? Math.max(sh.getLastRow() - 1, 0) : 0;
 }
 
@@ -715,9 +772,10 @@ function validarLoginAdmin(usuario, clave) {
   const intentos = Number(cache.get('sigbe_intentos')) || 0;
   if (intentos >= 5) return { exito: false, mensaje: 'Demasiados intentos. Espera 10 minutos.' };
   const props = PropertiesService.getScriptProperties();
+  sigbeConsumirClaveInicial_(props);
   const u = props.getProperty('SIGBE_USUARIO');
   const hash = props.getProperty('SIGBE_CLAVE_HASH');
-  if (!u || !hash) return { exito: false, mensaje: 'Falta configurar el usuario y la clave (menú 🔄 Sincronización del 2.0).' };
+  if (!u || !hash) return { exito: false, mensaje: 'Falta configurar el usuario y la clave (Propiedades del script SIGBE_USUARIO y SIGBE_CLAVE_INICIAL).' };
   if (String(usuario).trim() === u && sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash) {
     cache.remove('sigbe_intentos');
     const token = Utilities.getUuid();
@@ -733,22 +791,207 @@ function cerrarSesionApp(token) {
   return true;
 }
 
-/** Menú del 2.0: guarda usuario y clave de la app (la clave se guarda cifrada con SHA-256, no en el código). */
-function configurarUsuarioApp() {
-  const ui = SpreadsheetApp.getUi();
-  const u = ui.prompt('Usuario de la app SIGBE', 'Escribe el usuario administrador:', ui.ButtonSet.OK_CANCEL);
-  if (u.getSelectedButton() !== ui.Button.OK || !u.getResponseText().trim()) return;
-  const c = ui.prompt('Clave de la app SIGBE', 'Escribe la clave (mínimo 8 caracteres):', ui.ButtonSet.OK_CANCEL);
-  if (c.getSelectedButton() !== ui.Button.OK) return;
-  if (c.getResponseText().length < 8) { ui.alert('La clave debe tener al menos 8 caracteres.'); return; }
+/** Si hay una clave inicial en texto (SIGBE_CLAVE_INICIAL), la guarda cifrada y la borra. */
+function sigbeConsumirClaveInicial_(props) {
+  const inicial = props.getProperty('SIGBE_CLAVE_INICIAL');
+  if (!inicial) return;
+  sigbeGuardarClave_(props.getProperty('SIGBE_USUARIO') || 'admin', inicial);
+  props.deleteProperty('SIGBE_CLAVE_INICIAL');
+}
+
+function sigbeGuardarClave_(usuario, clave) {
+  if (String(clave || '').length < 8) throw new Error('La clave debe tener al menos 8 caracteres.');
   const sal = Utilities.getUuid();
   PropertiesService.getScriptProperties().setProperties({
-    SIGBE_USUARIO: u.getResponseText().trim(),
+    SIGBE_USUARIO: String(usuario || 'admin').trim(),
     SIGBE_SAL: sal,
-    SIGBE_CLAVE_HASH: sigbeHash_(c.getResponseText(), sal),
+    SIGBE_CLAVE_HASH: sigbeHash_(clave, sal),
   });
-  ui.alert('Listo. Usuario y clave de la app actualizados.');
 }
+
+// ───────────────────────────── CONFIGURACIÓN (pantalla de la app) ─────────────────────────────
+
+/** ¿Cualquiera con el enlace puede ver (no guardar)? Por defecto no: en una cuenta pública conviene exigir sesión. */
+function sigbeLecturaPublica_() {
+  return /^(si|sí|true|1)$/i.test(String(PropertiesService.getScriptProperties().getProperty('SIGBE_LECTURA_PUBLICA') || 'no').trim());
+}
+
+/** Lanza error si la lectura exige sesión y no la hay. El frontend reconoce el prefijo SESION_REQUERIDA. */
+function sigbeExigirLectura_(token) {
+  if (sigbeLecturaPublica_()) return;
+  if (!sigbeUsuarioSesion_(token)) throw new Error('SESION_REQUERIDA: Inicia sesión para ver la información.');
+}
+
+/** Qué falta para que la app pueda funcionar. */
+function sigbeEstadoSetup_() {
+  const props = PropertiesService.getScriptProperties();
+  const credenciales = !!(props.getProperty('SIGBE_USUARIO') && (props.getProperty('SIGBE_CLAVE_HASH') || props.getProperty('SIGBE_CLAVE_INICIAL')));
+  let destinoOk = false, destinoError = '';
+  if (idDestino_()) { try { sigbeDestino_(); destinoOk = true; } catch (e) { destinoError = e.message; } }
+  return {
+    listo: credenciales && destinoOk,
+    credenciales: credenciales,
+    destinoConfigurado: !!idDestino_(),
+    destinoAccesible: destinoOk,
+    destinoError: destinoError,
+    origen: configOrigen_().modo,
+    esPropietario: sigbeEsPropietario_(),
+    ejecutaComo: sigbeCorreoEjecucion_(),
+  };
+}
+
+/** True cuando quien abre la app es la misma cuenta que la ejecuta (el dueño del proyecto). */
+function sigbeEsPropietario_() {
+  try {
+    const activo = Session.getActiveUser().getEmail();
+    const efectivo = Session.getEffectiveUser().getEmail();
+    return !!activo && activo === efectivo;
+  } catch (e) { return false; }
+}
+
+/**
+ * Configuración inicial desde la app: solo mientras NO existan credenciales y solo para el dueño
+ * del proyecto (para que nadie más pueda apropiarse de una app recién publicada).
+ */
+function configuracionInicial(datos) {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SIGBE_USUARIO') && (props.getProperty('SIGBE_CLAVE_HASH') || props.getProperty('SIGBE_CLAVE_INICIAL'))) {
+    return { exito: false, mensaje: 'La app ya tiene usuario y clave. Inicia sesión y usa Configuración.' };
+  }
+  if (!sigbeEsPropietario_()) {
+    return { exito: false, mensaje: 'La configuración inicial solo puede hacerla la cuenta dueña del proyecto (' + sigbeCorreoEjecucion_() + '), o bien poniendo SIGBE_USUARIO y SIGBE_CLAVE_INICIAL en las Propiedades del script.' };
+  }
+  try {
+    const usuario = String(datos.usuario || '').trim();
+    if (!usuario) return { exito: false, mensaje: 'El usuario es obligatorio.' };
+    if (datos.idDestino !== undefined) props.setProperty('SIGBE_ID_DESTINO', idDesdeTexto_(datos.idDestino));
+    if (datos.idOrigen !== undefined) props.setProperty('SIGBE_ID_ORIGEN', /^NINGUNO$/i.test(String(datos.idOrigen).trim()) || !String(datos.idOrigen).trim() ? 'NINGUNO' : idDesdeTexto_(datos.idOrigen));
+    sigbeGuardarClave_(usuario, datos.clave);
+    return { exito: true, mensaje: 'Configuración guardada. Ya puedes iniciar sesión.' };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
+}
+
+/** Configuración actual (exige sesión). */
+function getConfiguracion(token) {
+  sigbeExigirSesion_(token);
+  const props = PropertiesService.getScriptProperties();
+  const cfg = configOrigen_();
+  let destinoNombre = '', destinoUrl = '', origenNombre = '', origenUrl = '';
+  try { const d = sigbeDestino_(); destinoNombre = d.getName(); destinoUrl = d.getUrl(); } catch (e) { destinoNombre = '(no accesible) ' + e.message; }
+  const o = sigbeOrigenOpcional_();
+  if (o) { origenNombre = o.getName(); origenUrl = o.getUrl(); }
+  return {
+    usuario: props.getProperty('SIGBE_USUARIO') || '',
+    idDestino: idDestino_(), destinoNombre: destinoNombre, destinoUrl: destinoUrl,
+    origen: cfg.modo, idOrigen: cfg.id, origenNombre: origenNombre, origenUrl: origenUrl,
+    lecturaPublica: sigbeLecturaPublica_(),
+    automatica: sigbeActivadorAutomatico_(),
+    carpetaRespaldos: CARPETA_RESPALDOS,
+    respaldos: listarRespaldos_().slice(0, 40),
+    ejecutaComo: sigbeCorreoEjecucion_(),
+  };
+}
+
+/** Guarda archivos y lectura pública. Verifica que los archivos se puedan abrir antes de guardarlos. */
+function guardarConfiguracion(token, cfg) {
+  const usuario = sigbeExigirSesion_(token);
+  const props = PropertiesService.getScriptProperties();
+  const cambios = [];
+  try {
+    if (cfg.idDestino !== undefined) {
+      const id = idDesdeTexto_(cfg.idDestino);
+      if (!id) return { exito: false, mensaje: 'El archivo 2.0 es obligatorio.' };
+      let nombre;
+      try { nombre = SpreadsheetApp.openById(id).getName(); } catch (e) { return { exito: false, mensaje: 'No se pudo abrir el archivo 2.0 con ese ID/URL: ' + e.message }; }
+      if (id !== idDestino_()) { props.setProperty('SIGBE_ID_DESTINO', id); cambios.push('Archivo 2.0 → "' + nombre + '"'); }
+    }
+    if (cfg.idOrigen !== undefined) {
+      const t = String(cfg.idOrigen || '').trim();
+      let valor;
+      if (!t || /^NINGUNO$/i.test(t)) valor = 'NINGUNO';
+      else {
+        valor = idDesdeTexto_(t);
+        try { SpreadsheetApp.openById(valor).getName(); } catch (e) { return { exito: false, mensaje: 'No se pudo abrir el archivo original con ese ID/URL: ' + e.message }; }
+      }
+      if (valor !== String(props.getProperty('SIGBE_ID_ORIGEN') || '')) {
+        props.setProperty('SIGBE_ID_ORIGEN', valor);
+        ['HUELLA_', 'CELDAS_'].forEach(pre => HOJAS_A_COPIAR.forEach(n => props.deleteProperty(pre + n))); // nuevo origen: nuevas huellas
+        cambios.push('Archivo original → ' + (valor === 'NINGUNO' ? 'ninguno (solo 2.0)' : valor));
+        if (valor === 'NINGUNO') { desactivarAutomatico_(); cambios.push('Actualización automática desactivada'); }
+      }
+    }
+    if (cfg.lecturaPublica !== undefined) {
+      const v = cfg.lecturaPublica ? 'si' : 'no';
+      if (v !== (sigbeLecturaPublica_() ? 'si' : 'no')) { props.setProperty('SIGBE_LECTURA_PUBLICA', v); cambios.push('Lectura sin sesión → ' + (cfg.lecturaPublica ? 'permitida' : 'exigida')); }
+    }
+    sigbeLimpiarCaches_();
+    if (cambios.length) sigbeBitacora_(usuario, cambios.map(c => ['Configuración', 'Propiedades del script', '', '', '', c, '', '']));
+    return { exito: true, mensaje: cambios.length ? 'Guardado: ' + cambios.join(' · ') : 'No había cambios.' };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
+}
+
+/** Activa o desactiva la actualización automática (exige sesión). */
+function configurarAutomatico(token, activar, cadaHoras) {
+  const usuario = sigbeExigirSesion_(token);
+  try {
+    if (activar) {
+      const cfg = configOrigen_();
+      if (cfg.modo !== 'configurado') return { exito: false, mensaje: 'Primero configura el archivo original (no hay nada que sincronizar sin él).' };
+      const n = activarAutomatico_(cadaHoras);
+      sigbeBitacora_(usuario, [['Configuración', 'Activadores', '', '', '', 'Actualización automática cada ' + n + ' h', '', 'Activa']]);
+      return { exito: true, mensaje: 'Actualización automática activa cada ' + n + ' hora(s).' };
+    }
+    desactivarAutomatico_();
+    sigbeBitacora_(usuario, [['Configuración', 'Activadores', '', '', '', 'Actualización automática', 'Activa', 'Desactivada']]);
+    return { exito: true, mensaje: 'Actualización automática desactivada.' };
+  } catch (e) {
+    return { exito: false, mensaje: e.message + ' (si dice que no hay permiso: vuelve a autorizar el proyecto desde el editor).' };
+  }
+}
+
+/** Cambia usuario y/o clave (exige sesión y la clave actual). */
+function cambiarClave(token, claveActual, usuarioNuevo, claveNueva) {
+  sigbeExigirSesion_(token);
+  const props = PropertiesService.getScriptProperties();
+  sigbeConsumirClaveInicial_(props);
+  if (sigbeHash_(claveActual, props.getProperty('SIGBE_SAL')) !== props.getProperty('SIGBE_CLAVE_HASH')) return { exito: false, mensaje: 'La clave actual no es correcta.' };
+  try {
+    sigbeGuardarClave_(usuarioNuevo || props.getProperty('SIGBE_USUARIO'), claveNueva);
+    CacheService.getScriptCache().remove('sigbe_sesion_' + token);
+    return { exito: true, mensaje: 'Usuario y clave actualizados. Vuelve a iniciar sesión.' };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
+}
+
+/** Sincroniza aunque el original haya perdido mucha información (exige sesión). */
+function sincronizarAceptandoBorrado(token) {
+  try {
+    sigbeExigirSesion_(token);
+    const r = sincronizar_(true, true, 'app');
+    return { exito: !r.error, enCurso: !!r.enCurso, mensaje: r.enCurso ? 'Ya había una sincronización en curso.' : (r.error ? 'Terminó con avisos o errores.' : 'Sincronización completa (aceptando el borrado).'), detalle: r.detalle };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
+}
+
+/** Restaura en el 2.0 las hojas sincronizadas desde el respaldo de esa fecha (exige sesión). */
+function restaurarRespaldo(token, fecha) {
+  const usuario = sigbeExigirSesion_(token);
+  try {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fecha))) return { exito: false, mensaje: 'Fecha inválida.' };
+    const r = restaurarRespaldo_(fecha);
+    sigbeBitacora_(usuario, [['Restauración', 'Archivo 2.0', '', '', '', r.nombre, '', r.lineas.join(' | ')]]);
+    return { exito: true, mensaje: 'Restaurado desde ' + r.nombre + '. ' + r.lineas.join(' · ') + (configOrigen_().modo === 'configurado' ? ' Ojo: si el original sigue mal, corrígelo o desactiva la actualización automática antes de la próxima sincronización.' : '') };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
+}
+
 
 // ───────────────────────────── SINCRONIZACIÓN RÁPIDA ─────────────────────────────
 
@@ -777,14 +1020,20 @@ function sincronizarPendiente() {
     .forEach(t => ScriptApp.deleteTrigger(t));
   // Se libera antes de sincronizar: lo que se guarde mientras tanto programa otra pasada
   PropertiesService.getScriptProperties().deleteProperty('SIGBE_SYNC_PENDIENTE');
-  if (typeof sincronizar === 'function') sincronizar();
+  sincronizar();
 }
 
 /** Fecha y hora de la última sincronización del 2.0 (para mostrarla en la app). */
-function getEstadoSincronizacion() {
+function getEstadoSincronizacion(token) {
+  sigbeExigirLectura_(token);
+  return sigbeEstadoSync_();
+}
+
+function sigbeEstadoSync_() {
   try {
-    const txt = PropertiesService.getDocumentProperties().getProperty('ULTIMO_RESULTADO') || '';
-    const pendiente = Number(PropertiesService.getScriptProperties().getProperty('SIGBE_SYNC_PENDIENTE')) || 0;
+    const props = PropertiesService.getScriptProperties();
+    const txt = props.getProperty('ULTIMO_RESULTADO') || '';
+    const pendiente = Number(props.getProperty('SIGBE_SYNC_PENDIENTE')) || 0;
     return { ultima: txt.split('\n')[0], pendiente: Date.now() - pendiente < 10 * 60 * 1000 };
   } catch (e) {
     return { ultima: '', pendiente: false };
@@ -797,7 +1046,7 @@ function getEstadoSincronizacion() {
 function sigbeRespaldoOriginalDelDia_(ss) {
   if (sigbeFuente_(ss) !== 'archivo original') return; // el 2.0 ya tiene su propio respaldo diario
   const nombre = 'Respaldo ORIGINAL ' + sigbeHoy_();
-  const carpeta = typeof carpetaRespaldos_ === 'function' ? carpetaRespaldos_() : DriveApp.getRootFolder();
+  const carpeta = carpetaRespaldos_();
   if (carpeta.getFilesByName(nombre).hasNext()) return;
   DriveApp.getFileById(ss.getId()).makeCopy(nombre, carpeta);
   const viejos = [];
@@ -813,7 +1062,7 @@ function sigbeRespaldoOriginalDelDia_(ss) {
 /** Agrega filas a la hoja "Bitácora SIGBE" del 2.0 (la crea si no existe). */
 function sigbeBitacora_(usuario, filas) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ss = sigbeDestino_();
     let sh = ss.getSheetByName(SIGBE_HOJA_BITACORA);
     if (!sh) {
       sh = ss.insertSheet(SIGBE_HOJA_BITACORA);
@@ -846,23 +1095,40 @@ function sigbeHash_(texto, sal) {
 
 // ───────────────────────────── LECTURA DE HOJAS ─────────────────────────────
 
-/** Archivo donde están los brigadistas: el original si existe; si no, el 2.0. */
+let sigbeDestinoCache_ = null, sigbeOrigenCache_;
+
+/** Olvida los archivos abiertos en esta ejecución (tras cambiar la configuración). */
+function sigbeLimpiarCaches_() {
+  sigbeDestinoCache_ = null;
+  sigbeOrigenCache_ = undefined;
+  sigbeCronoCache_ = null;
+}
+
+/** El archivo 2.0 (configurado en SIGBE_ID_DESTINO). */
+function sigbeDestino_() {
+  if (!sigbeDestinoCache_) sigbeDestinoCache_ = destino_();
+  return sigbeDestinoCache_;
+}
+
+/** Archivo donde están los brigadistas: el original si está configurado y accesible; si no, el 2.0. */
 function sigbeArchivoDatos_() {
-  return sigbeOrigenOpcional_() || SpreadsheetApp.getActiveSpreadsheet();
+  return sigbeOrigenOpcional_() || sigbeDestino_();
 }
 
 function sigbeOrigenOpcional_() {
-  if (typeof ID_ORIGEN === 'undefined' || !ID_ORIGEN) return null;
+  if (sigbeOrigenCache_ !== undefined) return sigbeOrigenCache_;
+  const cfg = configOrigen_();
+  if (cfg.modo !== 'configurado') return (sigbeOrigenCache_ = null);
   try {
-    if (DriveApp.getFileById(ID_ORIGEN).isTrashed()) return null;
-    return SpreadsheetApp.openById(ID_ORIGEN);
+    if (DriveApp.getFileById(cfg.id).isTrashed()) return (sigbeOrigenCache_ = null);
+    return (sigbeOrigenCache_ = SpreadsheetApp.openById(cfg.id));
   } catch (e) {
-    return null;
+    return (sigbeOrigenCache_ = null);
   }
 }
 
 function sigbeFuente_(ss) {
-  return ss.getId() === SpreadsheetApp.getActiveSpreadsheet().getId() ? 'archivo 2.0' : 'archivo original';
+  return ss.getId() === idDestino_() ? 'archivo 2.0' : 'archivo original';
 }
 
 function sigbeHoja_(ss, nombre) {
@@ -962,7 +1228,7 @@ function sigbeLeerInhouse_(ss) {
 }
 
 function sigbeLeerIndicador_() {
-  const sh = sigbeHoja_(SpreadsheetApp.getActiveSpreadsheet(), SIGBE_HOJA_INDICADOR);
+  const sh = sigbeHoja_(sigbeDestino_(), SIGBE_HOJA_INDICADOR);
   const t = sigbeTabla_(sh, ['PLANTA', 'EMPRESA']);
   const c = { planta: t.col('PLANTA'), empresa: t.col('EMPRESA'), personas: t.col('TOTAL TRABAJADORES'),
     requeridos: t.col('BRIGADISTAS REQUERIDOS'), actuales: t.col('BRIGADISTAS ACTUALES'),
@@ -985,7 +1251,7 @@ function sigbeLeerIndicador_() {
 
 /** Todas las sesiones del cronograma como lista: sede, planta, mes, entrenamiento, sesión, fecha, estado... */
 function sigbeSesionesCronograma_() {
-  const sh = sigbeHoja_(SpreadsheetApp.getActiveSpreadsheet(), SIGBE_HOJA_CRONOGRAMA);
+  const sh = sigbeHoja_(sigbeDestino_(), SIGBE_HOJA_CRONOGRAMA);
   const rango = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
   const v = rango.getValues();
   const d = rango.getDisplayValues();
@@ -1039,7 +1305,7 @@ let sigbeCronoCache_ = null;
  */
 function sigbeCronogramaCeldas_() {
   if (sigbeCronoCache_) return sigbeCronoCache_;
-  const sh = sigbeHoja_(SpreadsheetApp.getActiveSpreadsheet(), SIGBE_HOJA_CRONOGRAMA);
+  const sh = sigbeHoja_(sigbeDestino_(), SIGBE_HOJA_CRONOGRAMA);
   const rango = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn());
   const v = rango.getValues(), d = rango.getDisplayValues(), bg = rango.getBackgrounds();
   const bloques = [];
