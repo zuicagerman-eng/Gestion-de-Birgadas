@@ -124,7 +124,7 @@
     .texto-legal { max-height: 150px; overflow-y: auto; font-size: .82rem; line-height: 1.45; background: #f6f8fb; border: 1px solid #dfe5ec; border-radius: .5rem; padding: .6rem .8rem; color: #33424f; white-space: pre-line; }
     body.modo-ingreso .sidebar, body.modo-ingreso header.topbar { display: none !important; }
     body.modo-ingreso #columna { flex: 0 0 100%; max-width: 100%; }
-    body.vista-reducida .solo-completo { display: none !important; }
+    body.rol-proveedor .no-proveedor { display: none !important; }
     #sel-sede.sede-filtrada { border-color: #0d6efd; background-color: #eef4ff; font-weight: 600; }
     .sede-op:hover { background: #f1f5fb; }
     .sede-op .solo { visibility: hidden; font-size: .78rem; }
@@ -177,12 +177,12 @@
                 <li><a href="#" class="nav-link" data-vista="asistencia"><i class="fa-solid fa-clipboard-check"></i>Tomar asistencia</a></li>
                 <li><a href="#" class="nav-link" data-vista="cronograma"><i class="fa-solid fa-calendar-days"></i>Cronograma</a></li>
                 <li><a href="#" class="nav-link" data-vista="temarios"><i class="fa-solid fa-book-open"></i>Temarios</a></li>
-                <li><a href="#" class="nav-link sub solo-completo" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
-                <li><a href="#" class="nav-link solo-completo" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
+                <li><a href="#" class="nav-link sub" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
+                <li><a href="#" class="nav-link" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
                 <li><a href="#" class="nav-link sub" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
-                <li><a href="#" class="nav-link sub solo-completo" data-vista="ingresos"><i class="fa-solid fa-id-card"></i>Registro de ingresos</a></li>
-                <li><a href="#" class="nav-link solo-completo" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
-                <li><a href="#" class="nav-link sub solo-completo" data-vista="configuracion"><i class="fa-solid fa-gear"></i>Configuración</a></li>
+                <li><a href="#" class="nav-link sub no-proveedor" data-vista="ingresos"><i class="fa-solid fa-id-card"></i>Registro de ingresos</a></li>
+                <li><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
+                <li><a href="#" class="nav-link sub" data-vista="configuracion"><i class="fa-solid fa-gear"></i>Configuración</a></li>
                 <li><a href="#" class="nav-link" data-vista="ayuda"><i class="fa-solid fa-circle-question"></i>Ayuda</a></li>
               </ul>
             </nav>
@@ -329,9 +329,9 @@
               <h1 class="titulo-vista mb-0" id="t-brig">Brigadistas</h1>
               <div class="d-flex gap-2">
                 <button class="btn btn-outline-secondary btn-sm" data-accion="csv-brig"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
-                <button class="btn btn-outline-secondary btn-sm" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Traer faltantes</button>
-                <button class="btn btn-outline-primary btn-sm" id="brig-modo" data-accion="brig-modo"><i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla</button>
-                <button class="btn btn-success btn-sm" data-accion="registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
+                <button class="btn btn-outline-secondary btn-sm no-proveedor" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Traer faltantes</button>
+                <button class="btn btn-outline-primary btn-sm no-proveedor" id="brig-modo" data-accion="brig-modo"><i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla</button>
+                <button class="btn btn-success btn-sm no-proveedor" data-accion="registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
               </div>
             </div>
             <div class="tarjeta p-3 mb-2">
@@ -375,8 +375,8 @@
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
               <h1 class="titulo-vista mb-0" id="t-crono">Cronograma de capacitaciones</h1>
               <div class="d-flex gap-2">
-                <button class="btn btn-outline-success btn-sm" data-accion="nueva-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Programar / Agregar sesión</button>
-                <button class="btn btn-success btn-sm" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-1"></i>Nuevo módulo</button>
+                <button class="btn btn-outline-success btn-sm no-proveedor" data-accion="nueva-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Programar / Agregar sesión</button>
+                <button class="btn btn-success btn-sm no-proveedor" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-1"></i>Nuevo módulo</button>
               </div>
             </div>
             <p class="sub-vista">Programa desde aquí: <b>Programar / Editar</b> cambia la fecha, la fecha Ambipar, el estado y las observaciones de cada planta (también de varias plantas a la vez). Lo que no aplica ("-" o gris) está en <b>No aplican</b>, desde donde se puede habilitar.</p>
@@ -419,49 +419,36 @@
             <div id="cob-plantas"></div>
           </section>
 
-          <!-- INGRESO CON CÉDULA -->
+          <!-- ENTRADA: USUARIO Y CLAVE -->
           <section class="vista" id="v-ingreso" aria-labelledby="t-ingreso">
-            <div class="tarjeta p-4 mx-auto my-md-4" style="max-width: 760px;">
+            <div class="tarjeta p-4 mx-auto my-md-5" style="max-width: 440px;">
               <div class="d-flex align-items-center gap-3 mb-3">
                 <i class="fa-solid fa-shield-halved fa-2x text-warning"></i>
-                <div><h1 class="h4 fw-bold mb-0" id="t-ingreso">Ingreso a SIGBE</h1><div class="small text-muted">Sistema de Gestión de Brigadas · consulta</div></div>
+                <div><h1 class="h4 fw-bold mb-0" id="t-ingreso">SIGBE</h1><div class="small text-muted">Sistema de Gestión de Brigadas</div></div>
               </div>
-              <p class="small text-muted">Para consultar la información de las brigadas registra tu ingreso. Para hacer cambios (asistencia, fechas, brigadistas) se piden usuario y clave de administrador.</p>
-              <form id="form-ingreso" novalidate>
-                <div class="row g-3">
-                  <div class="col-sm-5"><label class="form-label" for="ing-cedula">Cédula *</label><input id="ing-cedula" class="form-control" inputmode="numeric" autocomplete="off" required maxlength="15"></div>
-                  <div class="col-sm-7"><label class="form-label" for="ing-nombre">Nombre y apellido *</label><input id="ing-nombre" class="form-control" autocomplete="name" required maxlength="80"></div>
-                  <div class="col-12">
-                    <div class="texto-legal" id="ing-texto-datos" tabindex="0" aria-label="Autorización de tratamiento de datos"></div>
-                    <div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="ing-datos" required><label class="form-check-label small fw-semibold" for="ing-datos">Leí y autorizo el tratamiento de mis datos personales.</label></div>
-                  </div>
-                  <div class="col-12">
-                    <div class="texto-legal" id="ing-texto-conf" tabindex="0" aria-label="Compromiso de confidencialidad"></div>
-                    <div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="ing-conf" required><label class="form-check-label small fw-semibold" for="ing-conf">Acepto el compromiso de confidencialidad y no divulgación.</label></div>
-                  </div>
-                  <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="ing-recordar"><label class="form-check-label small" for="ing-recordar">Recordar mi cédula y nombre en este equipo (no lo marques en un computador compartido)</label></div></div>
-                  <div class="col-12"><div class="text-danger small" id="ing-error" role="alert"></div></div>
-                  <div class="col-12 d-grid"><button class="btn btn-primary btn-lg" type="submit"><i class="fa-solid fa-right-to-bracket me-2"></i>Ingresar</button></div>
-                </div>
+              <form id="form-ingreso">
+                <div class="mb-3"><label class="form-label" for="ing-usuario">Usuario</label><input id="ing-usuario" class="form-control" autocomplete="username" required></div>
+                <div class="mb-3"><label class="form-label" for="ing-clave">Clave</label><input type="password" id="ing-clave" class="form-control" autocomplete="current-password" required></div>
+                <div class="text-danger small mb-2" id="ing-error" role="alert"></div>
+                <div class="d-grid"><button class="btn btn-primary btn-lg" type="submit"><i class="fa-solid fa-right-to-bracket me-2"></i>Entrar</button></div>
               </form>
-              <div class="text-center mt-3 small"><a href="#" data-accion="login"><i class="fa-solid fa-user-shield me-1"></i>Soy administrador: entrar con usuario y clave</a></div>
+              <p class="small text-muted mt-3 mb-0">La información incluye datos personales de los brigadistas: úsala solo para la gestión de las brigadas. Cada ingreso queda registrado. Si no tienes usuario, pídelo al gestor de SIGBE.</p>
             </div>
           </section>
 
           <!-- REGISTRO DE INGRESOS -->
           <section class="vista" id="v-ingresos" aria-labelledby="t-ingresos">
             <h1 class="titulo-vista" id="t-ingresos">Registro de ingresos</h1>
-            <p class="sub-vista">Quién entró y cuándo (pestaña <i>Ingresos SIGBE</i> del libro). Cada consulta guarda la cédula, el nombre, si está en las listas y la versión del texto de datos que aceptó.</p>
-            <div id="ing-sin-sesion" class="alert alert-info" style="display:none;"><i class="fa-solid fa-lock me-1"></i>Solo los administradores ven el registro de ingresos. <a href="#" data-accion="login">Iniciar sesión</a></div>
+            <p class="sub-vista">Quién entró y cuándo, con qué tipo de usuario, y los intentos fallidos de clave (pestaña <i>Ingresos SIGBE</i> del libro).</p>
+            <div id="ing-sin-sesion" class="alert alert-info" style="display:none;"><i class="fa-solid fa-lock me-1"></i>Solo el gestor y los usuarios Holcim ven el registro de ingresos. <a href="#" data-accion="login">Iniciar sesión</a></div>
             <div id="ing-contenido">
               <div class="row g-3 mb-3" id="ing-kpis"></div>
               <div class="tarjeta p-3 mb-2"><div class="filtros">
                 <input type="search" id="ing-buscar" class="form-control form-control-sm" placeholder="Buscar cédula, nombre o usuario…" aria-label="Buscar en el registro de ingresos">
                 <span role="group" aria-label="Tipo" id="ing-tipo" class="d-flex segmento">
-                  <button class="chip" data-tipo="" aria-pressed="true">Todos</button><button class="chip" data-tipo="Consulta" aria-pressed="false">Consultas</button>
-                  <button class="chip" data-tipo="Administrador" aria-pressed="false">Administradores</button><button class="chip" data-tipo="Intento" aria-pressed="false">Intentos fallidos</button>
+                  <button class="chip" data-tipo="" aria-pressed="true">Todos</button><button class="chip" data-tipo="Ingreso" aria-pressed="false">Ingresos</button>
+                  <button class="chip" data-tipo="Intento" aria-pressed="false">Intentos fallidos</button>
                 </span>
-                <div class="form-check"><input class="form-check-input" type="checkbox" id="ing-fuera"><label class="form-check-label small" for="ing-fuera">Solo quienes no están en las listas o con nombre distinto</label></div>
                 <button class="btn btn-sm btn-outline-secondary ms-auto" data-accion="csv-ingresos"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
               </div><div class="contador mt-2" id="ing-conteo"></div></div>
               <div class="tarjeta tabla-fija"><table class="table table-sm table-hover align-middle mb-0 tabla-compacta"><caption class="visually-hidden">Registro de ingresos</caption>
@@ -548,7 +535,7 @@
               <h1 class="titulo-vista mb-0" id="t-estado">Estado del sistema</h1>
               <div class="d-flex gap-2">
                 <button class="btn btn-outline-primary btn-sm" data-accion="diagnostico"><i class="fa-solid fa-stethoscope me-1"></i>Diagnóstico</button>
-                <button class="btn btn-primary btn-sm" data-accion="actualizar-ahora"><i class="fa-solid fa-rotate me-1"></i>Actualizar ahora</button>
+                <button class="btn btn-primary btn-sm no-proveedor" data-accion="actualizar-ahora"><i class="fa-solid fa-rotate me-1"></i>Actualizar ahora</button>
               </div>
             </div>
             <p class="sub-vista">Archivos, tarea automática, respaldos y diagnóstico.</p>
@@ -599,32 +586,21 @@
           <!-- CONFIGURACIÓN -->
           <section class="vista" id="v-configuracion" aria-labelledby="t-conf">
             <h1 class="titulo-vista" id="t-conf">Configuración</h1>
-            <p class="sub-vista">Archivos, acceso, tarea automática, usuario y respaldos. Todo queda en el historial.</p>
+            <p class="sub-vista">Usuarios, archivos, tarea automática, tu clave y respaldos. Todo queda en el historial.</p>
             <div id="conf-sin-sesion" class="alert alert-info" style="display:none;"><i class="fa-solid fa-lock me-1"></i>Inicia sesión para ver y cambiar la configuración. <a href="#" data-accion="login">Iniciar sesión</a></div>
             <div id="conf-contenido" style="display:none;">
-              <div class="alert alert-secondary small" id="conf-no-principal" style="display:none;"><i class="fa-solid fa-circle-info me-1"></i>Los archivos, el acceso, la tarea automática y los usuarios los cambia solo el usuario principal. Aquí puedes cambiar tu clave.</div>
+              <div class="alert alert-secondary small" id="conf-no-principal" style="display:none;"><i class="fa-solid fa-circle-info me-1"></i>Los archivos, la tarea automática y los usuarios los cambia solo el gestor. Aquí puedes cambiar tu clave.</div>
               <div class="tarjeta p-3 mb-3">
-                <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-users-gear me-2 text-primary"></i>Usuarios administradores</h2>
-                <p class="small text-muted mb-2">Cada administrador entra con su propio usuario (por ejemplo, uno para Holcim y otro para Ambipar). Todos pueden tomar asistencia, editar brigadistas, programar el cronograma y crear módulos; en el historial queda quién hizo cada cambio.</p>
-                <div class="table-responsive"><table class="table table-sm small align-middle mb-2"><thead><tr><th>Usuario</th><th>Nombre</th><th>Organización</th><th>Estado</th><th></th></tr></thead><tbody id="usr-tabla"></tbody></table></div>
+                <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-users-gear me-2 text-primary"></i>Usuarios</h2>
+                <p class="small text-muted mb-2">Tres tipos de usuario: <b>Gestor</b> (todo, y crea o elimina usuarios) · <b>Holcim</b> (ve y cambia todo, menos usuarios y configuración) · <b>Ambipar – proveedor</b> (toma asistencia y diligencia en el cronograma la Fecha Ambipar, el estado y las observaciones; ve todo, pero no cambia la Fecha Holcim, ni crea módulos o sesiones, ni edita brigadistas o el Indicador). En el historial queda quién hizo cada cambio.</p>
+                <div class="table-responsive"><table class="table table-sm small align-middle mb-2"><thead><tr><th>Usuario</th><th>Nombre</th><th>Tipo</th><th>Estado</th><th></th></tr></thead><tbody id="usr-tabla"></tbody></table></div>
                 <form id="form-usuario" class="row g-2 align-items-end" style="display:none;"><div class="col-12 small fw-semibold">Agregar usuario</div>
                   <div class="col-sm-6 col-lg-2"><label class="form-label small mb-0" for="usr-usuario">Usuario *</label><input id="usr-usuario" class="form-control form-control-sm" required pattern="[A-Za-z0-9._\-]{3,30}" title="3 a 30 letras o números, sin espacios" placeholder="ambipar" autocomplete="off"></div>
                   <div class="col-sm-6 col-lg-3"><label class="form-label small mb-0" for="usr-nombre">Nombre</label><input id="usr-nombre" class="form-control form-control-sm" maxlength="60" placeholder="Coordinador Ambipar"></div>
-                  <div class="col-sm-4 col-lg-2"><label class="form-label small mb-0" for="usr-org">Organización</label><select id="usr-org" class="form-select form-select-sm"></select></div>
+                  <div class="col-sm-4 col-lg-2"><label class="form-label small mb-0" for="usr-org">Tipo de usuario</label><select id="usr-org" class="form-select form-select-sm"></select></div>
                   <div class="col-sm-8 col-lg-3"><label class="form-label small mb-0" for="usr-clave">Clave inicial *</label><div class="input-group input-group-sm"><input id="usr-clave" class="form-control" required minlength="8" autocomplete="new-password"><button type="button" class="btn btn-outline-secondary" data-accion="usr-generar" title="Generar otra">↻</button></div></div>
                   <div class="col-lg-2"><button class="btn btn-sm btn-success w-100" type="submit"><i class="fa-solid fa-user-plus me-1"></i>Agregar</button></div>
                 </form>
-              </div>
-              <div class="tarjeta p-3 mb-3 conf-principal">
-                <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-file-shield me-2 text-primary"></i>Protección de datos en el ingreso</h2>
-                <p class="small text-muted mb-2">Textos que acepta quien entra con cédula y nombre. {RESPONSABLE} y {CONTACTO} se reemplazan solos. Cada ingreso guarda la versión del texto aceptado. Conviene que el área legal o de datos personales los revise.</p>
-                <div class="row g-2">
-                  <div class="col-md-6"><label class="form-label small mb-0" for="conf-responsable">Responsable del tratamiento</label><input id="conf-responsable" class="form-control form-control-sm" maxlength="120"></div>
-                  <div class="col-md-6"><label class="form-label small mb-0" for="conf-contacto">Contacto para consultas y reclamos (correo)</label><input id="conf-contacto" class="form-control form-control-sm" maxlength="120" placeholder="datospersonales@empresa.com"></div>
-                  <div class="col-lg-6"><label class="form-label small mb-0" for="conf-texto-datos">Autorización de tratamiento de datos</label><textarea id="conf-texto-datos" class="form-control form-control-sm" rows="6"></textarea></div>
-                  <div class="col-lg-6"><label class="form-label small mb-0" for="conf-texto-conf">Compromiso de confidencialidad y no divulgación</label><textarea id="conf-texto-conf" class="form-control form-control-sm" rows="6"></textarea></div>
-                </div>
-                <div class="d-flex flex-wrap gap-2 mt-2"><button class="btn btn-sm btn-primary" data-accion="guardar-textos">Guardar textos</button><button class="btn btn-sm btn-outline-secondary" data-accion="textos-defecto">Volver a los textos iniciales</button></div>
               </div>
               <div class="row g-3">
                 <div class="col-lg-6 conf-principal"><div class="tarjeta p-3 h-100">
@@ -636,17 +612,6 @@
                   <div class="small text-muted mt-2" id="conf-corte"></div>
                 </div></div>
                 <div class="col-lg-6 conf-principal">
-                  <div class="tarjeta p-3 mb-3">
-                    <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-eye me-2 text-primary"></i>Acceso</h2>
-                    <label class="form-label small mb-0" for="conf-acceso">Para <b>ver</b> la información (guardar siempre exige usuario y clave)</label>
-                    <select id="conf-acceso" class="form-select form-select-sm mb-2">
-                      <option value="cedula">Con cédula y nombre + aceptar datos personales (cada ingreso queda registrado)</option>
-                      <option value="clave">Solo administradores (usuario y clave)</option>
-                      <option value="publico">Público: cualquiera con el enlace, sin registrarse (no recomendado)</option>
-                    </select>
-                    <div class="form-check form-switch mb-1"><input class="form-check-input" type="checkbox" id="conf-visita-completa"><label class="form-check-label small" for="conf-visita-completa">Los visitantes ven <b>todo</b> (apagado: cédulas ocultas salvo los 4 últimos números, sin grupo sanguíneo, historial, otras hojas ni estado del sistema)</label></div>
-                    <button class="btn btn-sm btn-primary" data-accion="guardar-lectura">Guardar acceso</button>
-                  </div>
                   <div class="tarjeta p-3">
                     <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-rotate me-2 text-primary"></i>Tarea automática</h2>
                     <p class="small text-muted mb-2">Actualiza el libro nuevo desde el 1.0 y el 2.0 (hasta el corte) y anota en el historial lo que se cambie directamente en el Excel.</p>
@@ -780,7 +745,7 @@
           <div class="d-flex flex-wrap align-items-center gap-2 mb-1"><span class="fw-semibold small">Pasar lo que cambies (fecha, fecha Ambipar o estado) también a:</span>
             <button type="button" class="btn btn-sm btn-link p-0" data-accion="cr-todas">Todas</button><span class="text-muted">·</span><button type="button" class="btn btn-sm btn-link p-0" data-accion="cr-ninguna">Ninguna</button></div>
           <div id="cr-otras" class="row g-1 small"></div></div></div>
-        <div class="col-12 small"><a href="#" data-accion="cr-otra-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Agregar otra sesión de este tema en esta planta</a></div>
+        <div class="col-12 small no-proveedor"><a href="#" data-accion="cr-otra-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Agregar otra sesión de este tema en esta planta</a></div>
       </div></div>
       <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Revisar y guardar</button></div>
     </form></div>

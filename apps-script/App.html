@@ -1,8 +1,8 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.3.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
-    const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), visita: leer('sessionStorage', 'sigbe_visita'), visitante: null, acceso: 'cedula', usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
+    const VERSION_HTML = '4.4.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
     function sedesGuardadas() {
@@ -13,8 +13,10 @@
     function sedeOk(s) { return !E.sedes.length || E.sedes.indexOf(s) !== -1; }
     function sufijoSede() { return E.sedes.length ? '_' + E.sedes.join('_') : ''; }
     function textoSedes() { return !E.sedes.length ? 'Todas las sedes' : E.sedes.length <= 2 ? E.sedes.join(', ') : E.sedes.length + ' sedes'; }
-    /** Token para leer: el del administrador o, si no hay, el del ingreso con cédula. */
-    function tok() { return E.token || E.visita || null; }
+    /** Ambipar (proveedor): toma asistencia y diligencia la Fecha Ambipar; no hace cambios de estructura ni de brigadistas. */
+    function esProveedor() { return !!(E.perfil && E.perfil.rol === 'proveedor'); }
+    /** true (y avisa) si el usuario es Ambipar y la acción es solo de Holcim. */
+    function soloHolcim() { if (!esProveedor()) return false; avisar('Esto lo hace un usuario de Holcim. Con tu usuario de Ambipar puedes tomar asistencia y diligenciar la Fecha Ambipar en el Cronograma.', 'info', 8000); return true; }
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
     const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', planta: '', inactivos: false, filtro: '' };
     const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {} };
@@ -52,9 +54,7 @@
     function error(e) {
       ocupado(false);
       const msg = e && e.message ? e.message : String(e);
-      if (/INGRESO_REQUERIDO/.test(msg)) { olvidarVisita(); D = null; arrancar(); return; }
-      if (/SESION_REQUERIDA/.test(msg) && E.visitante && !E.usuario) { avisar('Esta parte la ven solo los administradores.', 'info', 6000); pedirSesion(async () => { cargarVista(); }); return; }
-      if (/SESION_REQUERIDA/.test(msg)) { olvidarSesion(); bloqueo(true); pedirSesion(async () => { await arrancar(); }); return; }
+      if (/SESION_REQUERIDA/.test(msg)) { olvidarSesion(); D = null; mostrarIngreso(); return; }
       avisar('<b>No se pudo completar.</b> ' + esc(msg.replace(/^Error:\s*/, '')), 'danger', 30000);
     }
     function revisarSesion(r) {
@@ -105,7 +105,7 @@
       $('modal-cuadre').addEventListener('input', cambioCuadre);
       $('falt-buscar').oninput = pintarFaltantes; $('falt-sede').onchange = pintarFaltantes; $('falt-desv').onchange = pintarFaltantes;
       $('form-ingreso').onsubmit = enviarIngreso;
-      ['ing-buscar', 'ing-fuera'].forEach(id => { $(id).oninput = pintarIngresos; $(id).onchange = pintarIngresos; });
+      $('ing-buscar').oninput = pintarIngresos;
       grupoChips('ing-tipo', 'tipo', v => { ingr.tipo = v; pintarIngresos(); });
       $('cr-na').onchange = () => { $('cr-fecha').disabled = $('cr-na').checked; };
       $('form-modulo').onsubmit = revisarModulo;
@@ -169,9 +169,7 @@
       leyendo(true);
       pasoArranque('Conectando con el servidor…');
       try {
-        const ctx = await api('getContexto', tok());
-        E.acceso = ctx.acceso || 'clave'; E.visitante = ctx.visitante || null;
-        if (!E.visitante && E.visita) olvidarVisita();
+        const ctx = await api('getContexto', E.token);
         E.usuario = ctx.usuario; E.perfil = ctx.perfil || null; E.lecturaPublica = !!ctx.lecturaPublica; E.listo = !!(ctx.setup && ctx.setup.listo); E.setup = ctx.setup;
         $('txt-version').textContent = 'SIGBE v' + (ctx.version || '?');
         $('ayuda-version').textContent = 'v' + (ctx.version || '?');
@@ -179,25 +177,24 @@
         if (!E.usuario) olvidarSesion(true);
         pintarSesion();
         if (!E.listo) { finArranque(); pintarSetup(ctx.setup); mostrar('setup'); return; }
-        if (!E.usuario && !E.visitante && E.acceso === 'cedula') { finArranque(); bloqueo(false); mostrarIngreso(ctx.textosIngreso); return; }
-        if (!E.lecturaPublica && !E.usuario && !E.visitante) { finArranque(); bloqueo(true); pedirSesion(async () => { await arrancar(); }); return; }
+        if (!E.usuario) { finArranque(); bloqueo(false); mostrarIngreso(); return; }
         bloqueo(false); document.body.classList.remove('modo-ingreso');
         if (E.vista === 'ingreso') E.vista = 'inicio';
         pasoArranque('Leyendo las hojas de cálculo… (la primera vez puede tardar hasta un minuto)');
-        D = await api('getDatos', tok(), false);
+        D = await api('getDatos', E.token, false);
         preparar();
         window.__sigbeDatos = true;
         finArranque();
         ir(E.vista === 'setup' ? 'inicio' : E.vista);
       } catch (e) {
-        if (/SESION_REQUERIDA|INGRESO_REQUERIDO/.test(e && e.message || '')) { finArranque(); error(e); } else errorArranque(e && e.message ? e.message : e);
+        if (/SESION_REQUERIDA/.test(e && e.message || '')) { finArranque(); olvidarSesion(true); mostrarIngreso(); } else errorArranque(e && e.message ? e.message : e);
       } finally { leyendo(false); }
     }
 
     async function cargarDatos(forzar) {
       leyendo(true);
       try {
-        D = await api('getDatos', tok(), !!forzar);
+        D = await api('getDatos', E.token, !!forzar);
         preparar();
         if (forzar) avisar('Datos leídos de nuevo de las hojas.', 'info', 3000);
       } catch (e) { error(e); } finally { leyendo(false); }
@@ -211,7 +208,6 @@
       D.cronoTodo.forEach((c, k) => { c.k = k; });
       D.crono = D.cronoTodo.filter(c => !c.na);
       D.cronoFilas = D.cronoFilas || [];
-      document.body.classList.toggle('vista-reducida', !!D.reducido);
       D.unidades = [];
       D.sesiones.forEach(s => { let u = D.unidades.find(x => x.clave === s.clave); if (!u) D.unidades.push(u = { clave: s.clave, modulo: s.modulo, parte: s.parte, titulo: s.titulo, ses: [] }); u.ses.push(s.i); });
       P = D.holcim.map((p, j) => { const o = Object.assign({}, p, { j: j, tipo: 'HOLCIM', sede: (D.plantas[p.p] || {}).sede || p.p, activo: !/desvinculado/i.test(p.e), emp: 'Holcim' }); o.cump = cumplimiento(o); return o; });
@@ -293,7 +289,6 @@
         ficha: () => abrirFicha(d.tipo, +d.j),
         completar: () => abrirFicha(d.tipo, +d.j, true, d.campo),
         'crono-editar': () => editarCrono(d.k),
-        'salir-visita': salirVisita,
         'faltantes': () => { modal('modal-cuadre').hide(); abrirFaltantes(); },
         'cuadre': abrirCuadre,
         'cua-guardar': revisarCuadre,
@@ -301,8 +296,6 @@
         'cob-abrir': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = true; }),
         'cob-cerrar': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = false; }),
         'csv-ingresos': csvIngresos,
-        'guardar-textos': guardarTextos,
-        'textos-defecto': () => { if (confirm('¿Volver a los textos iniciales? Se guardan al pulsar "Guardar textos".')) { $('conf-texto-datos').value = ''; $('conf-texto-conf').value = ''; $('conf-responsable').value = 'Holcim Colombia'; guardarTextos(); } },
         'nuevo-modulo': abrirModulo,
         'nueva-sesion': () => abrirSesion(),
         'cr-otra-sesion': () => { const c = cronoEd; modal('modal-crono').hide(); abrirSesion(c.fila, c.pl); },
@@ -335,7 +328,7 @@
         'recargar-cambios': () => { CAMBIOS = null; cargarCambios(); },
         'cambios-mas': () => { cam.limite += 300; pintarCambios(); },
         diagnostico: ejecutarDiagnostico, 'actualizar-ahora': actualizarAhora,
-        'guardar-archivos': guardarArchivos, 'guardar-lectura': guardarLectura,
+        'guardar-archivos': guardarArchivos,
         'auto-on': () => cambiarAutomatico(true), 'auto-off': () => cambiarAutomatico(false),
         'ficha-editar': () => editarFicha(), 'ficha-cancelar': () => pintarFicha(false), 'ficha-revisar': revisarEdicion,
         'ficha-asistencia': () => { modal('modal-ficha').hide(); acciones['ir-asistencia'](); },
@@ -345,11 +338,13 @@
 
     // ══════════ SESIÓN ══════════
     function pintarSesion() {
-      $('btn-sesion').innerHTML = E.usuario ? '<i class="fa-solid fa-right-from-bracket me-1"></i>Salir' : '<i class="fa-solid fa-lock me-1"></i>' + (E.visitante ? 'Administrador' : 'Iniciar sesión');
-      $('btn-sesion').title = E.usuario ? 'Cerrar la sesión de administrador' : 'Entrar con usuario y clave para hacer cambios';
+      $('btn-sesion').innerHTML = E.usuario ? '<i class="fa-solid fa-right-from-bracket me-1"></i>Salir' : '<i class="fa-solid fa-lock me-1"></i>Iniciar sesión';
+      $('btn-sesion').title = E.usuario ? 'Cerrar la sesión' : 'Entrar con usuario y clave';
+      const rol = E.perfil && E.perfil.rol;
+      ['gestor', 'holcim', 'proveedor'].forEach(r => document.body.classList.toggle('rol-' + r, rol === r));
       $('btn-sesion').className = 'btn btn-sm ' + (E.usuario ? 'btn-outline-secondary' : 'btn-primary');
-      $('txt-usuario').innerHTML = E.usuario ? '<i class="fa-solid fa-circle-check text-success me-1"></i>' + esc(E.usuario) + (E.perfil && E.perfil.org ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">' + esc(E.perfil.org) + '</span>' : '')
-        : E.visitante ? `<i class="fa-regular fa-eye me-1"></i>${esc(E.visitante.n)} <span class="badge bg-info-subtle text-info-emphasis">Consulta</span> <a href="#" class="ms-1" data-accion="salir-visita">Salir</a>` : 'Solo lectura';
+      const tipos = { gestor: 'Gestor', holcim: 'Holcim', proveedor: 'Ambipar' };
+      $('txt-usuario').innerHTML = E.usuario ? '<i class="fa-solid fa-circle-check text-success me-1"></i>' + esc(E.usuario) + (rol ? ' <span class="badge ' + (rol === 'proveedor' ? 'bg-warning-subtle text-warning-emphasis' : 'bg-secondary-subtle text-secondary-emphasis') + '">' + tipos[rol] + '</span>' : '') : '';
       document.querySelectorAll('.solo-admin').forEach(el => { el.style.display = E.usuario ? '' : 'none'; });
     }
     function olvidarSesion(silencio) { E.token = null; E.usuario = null; E.perfil = null; guardar('sessionStorage', 'sigbe_token', null); if (!silencio) pintarSesion(); }
@@ -372,16 +367,13 @@
         modal('modal-login').hide(); pintarSesion();
         avisar('Sesión iniciada.', 'success', 3000);
         document.body.classList.remove('modo-ingreso');
-        if (D && D.reducido) { await cargarDatos(false); }
         if (trasLogin) { const f = trasLogin; trasLogin = null; await f(); } else if (!D) await arrancar(); else cargarVista();
       } catch (e) { error(e); }
     }
     function cerrarSesion() {
       api('cerrarSesionApp', E.token).catch(() => {});
       olvidarSesion();
-      if (E.visitante) { cargarDatos(false).then(cargarVista); return; } // vuelve a la consulta (vista reducida)
-      if (!E.lecturaPublica) { D = null; if (E.acceso === 'cedula') { arrancar(); return; } bloqueo(true); return; }
-      cargarVista();
+      D = null; mostrarIngreso();
     }
 
     // ══════════ LÓGICA DE SESIONES (igual que el libro nuevo) ══════════
@@ -748,8 +740,8 @@
     /** Qué le falta a la persona (claves de CAMPOS_B). */
     function faltantes(p) {
       const d = datosDe(p), f = [];
-      if (!/^\d{5,12}$/.test(String(d.cedula).replace(/\D/g, '')) && !/^•+\d{4}$/.test(d.cedula)) f.push('cedula');
-      (D.reducido ? ['fechaIngreso', 'empresa', 'clase1'] : ['grupo', 'fechaIngreso', 'empresa', 'clase1']).forEach(k => { if (!String(d[k]).trim()) f.push(k); });
+      if (!/^\d{5,12}$/.test(String(d.cedula).replace(/\D/g, ''))) f.push('cedula');
+      ['grupo', 'fechaIngreso', 'empresa', 'clase1'].forEach(k => { if (!String(d[k]).trim()) f.push(k); });
       if (p.tipo === 'HOLCIM' && !d.estado) f.push('estado');
       if (!p.activo && !d.fechaRetiro) f.push('fechaRetiro');
       return f;
@@ -791,12 +783,12 @@
       $('brig-conteo').innerHTML = `${lista.length} brigadista(s) · ${h} Holcim · ${lista.length - h} contratistas${inc ? ` · <a href="#" data-accion="brig-incompletos">${inc} con datos por completar</a>` : ''}`;
       const editar = brig.editar && E.usuario;
       $('brig-modo').innerHTML = editar ? '<i class="fa-solid fa-xmark me-1"></i>Salir de edición' : '<i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla';
-      $('brig-modo').className = 'btn btn-sm ' + (editar ? 'btn-warning' : 'btn-outline-primary');
+      $('brig-modo').className = 'btn btn-sm no-proveedor ' + (editar ? 'btn-warning' : 'btn-outline-primary');
       const max = 400;
       $('brig-tabla').innerHTML = lista.slice(0, max).map(p => {
         const x = datosDe(p), falta = faltantes(p), clave = p.tipo + ':' + p.j, cam = brig.cambios[clave] || {};
         const valor = k => k in cam ? cam[k] : x[k];
-        const completar = k => !E.usuario ? '<span class="badge bg-warning-subtle text-warning-emphasis fw-normal">Falta</span>' : `<button class="btn btn-sm btn-completar" data-accion="completar" data-tipo="${p.tipo}" data-j="${p.j}" data-campo="${k}"><i class="fa-solid fa-plus me-1"></i>Completar</button>`;
+        const completar = k => !E.usuario || esProveedor() ? '<span class="badge bg-warning-subtle text-warning-emphasis fw-normal">Falta</span>' : `<button class="btn btn-sm btn-completar" data-accion="completar" data-tipo="${p.tipo}" data-j="${p.j}" data-campo="${k}"><i class="fa-solid fa-plus me-1"></i>Completar</button>`;
         const ver = (k, txt) => falta.indexOf(k) !== -1 ? completar(k) : esc(txt === undefined ? x[k] : txt);
         const ctl = (k, html) => `<td class="${k in cam ? 'celda-cambiada' : ''}">${html}</td>`;
         const op = (lista, v) => (v && lista.indexOf(v) === -1 ? [v].concat(lista) : lista).map(o => `<option value="${esc(o)}" ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('');
@@ -813,7 +805,7 @@
             ${ctl('fechaRetiro', inactivo ? `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaRetiro" value="${esc(isoDe(valor('fechaRetiro')) || valor('fechaRetiro'))}" style="width:135px">` : '<span class="text-muted small">—</span>')}</tr>`;
         }
         return `<tr class="fila-click ${p.activo ? '' : 'text-muted'}" data-accion="ficha" data-tipo="${p.tipo}" data-j="${p.j}" tabindex="0">
-          <td class="small">${esc(p.p)}</td><td class="fw-semibold">${esc(p.n)}</td><td>${ver('cedula')}</td><td>${D.reducido ? '<span class="text-muted small" title="Dato de salud: solo lo ven los administradores">Reservado</span>' : ver('grupo')}</td><td class="text-nowrap">${ver('fechaIngreso')}</td>
+          <td class="small">${esc(p.p)}</td><td class="fw-semibold">${esc(p.n)}</td><td>${ver('cedula')}</td><td>${ver('grupo')}</td><td class="text-nowrap">${ver('fechaIngreso')}</td>
           <td>${falta.indexOf('empresa') !== -1 ? completar('empresa') : `<span class="badge ${p.tipo === 'HOLCIM' ? 'text-bg-primary' : 'bg-info-subtle text-info-emphasis'}">${esc(x.empresa)}</span>`}</td>
           <td>${ver('clase1')}</td>
           <td>${falta.indexOf('estado') !== -1 ? completar('estado') : `<span class="badge ${p.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>`}</td>
@@ -844,6 +836,7 @@
       barraBrigadistas();
     }
     async function modoEdicionTabla() {
+      if (soloHolcim()) return;
       if (brig.editar) {
         if (Object.keys(brig.cambios).length && !confirm('Tienes cambios sin guardar en la tabla. ¿Descartarlos?')) return;
         brig.editar = false; brig.cambios = {}; return pintarBrigadistas();
@@ -937,7 +930,7 @@
       $('ficha-cuerpo').innerHTML = html;
       $('ficha-pie').innerHTML = editando
         ? '<button class="btn btn-outline-secondary" data-accion="ficha-cancelar">Cancelar</button><button class="btn btn-success" data-accion="ficha-revisar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>'
-        : `<button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button class="btn ${falta.length ? 'btn-warning' : 'btn-primary'}" data-accion="ficha-editar"><i class="fa-solid fa-pen me-1"></i>${falta.length ? 'Completar datos' : 'Editar'}</button>`;
+        : `<button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button class="no-proveedor btn ${falta.length ? 'btn-warning' : 'btn-primary'}" data-accion="ficha-editar"><i class="fa-solid fa-pen me-1"></i>${falta.length ? 'Completar datos' : 'Editar'}</button>`;
       if (editando) {
         $('ed-estado').onchange = () => { $('ed-retiro-box').style.display = /desvinculado/i.test($('ed-estado').value) ? '' : 'none'; };
         const foco = campoFoco && $('ed-' + campoFoco);
@@ -947,7 +940,7 @@
     async function cargarCatalogos() {
       if (catalogos) return true;
       ocupado(true);
-      try { catalogos = await api('getCatalogos', tok()); ocupado(false); }
+      try { catalogos = await api('getCatalogos', E.token); ocupado(false); }
       catch (e) { error(e); return false; }
       $('reg-estado').innerHTML = opciones(catalogos.estados, 'Activo');
       $('reg-cert').innerHTML = catalogos.certificados.map(x => `<option ${/pendiente/i.test(x) ? 'selected' : ''}>${esc(x)}</option>`).join('');
@@ -958,6 +951,7 @@
       return true;
     }
     async function editarFicha(campo) {
+      if (soloHolcim()) return;
       if (!E.usuario) return pedirSesion(() => editarFicha(campo));
       if (await cargarCatalogos()) pintarFicha(true, typeof campo === 'string' ? campo : '');
     }
@@ -998,6 +992,7 @@
 
     // ══════════ REGISTRO ══════════
     async function abrirRegistro() {
+      if (soloHolcim()) return;
       if (!E.usuario) return pedirSesion(abrirRegistro);
       if (!(await cargarCatalogos())) return;
       $('form-registro').reset();
@@ -1093,7 +1088,8 @@
       cronoEd = c;
       $('crono-titulo').textContent = (c.cl ? c.cl + ' · ' : '') + c.ent;
       $('crono-sub').innerHTML = `<i class="fa-solid fa-location-dot me-1"></i>${esc(c.pl)} · ${esc(c.ses)}${c.pre && c.pre !== 'TODOS' ? ' · solo ' + esc(c.pre) : ''}`;
-      $('cr-fecha').value = c.i || ''; $('cr-na').checked = !!c.na; $('cr-fecha').disabled = !!c.na;
+      $('cr-fecha').value = c.i || ''; $('cr-na').checked = !!c.na; $('cr-fecha').disabled = !!c.na || esProveedor(); $('cr-na').disabled = esProveedor();
+      $('cr-fecha').title = esProveedor() ? 'La Fecha Holcim la cambia Holcim; tú diligencias la Fecha Ambipar' : '';
       $('cr-ambipar').value = isoDe(c.amb) || '';
       $('cr-estado').innerHTML = '<option value="">—</option>' + (c.e && catalogos.estadosCrono.indexOf(c.e) === -1 ? [c.e] : []).concat(catalogos.estadosCrono).map(x => `<option ${x === c.e ? 'selected' : ''}>${esc(x)}</option>`).join('');
       $('cr-brig').value = /^\d+$/.test(c.br || '') ? c.br : '';
@@ -1118,7 +1114,7 @@
       };
       agregar(c, ['fecha', 'ambipar', 'estado', 'brig', 'obs']);
       // A las otras plantas solo pasa lo que se cambió aquí (fecha, fecha Ambipar o estado), no lo que ya estaba
-      const cambiados = lote.length ? ['fecha', 'ambipar', 'estado'].filter(k => k in lote[0].item.cambios) : [];
+      const cambiados = lote.length ? ['fecha', 'ambipar', 'estado'].filter(k => k in lote[0].item.cambios && !(k === 'fecha' && esProveedor())) : [];
       const marcadas = document.querySelectorAll('#cr-otras input:checked');
       if (marcadas.length && !cambiados.length) return avisar('Para pasarlo a otras plantas, primero cambia aquí la fecha, la fecha Ambipar o el estado.', 'info', 8000);
       marcadas.forEach(el => agregar(D.cronoTodo[+el.dataset.k], cambiados));
@@ -1149,6 +1145,7 @@
     // Otra sesión de un módulo en una planta: habilita una que estaba en "-" o crea la Sesión N+1
     let sesPlan = null;
     async function abrirSesion(fila, pl) {
+      if (soloHolcim()) return;
       if (!E.usuario) return pedirSesion(() => abrirSesion(fila, pl));
       if (!(await cargarCatalogos())) return;
       $('form-sesion').reset();
@@ -1212,6 +1209,7 @@
       return 'M' + (Math.max.apply(null, n) + 1);
     }
     async function abrirModulo() {
+      if (soloHolcim()) return;
       if (!E.usuario) return pedirSesion(abrirModulo);
       if (!(await cargarCatalogos())) return;
       $('form-modulo').reset();
@@ -1286,7 +1284,7 @@
       $(pre + '-diferencia').innerHTML = L.t === bri ? '<div class="alert alert-success small py-2"><i class="fa-solid fa-check me-1"></i>El Indicador y las listas de la app coinciden: ' + bri + ' brigadistas.</div>'
         : `<div class="alert alert-warning small d-flex flex-wrap align-items-center gap-2"><i class="fa-solid fa-scale-unbalanced"></i>
         <span>Los números no coinciden: el Indicador cuenta <b>${bri}</b> brigadistas y las listas de la app tienen <b>${L.t}</b> activos (${L.h} Holcim · ${L.c} contratistas). Hay que cuadrarlos.</span>
-        <span class="ms-auto d-flex gap-2"><button class="btn btn-sm btn-dark" data-accion="cuadre"><i class="fa-solid fa-scale-balanced me-1"></i>Cuadrar con el Indicador</button>
+        <span class="ms-auto d-flex gap-2 no-proveedor"><button class="btn btn-sm btn-dark" data-accion="cuadre"><i class="fa-solid fa-scale-balanced me-1"></i>Cuadrar con el Indicador</button>
         <button class="btn btn-sm btn-outline-dark" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Traer los que faltan a las listas</button></span></div>`;
       const orden = enDash ? {} : (document.querySelector('#cob-orden [aria-pressed="true"]') || {}).dataset || {};
       const lista = plantas.filter(x => enDash || !$('cob-faltan').checked || x.faltan)
@@ -1323,6 +1321,7 @@
     // Cuadrar las listas de la app con la pestaña Indicador. (empresa por empresa)
     const cua = { datos: null, sel: {}, val: {} };
     async function abrirCuadre() {
+      if (soloHolcim()) return;
       if (!E.usuario) return pedirSesion(abrirCuadre);
       ocupado(true);
       try { cua.datos = await api('getCuadreIndicador', E.token); ocupado(false); } catch (e) { return error(e); }
@@ -1395,6 +1394,7 @@
     // Brigadistas que faltan en las listas (están en otras pestañas del 1.0 / 2.0 / libro nuevo)
     const falt = { datos: null, fuentes: {}, marcados: {}, ajustes: {} };
     async function abrirFaltantes() {
+      if (soloHolcim()) return;
       if (!E.usuario) return pedirSesion(abrirFaltantes);
       ocupado(true);
       try { falt.datos = await api('getBrigadistasFaltantes', E.token); ocupado(false); } catch (e) { return error(e); }
@@ -1523,8 +1523,8 @@
         if (f.length && (p.activo || f.indexOf('fechaRetiro') !== -1)) add('datos-incompletos', { sede: p.sede, planta: p.p, persona: p, completar: f[0],
           detalle: `${p.n} (${p.p}): falta ${f.map(k => CAMPOS_B[k].charAt(0).toLowerCase() + CAMPOS_B[k].slice(1)).join(', ')}.`, que: 'Pulsa Completar, o en Brigadistas usa "Editar en la tabla" para completar varios a la vez.' });
       });
-      // Cédulas y nombres (en la vista reducida las cédulas vienen ocultas: no se revisan)
-      const todos = D.reducido ? [] : P.concat(I), porCed = {}, porNom = {};
+      // Cédulas y nombres
+      const todos = P.concat(I), porCed = {}, porNom = {};
       todos.forEach(p => {
         const c = String(p.c).replace(/\D/g, '');
         if (!c || c.length < 5 || c.length > 12) add('cedula-invalida', { sede: p.sede, planta: p.p, persona: p, detalle: `${p.n} (${p.p}): cédula "${p.c || 'vacía'}".`, que: 'Corrígela en la hoja: la app ubica a las personas por cédula.' });
@@ -1586,7 +1586,7 @@
     async function cargarCambios() {
       if (CAMBIOS) return pintarCambios();
       leyendo(true);
-      try { CAMBIOS = await api('getCambios', tok()); }
+      try { CAMBIOS = await api('getCambios', E.token); }
       catch (e) { return error(e); } finally { leyendo(false); }
       const porCed = {}; P.concat(I).forEach(p => { porCed[String(p.c).replace(/\D/g, '')] = p; });
       CAMBIOS.forEach(c => { const p = porCed[String(c.cedula).replace(/\D/g, '')]; c.sede = p ? p.sede : ''; c.persona = p || null; });
@@ -1621,7 +1621,7 @@
       if (temarios) return;
       leyendo(true);
       try {
-        temarios = await api('getListaTemarios', tok());
+        temarios = await api('getListaTemarios', E.token);
         $('tem-hoja').innerHTML = temarios.map(n => `<option value="${esc(n)}">${esc(n.trim())}</option>`).join('');
         if (temarios.length) cargarTemario(); else $('tem-acordeon').innerHTML = '<p class="text-muted">No hay pestañas de temario visibles.</p>';
       } catch (e) { error(e); } finally { leyendo(false); }
@@ -1629,7 +1629,7 @@
     async function cargarTemario() {
       leyendo(true);
       try {
-        const r = await api('getTemarioCapacitacion', tok(), $('tem-hoja').value);
+        const r = await api('getTemarioCapacitacion', E.token, $('tem-hoja').value);
         $('tem-acordeon').innerHTML = r.grupos.map((g, i) => `<div class="accordion-item" data-texto="${esc(norm(g.titulo + ' ' + g.items.map(it => it.map(x => x.valor).join(' ')).join(' ')))}">
           <h2 class="accordion-header"><button class="accordion-button ${i ? 'collapsed' : ''}" type="button" data-bs-toggle="collapse" data-bs-target="#tem-${i}" aria-expanded="${!i}"><span style="white-space: pre-line;">${esc(g.titulo || r.encabezado)}</span><span class="badge text-bg-secondary ms-2">${g.items.length}</span></button></h2>
           <div id="tem-${i}" class="accordion-collapse collapse ${i ? '' : 'show'}"><div class="accordion-body small">` +
@@ -1648,7 +1648,7 @@
       if (hojas) return;
       leyendo(true);
       try {
-        hojas = await api('getHojasExtra', tok());
+        hojas = await api('getHojasExtra', E.token);
         $('hoja-sel').innerHTML = hojas.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
         if (hojas.length) cargarHoja(); else $('hoja-tabla').innerHTML = '<p class="text-muted p-3 mb-0">No hay otras pestañas visibles.</p>';
       } catch (e) { error(e); } finally { leyendo(false); }
@@ -1656,7 +1656,7 @@
     async function cargarHoja() {
       leyendo(true);
       try {
-        hoja.datos = await api('getHojaExtra', tok(), $('hoja-sel').value);
+        hoja.datos = await api('getHojaExtra', E.token, $('hoja-sel').value);
         $('hoja-titulo').textContent = hoja.datos.titulo || '';
         $('hoja-col').innerHTML = '<option value="">Filtrar por columna…</option>' + hoja.datos.encabezados.map((h, k) => `<option value="${k}">${esc(h)}</option>`).join('');
         const kPlanta = hoja.datos.encabezados.findIndex(h => /^(PLANTA|SEDE)/.test(norm(h)));
@@ -1690,7 +1690,7 @@
     async function cargarEstado() {
       leyendo(true);
       try {
-        const e = await api('getEstadoSistema', tok());
+        const e = await api('getEstadoSistema', E.token);
         const tarjeta = (est, titulo, valor, sub) => `<div class="col-sm-6 col-xl-3"><div class="tarjeta p-3 h-100"><div class="small text-muted text-uppercase"><span class="punto punto-${est}"></span>${titulo}</div><div class="fw-bold mt-1">${valor}</div><div class="small text-muted">${sub || ''}</div></div></div>`;
         $('estado-tarjetas').innerHTML = e.archivos.map(a => tarjeta(!a.configurado ? 'info' : a.ok ? 'ok' : 'error', a.nombre, !a.configurado ? 'Sin configurar' : a.ok ? esc(a.titulo) : 'No se puede abrir', a.ok ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">Abrir</a>` : esc(a.error || ''))).join('') +
           tarjeta(e.automatica.activa ? 'ok' : 'aviso', 'Tarea automática', e.automatica.activa ? 'Activa' : 'Apagada', e.automatica.activa ? 'Cada ' + e.automatica.cadaHoras + ' hora(s)' : 'Actívala en Configuración') +
@@ -1709,7 +1709,7 @@
       diagEnCurso = true;
       $('diag-lista').innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-2"></span>Revisando archivos, columnas, cronograma, tarea y accesos…</div>';
       try {
-        const d = await api('diagnosticoSistema', tok());
+        const d = await api('diagnosticoSistema', E.token);
         $('diag-fecha').textContent = 'Revisado: ' + d.fecha;
         $('diag-resumen').innerHTML = `<span class="badge bg-success me-1">${d.resumen.ok} bien</span><span class="badge bg-warning text-dark me-1">${d.resumen.aviso} avisos</span><span class="badge bg-danger">${d.resumen.error} errores</span>`;
         const ico = { ok: 'fa-circle-check text-success', aviso: 'fa-triangle-exclamation text-warning', error: 'fa-circle-xmark text-danger', info: 'fa-circle-info text-secondary' };
@@ -1743,10 +1743,6 @@
         $('conf-destino').value = url(conf.destino.id); $('conf-destino-nombre').innerHTML = nombre(conf.destino);
         $('conf-libro').value = url(conf.libro.id); $('conf-libro-nombre').innerHTML = conf.libro.id ? nombre(conf.libro) : 'Se crea desde el editor con libroNuevoCrear.';
         $('conf-corte').innerHTML = conf.corte ? '<i class="fa-solid fa-scissors me-1"></i>Corte hecho el ' + esc(conf.corte) + '. El 1.0 y el 2.0 ya no se usan.' : '<i class="fa-solid fa-scissors me-1"></i>Sin corte todavía. El corte se hace desde el editor con libroNuevoCorte.';
-        $('conf-acceso').value = conf.acceso || 'cedula';
-        $('conf-visita-completa').checked = !!conf.visitaCompleta;
-        $('conf-responsable').value = conf.responsable || ''; $('conf-contacto').value = conf.contacto || '';
-        $('conf-texto-datos').value = conf.textoDatos || ''; $('conf-texto-conf').value = conf.textoConfidencialidad || '';
         $('conf-horas').value = String(conf.automatica.cadaHoras || 1);
         $('conf-auto-estado').innerHTML = conf.automatica.activa ? `<span class="punto punto-ok"></span>Activa cada ${conf.automatica.cadaHoras} hora(s).` : '<span class="punto punto-aviso"></span>Apagada.';
         const principal = !!(E.perfil && E.perfil.principal);
@@ -1765,14 +1761,6 @@
       catch (e) { error(e); }
     }
     function guardarArchivos() { guardarConf({ idOrigen: $('conf-origen').value, idDestino: $('conf-destino').value, idLibro: $('conf-libro').value }, async () => { temarios = null; hojas = null; CAMBIOS = null; await cargarDatos(true); cargarConfiguracion(); }); }
-    function guardarLectura() {
-      const acceso = $('conf-acceso').value;
-      if (acceso === 'publico' && !confirm('Con acceso público cualquiera con el enlace ve nombres y datos de los brigadistas sin registrarse. ¿Seguro?')) return;
-      guardarConf({ acceso: acceso, visitaCompleta: $('conf-visita-completa').checked }, async () => { E.acceso = acceso; E.lecturaPublica = acceso === 'publico'; });
-    }
-    function guardarTextos() {
-      guardarConf({ responsable: $('conf-responsable').value, contacto: $('conf-contacto').value, textoDatos: $('conf-texto-datos').value, textoConfidencialidad: $('conf-texto-conf').value }, cargarConfiguracion);
-    }
     async function cambiarAutomatico(activar) {
       ocupado(true);
       try { const r = await api('configurarAutomatico', E.token, activar, Number($('conf-horas').value)); ocupado(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000); cargarConfiguracion(); }
@@ -1796,10 +1784,11 @@
       try {
         USUARIOS = await api('getUsuarios', E.token);
         const yo = USUARIOS.yo || {};
-        $('usr-org').innerHTML = USUARIOS.orgs.map(o => `<option>${esc(o)}</option>`).join('');
+        const desc = { Holcim: 'Holcim: ve y cambia todo, menos usuarios', Ambipar: 'Ambipar (proveedor): asistencia y Fecha Ambipar' };
+        $('usr-org').innerHTML = USUARIOS.orgs.map(o => `<option value="${esc(o)}">${esc(desc[o] || o)}</option>`).join('');
         $('usr-tabla').innerHTML = USUARIOS.usuarios.map(u => `<tr class="${u.activo ? '' : 'text-muted'}"><td class="fw-semibold">${esc(u.usuario)}${u.usuario === yo.usuario ? ' <span class="small text-muted">(tú)</span>' : ''}</td><td>${esc(u.nombre || '—')}</td>
-          <td><span class="badge ${u.org === 'Ambipar' ? 'bg-warning-subtle text-warning-emphasis' : u.org === 'Holcim' ? 'bg-primary-subtle text-primary-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'}">${esc(u.org || '—')}</span></td>
-          <td>${u.principal ? '<span class="badge text-bg-dark">Principal</span>' : u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}</td>
+          <td><span class="badge ${u.rol === 'proveedor' ? 'bg-warning-subtle text-warning-emphasis' : u.rol === 'gestor' ? 'text-bg-dark' : 'bg-primary-subtle text-primary-emphasis'}">${esc((USUARIOS.roles || {})[u.rol] || u.org || '—')}</span></td>
+          <td>${u.principal ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}</td>
           <td class="text-end text-nowrap">${yo.principal && !u.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button><button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
         $('form-usuario').style.display = yo.principal ? '' : 'none';
         if (!$('usr-clave').value) $('usr-clave').value = claveAleatoria();
@@ -1843,50 +1832,33 @@
       catch (e) { error(e); }
     }
 
-    // ══════════ INGRESO CON CÉDULA ══════════
-    function olvidarVisita() { E.visita = null; E.visitante = null; guardar('sessionStorage', 'sigbe_visita', null); }
-    function mostrarIngreso(textos) {
+    // ══════════ ENTRADA (usuario y clave) ══════════
+    function mostrarIngreso() {
       document.body.classList.add('modo-ingreso');
-      textos = textos || {};
-      $('ing-texto-datos').textContent = textos.datos || '';
-      $('ing-texto-conf').textContent = textos.confidencialidad || '';
-      E.versionTextos = textos.version || '';
-      let rec = null; try { rec = JSON.parse(leer('localStorage', 'sigbe_ingreso') || 'null'); } catch (e) { rec = null; }
-      if (rec && !$('ing-cedula').value) { $('ing-cedula').value = rec.c || ''; $('ing-nombre').value = rec.n || ''; $('ing-recordar').checked = true; }
-      $('ing-datos').checked = false; $('ing-conf').checked = false; $('ing-error').textContent = '';
+      $('ing-clave').value = ''; $('ing-error').textContent = '';
       E.vista = 'ingreso'; mostrar('ingreso');
-      setTimeout(() => (rec ? $('ing-datos') : $('ing-cedula')).focus(), 200);
+      setTimeout(() => ($('ing-usuario').value ? $('ing-clave') : $('ing-usuario')).focus(), 200);
     }
     async function enviarIngreso(ev) {
       ev.preventDefault();
-      const d = { cedula: $('ing-cedula').value.replace(/\D/g, ''), nombre: $('ing-nombre').value.trim(), aceptaDatos: $('ing-datos').checked, aceptaConfidencialidad: $('ing-conf').checked, navegador: navigator.userAgent };
-      const err = d.cedula.length < 5 || d.cedula.length > 12 ? 'Escribe tu número de cédula (de 5 a 12 números).' : d.nombre.split(/\s+/).length < 2 ? 'Escribe tu nombre y apellido.' :
-        !d.aceptaDatos || !d.aceptaConfidencialidad ? 'Para entrar debes marcar las dos casillas: datos personales y confidencialidad.' : '';
-      if (err) { $('ing-error').textContent = err; return; }
       $('ing-error').textContent = '';
       ocupado(true);
       try {
-        const r = await api('registrarIngreso', d);
+        const r = await api('validarLoginAdmin', $('ing-usuario').value, $('ing-clave').value);
         ocupado(false);
         if (!r.exito) { $('ing-error').textContent = r.mensaje; return; }
-        E.visita = r.token; E.visitante = r.visitante; guardar('sessionStorage', 'sigbe_visita', r.token);
-        guardar('localStorage', 'sigbe_ingreso', $('ing-recordar').checked ? JSON.stringify({ c: d.cedula, n: r.visitante.n }) : null);
+        E.token = r.token; E.usuario = r.usuario; E.perfil = r.perfil || null; guardar('sessionStorage', 'sigbe_token', r.token);
         document.body.classList.remove('modo-ingreso');
-        avisar(esc(r.mensaje), 'success', 4000);
+        pintarSesion();
         E.vista = 'inicio';
         await arrancar();
       } catch (e) { error(e); }
-    }
-    function salirVisita() {
-      api('salirVisita', E.visita).catch(() => {});
-      olvidarVisita(); D = null; pintarSesion(); E.vista = 'inicio';
-      arrancar();
     }
 
     // Registro de ingresos (administradores)
     const ingr = { tipo: '', lista: null, visibles: [] };
     async function cargarIngresos() {
-      if (!E.usuario) { $('ing-sin-sesion').style.display = 'block'; $('ing-contenido').style.display = 'none'; return; }
+      if (!E.usuario || esProveedor()) { $('ing-sin-sesion').style.display = 'block'; $('ing-contenido').style.display = 'none'; return; }
       $('ing-sin-sesion').style.display = 'none'; $('ing-contenido').style.display = 'block';
       leyendo(true);
       try { ingr.lista = await api('getIngresos', E.token); } catch (e) { return error(e); } finally { leyendo(false); }
@@ -1894,18 +1866,19 @@
     }
     function pintarIngresos() {
       if (!ingr.lista) return;
-      const q = norm($('ing-buscar').value), fuera = $('ing-fuera').checked;
-      const raro = x => /^Consulta/.test(x.tipo) && (/No está/.test(x.listas) || /OJO/.test(x.listas));
-      const lista = ingr.visibles = ingr.lista.filter(x => (!ingr.tipo || x.tipo.indexOf(ingr.tipo) === 0) && (!fuera || raro(x)) && (!q || norm([x.cedula, x.nombre, x.listas, x.tipo].join(' ')).includes(q)));
+      const q = norm($('ing-buscar').value);
+      const raro = x => /^Intento/.test(x.tipo);
+      const lista = ingr.visibles = ingr.lista.filter(x => (!ingr.tipo || x.tipo.indexOf(ingr.tipo) === 0) && (!q || norm([x.cedula, x.nombre, x.listas, x.tipo].join(' ')).includes(q)));
       const hoy = D ? D.hoy : '', semana = ingr.lista.filter(x => x.iso && hoy && x.iso >= new Date(Date.parse(hoy) - 6 * 864e5).toISOString().slice(0, 10));
       const kpi = (t, v, s, c) => `<div class="col-6 col-lg-3"><div class="kpi"><div class="eti">${t}</div><div class="num" style="color:${c}">${v}</div><div class="small text-muted">${s}</div></div></div>`;
-      $('ing-kpis').innerHTML = kpi('Ingresos hoy', ingr.lista.filter(x => x.iso === hoy).length, 'consultas y administradores', '#0d6efd') +
-        kpi('Últimos 7 días', semana.length, unicos(semana.filter(x => x.cedula).map(x => x.cedula)).length + ' personas distintas', '#0f5132') +
-        kpi('No están en las listas', ingr.lista.filter(raro).length, 'o el nombre no coincide', '#b58100') +
-        kpi('Intentos fallidos', ingr.lista.filter(x => /^Intento/.test(x.tipo)).length, 'de administrador', '#b02a37');
+      const ok = x => !/^Intento/.test(x.tipo);
+      $('ing-kpis').innerHTML = kpi('Ingresos hoy', ingr.lista.filter(x => x.iso === hoy && ok(x)).length, unicos(ingr.lista.filter(x => x.iso === hoy && ok(x)).map(x => x.nombre)).length + ' usuario(s) distinto(s)', '#0d6efd') +
+        kpi('Últimos 7 días', semana.filter(ok).length, unicos(semana.filter(ok).map(x => x.nombre)).length + ' usuario(s) distinto(s)', '#0f5132') +
+        kpi('Intentos fallidos hoy', ingr.lista.filter(x => x.iso === hoy && !ok(x)).length, 'clave o usuario equivocados', '#b58100') +
+        kpi('Intentos fallidos', ingr.lista.filter(x => !ok(x)).length, 'en todo el registro', '#b02a37');
       $('ing-conteo').textContent = lista.length + ' ingreso(s)';
       const max = 500;
-      $('ing-tabla').innerHTML = lista.slice(0, max).map(x => `<tr class="${/^Intento/.test(x.tipo) ? 'table-danger' : raro(x) ? 'table-warning' : ''}"><td class="text-nowrap small">${esc(x.fecha)}</td>
+      $('ing-tabla').innerHTML = lista.slice(0, max).map(x => `<tr class="${raro(x) ? 'table-danger' : ''}"><td class="text-nowrap small">${esc(x.fecha)}</td>
         <td><span class="badge ${/^Consulta/.test(x.tipo) ? 'bg-info-subtle text-info-emphasis' : /^Intento/.test(x.tipo) ? 'text-bg-danger' : 'text-bg-dark'}">${esc(x.tipo)}</span></td>
         <td>${esc(x.cedula)}</td><td class="fw-semibold">${esc(x.nombre)}</td><td class="small">${esc(x.listas)}</td><td class="small text-muted">${x.version ? 'v. ' + esc(x.version) : ''}</td></tr>`).join('') +
         (lista.length > max ? `<tr><td colspan="6" class="text-muted small">Se muestran ${max} de ${lista.length}; descarga el CSV para verlos todos.</td></tr>` : '') || '<tr><td colspan="6" class="text-muted text-center py-4">Sin ingresos con ese filtro</td></tr>';
