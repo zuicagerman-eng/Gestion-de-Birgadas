@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.7.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.8.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });

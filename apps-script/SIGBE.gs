@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.7.0';
+const SIGBE_VERSION = '4.8.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';

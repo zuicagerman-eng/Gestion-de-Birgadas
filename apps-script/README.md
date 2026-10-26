@@ -117,7 +117,7 @@ Google Workspace): se manda un correo por persona y por guardado, no uno por dat
 En las mismas pestañas de siempre: el cronograma y la lista "2026 Brigadistas HOLCIM". Hasta el corte se escribe en
 el 1.0 (cronograma) y el 2.0 (lista) y el libro nuevo lo copia ~1 minuto después; después del corte, en el libro nuevo,
 y la lista se reorganiza sola (fechas y "No aplica") ~1 minuto después. Así el Excel sigue siendo un reflejo fiel y no
-hay una segunda base de datos que pueda quedar distinta. Antes del primer cambio del día se guarda un respaldo.
+hay una segunda base de datos que pueda quedar distinta. La tarea de cada hora guarda el respaldo del día.
 
 ## Rapidez
 
@@ -125,6 +125,10 @@ La app pide **una sola vez** todos los datos (`getDatos`): el servidor lee cada 
 en la caché de Apps Script por 10 minutos. Los filtros, la ficha, el avance y la revisión se calculan en el navegador,
 sin volver a leer las hojas. Al guardar desde la app o con la tarea automática la caché se renueva. Arriba se ve la
 hora de los datos y el botón ↻ los vuelve a leer.
+
+Cada guardado abre solo los archivos que necesita (el corte lo deja en uno), escribe las filas seguidas de una vez,
+lee las propiedades del script una sola vez y no copia el archivo de respaldo con el bloqueo tomado (eso lo hace la
+tarea de cada hora). Los correos se envían aparte. En el navegador, las búsquedas esperan a que se deje de escribir.
 
 ## Qué sesiones aplican
 
@@ -202,11 +206,17 @@ filas de CEM. Para cambiar una regla se cambia el cronograma (poner `-` o la fec
 4. `libroNuevoCorte` cuando se decida el cambio: hace una última actualización (si hay un borrado masivo o un error,
    **no** hace el corte) y desde ahí el libro nuevo es el oficial: la app pasa a leer y guardar ahí. La tarea
    automática sigue corriendo para anotar lo que se cambie directamente en el libro y para reorganizar la lista
-   de asistencia si cambia el cronograma.
+   de asistencia si cambia el cronograma. Todo el corte se hace con el bloqueo tomado: si alguien guarda en ese
+   momento, espera y su cambio queda en el libro nuevo.
+
+Al reorganizar la lista con el cronograma **nunca se borra una marca de asistencia** (si la sesión pasa a "No aplica",
+la marca queda y no cuenta; sale en Revisión de datos) ni el texto propio de una persona en la fecha (p. ej. "NO HACÍA
+PARTE"). Solo se reorganiza si cambian fechas, "-", filas o la cantidad de personas, no por el estado o las observaciones.
 
 Otras: `libroNuevoActualizar` (traer cambios ya), `libroNuevoActualizarTodo` (todas las pestañas aunque no hayan
 cambiado; también sirve para aceptar un borrado que sí era correcto), `libroNuevoEstado`, `libroNuevoDesactivarAutomatico`,
-`libroNuevoQuitarCorte`. Si ya existe un archivo vacío que se quiera usar, pon su URL en la propiedad del script
+`libroNuevoQuitarCorte` (se niega si ya hay cambios desde la app en el libro nuevo: la siguiente copia del 1.0 y el
+2.0 los borraría). Si ya existe un archivo vacío que se quiera usar, pon su URL en la propiedad del script
 `LIBRO_NUEVO_ID` y ejecuta `libroNuevoActualizarTodo`.
 
 Mismo seguro que la sincronización: si una pestaña de origen pierde de golpe más del 30 % de sus datos, no se copia y se avisa.
@@ -217,7 +227,7 @@ Mismo seguro que la sincronización: si una pestaña de origen pierde de golpe m
    `SIGBE.gs`, `LibroNuevo.gs`, `SincronizarBrigadas.gs`, `Index.html` y **`App.html`** (➕ → HTML → nombre `App`)
    (y `appsscript.json` si cambió) → guarda. Al pegar, revisa que el final del archivo quede completo.
 2. **Propiedades del script**: `SIGBE_ID_ORIGEN` (URL del 1.0), `SIGBE_ID_DESTINO` (URL del 2.0), `SIGBE_USUARIO`,
-   `SIGBE_CLAVE_INICIAL` (se cifra y se borra al primer inicio de sesión), `SIGBE_LECTURA_PUBLICA` = `no`.
+   `SIGBE_CLAVE_INICIAL` (se cifra y se borra al primer inicio de sesión).
    `LIBRO_NUEVO_ID` lo pone `libroNuevoCrear`.
 3. Comparte el 1.0 y el 2.0 como **editor** con la cuenta que ejecuta el script (`libroNuevoProbarAcceso` lo comprueba).
 4. **Publicar**: *Implementar → Administrar implementaciones → ✏️ → Versión: Nueva versión → Implementar* (la URL no cambia).
@@ -225,14 +235,20 @@ Mismo seguro que la sincronización: si una pestaña de origen pierde de golpe m
 5. **Tarea automática**: Configuración → *Activar* (o `libroNuevoActivarAutomatico` en el editor). Si quedó un activador
    viejo llamado `sincronizar`, ahora hace la tarea nueva; el diagnóstico avisa para dejar uno solo.
 
-> El archivo contiene nombres y cédulas. Deja `SIGBE_LECTURA_PUBLICA = no`, comparte los archivos solo con quien los
-> necesita y usa una clave fuerte.
+> El archivo contiene nombres y cédulas: para ver cualquier dato hay que iniciar sesión. Comparte los archivos solo con
+> quien los necesita y usa una clave fuerte.
 
 ## Seguros contra daños
 
-- Para guardar hay que iniciar sesión; personas por cédula (+ nombre) y columnas por encabezado.
+- Para ver o guardar hay que iniciar sesión; personas por cédula (+ nombre; sin cédula, solo entre quienes tampoco la
+  tienen, y la fila desempata homónimos) y columnas por encabezado.
+- Un texto que empieza con `=` o `+` se guarda como texto, no como fórmula.
+- Las funciones de mantenimiento (`probarCorreo`, `libroNuevoProbarAcceso`, las tareas automáticas) solo las corre la
+  cuenta dueña o su activador; no se pueden llamar desde la app publicada.
+- Cinco claves erradas bloquean ese usuario 10 minutos (no a los demás).
 - Si la casilla cambió desde que se abrió la pantalla, no se pisa y se avisa.
-- Antes del primer cambio del día desde la app se guarda una copia completa del archivo en Drive
-  (*Respaldos Gestion de Brigadas 2.0*, 30 días por archivo). También está el historial de versiones de Google.
+- Cada día la tarea automática guarda una copia completa de los archivos en uso en Drive (*Respaldos Gestion de
+  Brigadas 2.0*, 30 días por archivo); si un día no corrió, el primer guardado la hace. Antes de crear un módulo o
+  una sesión también. Además está el historial de versiones de Google.
 - Si una pestaña de origen pierde de golpe más del 30 % de sus datos, no se copia al libro nuevo y se avisa.
 - Las columnas con tipo fijo de las tablas de Google no se fuerzan: se saltan y se avisa.
