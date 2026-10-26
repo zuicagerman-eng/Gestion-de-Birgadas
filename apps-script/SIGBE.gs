@@ -307,7 +307,7 @@ function sigbeGuardarAsistencia_(token, cambios) {
   try {
     const usuario = sigbeExigirSesion_(token);
     if (!cambios.length) return { exito: true, guardados: 0, conflictos: [], aplicados: [], mensaje: 'No había cambios.' };
-    if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    if (!sigbeBloquear_(lock, 20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
     const F = sigbeFuentes_();
     sigbeExigirEscritura_(F, 'asistencia');
     const sh = sigbeHoja_(F.asistencia, SIGBE_HOJA_HOLCIM);
@@ -399,7 +399,7 @@ function registrarBrigadistaNuevo(token, data) {
     const planta = String(data.planta || '').trim();
     if (!nombre || !planta) return { exito: false, mensaje: 'La planta y el nombre son obligatorios.' };
     if (cedula.length < 5 || cedula.length > 12) return { exito: false, mensaje: 'La cédula debe tener entre 5 y 12 números.' };
-    if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    if (!sigbeBloquear_(lock, 20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
 
     const F = sigbeFuentes_();
     const esHolcim = data.tipo === 'HOLCIM';
@@ -443,12 +443,12 @@ function registrarBrigadistaNuevo(token, data) {
     });
     if (esHolcim) {
       poner('ESTADO', data.estado || 'Activo');
-      // Después del corte nadie más organiza la lista: se aplica el cronograma a la fila nueva aquí mismo
-      if (F.corte) { try { lnOrganizarAsistencia_(sh, sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA)); } catch (e) { /* queda sin fechas hasta la próxima */ } }
     } else {
       poner('CONTRATISTA', String(data.contratista || '').trim().toUpperCase());
     }
-    sigbeTrasGuardar_(F, usuario, [['Registro de brigadista', sh.getName(), nueva, cedula, nombre, 'Alta en la lista (' + planta + ')', '', 'Alta']]);
+    // Después del corte, la fila nueva toma fechas y "No aplica" del cronograma con la reorganización que se programa
+    // aquí (~1 minuto; la lista cambió de tamaño). Hacerlo dentro de cada alta tardaba y alargaba "Traer faltantes".
+    sigbeTrasGuardar_(F, usuario, [['Registro de brigadista', sh.getName(), nueva, cedula, nombre, 'Alta en la lista (' + planta + ')', '', 'Alta']], esHolcim);
     return { exito: true, mensaje: nombre + ' quedó registrado en ' + planta + '.' };
   } catch (e) {
     return { exito: false, mensaje: e.message };
@@ -475,7 +475,7 @@ function actualizarBrigadistasLote(token, lista) {
   try {
     const usuario = sigbeExigirRol_(token, ['gestor', 'holcim']);
     if (!lista || !lista.length) return { exito: true, mensaje: 'No había cambios.', resultados: [] };
-    if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    if (!sigbeBloquear_(lock, 20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
     const F = sigbeFuentes_();
     const hojas = {}; // tipo → { sh, t, personas, inhouse, ss, respaldo }
     const hoja = tipo => {
@@ -636,7 +636,7 @@ function guardarCronograma(token, lista) {
   try {
     const usuario = sigbeExigirSesion_(token), rol = sigbeRol_(usuario);
     if (!lista || !lista.length) return { exito: true, guardados: 0, resultados: [], mensaje: 'No había cambios.' };
-    if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    if (!sigbeBloquear_(lock, 20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
     const F = sigbeFuentes_();
     sigbeExigirEscritura_(F, 'datos');
     const sh = sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA);
@@ -732,7 +732,7 @@ function crearModulo(token, d) {
   const lock = LockService.getScriptLock();
   try {
     const usuario = sigbeExigirRol_(token, ['gestor', 'holcim']);
-    if (!lock.tryLock(30000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    if (!sigbeBloquear_(lock, 30000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
     const F = sigbeFuentes_();
     sigbeExigirEscritura_(F, 'datos');
     sigbeExigirEscritura_(F, 'asistencia');
@@ -865,7 +865,7 @@ function agregarSesion(token, d) {
   const lock = LockService.getScriptLock();
   try {
     const usuario = sigbeExigirRol_(token, ['gestor', 'holcim']);
-    if (!lock.tryLock(30000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    if (!sigbeBloquear_(lock, 30000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
     const F = sigbeFuentes_();
     sigbeExigirEscritura_(F, 'datos');
     const shC = sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA);
@@ -1003,7 +1003,9 @@ function getBrigadistasFaltantes(token) {
 /** Trae a las listas las personas elegidas. lista: [{ tipo, planta, nombre, cedula, empresa }] */
 function importarBrigadistas(token, lista) {
   sigbeExigirRol_(token, ['gestor', 'holcim']);
+  const inicio = Date.now();
   const resultados = (lista || []).slice(0, 200).map(d => {
+    if (Date.now() - inicio > 4.5 * 60 * 1000) return { cedula: d.cedula, nombre: d.nombre, exito: false, mensaje: 'No alcanzó el tiempo: vuelve a abrir "Traer faltantes" para traer el resto.' };
     const r = registrarBrigadistaNuevo(token, { tipo: d.tipo === 'INHOUSE' ? 'INHOUSE' : 'HOLCIM', planta: d.planta, nombre: d.nombre, cedula: d.cedula,
       contratista: d.tipo === 'INHOUSE' ? d.empresa : '', empresa: d.tipo === 'INHOUSE' ? '' : d.empresa, estado: 'Activo', fechaIngreso: '' });
     return { cedula: d.cedula, nombre: d.nombre, exito: r.exito, mensaje: r.mensaje };
@@ -1168,7 +1170,7 @@ function sigbeTrasGuardar_(F, usuario, filas, cambioCronograma) {
  * lo guardado; después del corte, solo si cambió el cronograma o los módulos (para reorganizar la lista).
  */
 function sigbeProgramarActualizacion_(F, cambioCronograma) {
-  if (!F.libro || (F.corte && !cambioCronograma)) return false;
+  if (!lnIdLibro_() || (F.corte && !cambioCronograma)) return false;
   try {
     const props = props_();
     const pendiente = Number(props.getProperty('SIGBE_SYNC_PENDIENTE')) || 0;
@@ -1282,7 +1284,15 @@ function getCambios(token) {
  * Compara los datos actuales con la foto de la pasada anterior y anota en el historial lo que cambió y no
  * se hizo desde la app. La llama la tarea de cada hora. Devuelve una línea de resumen.
  */
-function sigbeVigilar_() {
+function sigbeVigilar_(yaBloqueado) {
+  // Con el bloqueo: así un guardado de la app no queda a medias (hoja cambiada, historial aún sin anotar)
+  // y no se confunde con un cambio hecho en el Excel.
+  const lock = LockService.getScriptLock();
+  if (!yaBloqueado && !lock.tryLock(30000)) return 'ℹ Revisión de cambios en el Excel: el sistema estaba ocupado; se hace en la próxima pasada.';
+  try { return sigbeVigilarBloqueado_(); } finally { if (!yaBloqueado) lock.releaseLock(); }
+}
+
+function sigbeVigilarBloqueado_() {
   sigbeLimpiarCaches_();
   const m = sigbeConstruirModelo_();
   sigbeInvalidar_();
@@ -1293,6 +1303,15 @@ function sigbeVigilar_() {
   const id = props.getProperty('SIGBE_FOTO_ID');
   if (id) { try { archivo = DriveApp.getFileById(id); if (archivo.isTrashed()) archivo = null; } catch (e) { archivo = null; } }
   if (archivo) { try { anterior = JSON.parse(archivo.getBlob().getDataAsString()); } catch (e) { anterior = null; } }
+  // Si el cronograma o INHOUSE no se pudieron leer (o quedaron vacíos de golpe), no se comparan: se conserva lo anterior.
+  // Si no, cada contratista saldría como "Baja de la lista" y cada sesión como "No aplica".
+  if (anterior) {
+    const fallo = (k, prefijo) => m.avisos.some(a => a.indexOf(prefijo) === 0) ||
+      (Object.keys(foto[k] || {}).length === 0 && Object.keys(anterior[k] || {}).length > 5);
+    if (fallo('i', 'INHOUSE:')) foto.i = anterior.i;
+    if (fallo('cr', 'Cronograma:')) foto.cr = anterior.cr;
+    if (fallo('h', 'Lista HOLCIM:')) foto.h = anterior.h;
+  }
 
   let texto;
   if (!anterior) texto = 'Primera foto de los datos guardada: desde la próxima pasada se anotan los cambios hechos en el Excel.';
@@ -1641,7 +1660,7 @@ function guardarUsuario(token, d) {
   try {
     const yo = sigbePerfil_(sigbeExigirSesion_(token));
     if (!yo.principal) return { exito: false, mensaje: 'Solo el usuario principal (' + prop_('SIGBE_USUARIO') + ') administra los usuarios.' };
-    if (!lock.tryLock(10000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
+    if (!sigbeBloquear_(lock, 10000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
     const org = SIGBE_ORGS.indexOf(d.org) !== -1 ? d.org : 'Ambipar';
     const nombre = String(d.nombre || '').trim().slice(0, 60);
     const correo = String(d.correo || '').trim().toLowerCase();
@@ -1934,7 +1953,19 @@ function cambiarClave(token, claveActual, usuarioNuevo, claveNueva) {
 let sigbeFuentesCache_ = null;
 
 /** Olvida los archivos abiertos en esta ejecución (tras cambiar la configuración). */
-function sigbeLimpiarCaches_() { sigbeFuentesCache_ = null; }
+function sigbeLimpiarCaches_() { sigbeFuentesCache_ = null; sigbePropsMemo_ = null; }
+
+/**
+ * Toma el bloqueo para guardar. Mientras se esperaba, otra ejecución pudo cambiar la configuración (por ejemplo, el corte
+ * al libro nuevo): se vuelve a leer, para guardar en el archivo correcto.
+ */
+function sigbeBloquear_(lock, ms) {
+  if (!lock.tryLock(ms)) return false;
+  sigbePropsMemo_ = null; // una lectura nueva de todas las propiedades
+  // Los archivos abiertos se conservan (abrirlos tarda) salvo que haya cambiado el corte
+  if (sigbeFuentesCache_ && sigbeFuentesCache_.corte !== !!prop_('LIBRO_NUEVO_CORTE')) sigbeFuentesCache_ = null;
+  return true;
+}
 
 /** Libro del historial y los ingresos. Si aún no se abrieron las fuentes, abre solo ese libro (abrir cada archivo tarda). */
 function sigbeRegistro_() {

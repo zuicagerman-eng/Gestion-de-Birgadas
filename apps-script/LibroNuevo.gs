@@ -202,14 +202,26 @@ function libroNuevoEstado() {
 
 function libroNuevoCorte() {
   lnSoloDueno_();
-  const props = props_();
-  if (props.getProperty('LIBRO_NUEVO_CORTE')) return lnMostrar_('El corte ya estaba hecho: ' + props.getProperty('LIBRO_NUEVO_CORTE'));
-  // Actualización normal (no forzada): si hay un borrado masivo o un error, el corte no se hace
-  const r = lnActualizar_(false);
-  if (r.error) throw new Error('No se hizo el corte porque la última actualización tuvo avisos o errores: ' + r.resumen);
-  const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-  props.setProperty('LIBRO_NUEVO_CORTE', fecha);
-  sigbeInvalidar_();
+  // Todo el corte con el bloqueo tomado: un guardado de la app que llegue mientras tanto espera y, al seguir,
+  // ya ve el corte y guarda en el libro nuevo (si no, podía guardar en el 2.0 después de la última copia y perderse).
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(120000)) throw new Error('El sistema estuvo ocupado 2 minutos: intenta el corte de nuevo en un rato.');
+  let r, fecha;
+  try {
+    const props = propsFrescas_();
+    if (props.getProperty('LIBRO_NUEVO_CORTE')) return lnMostrar_('El corte ya estaba hecho: ' + props.getProperty('LIBRO_NUEVO_CORTE'));
+    try { sigbeVigilar_(true); } catch (e) { /* anota lo cambiado directo en el Excel hasta ahora; si falla, sigue */ }
+    // Actualización normal (no forzada): si hay un borrado masivo o un error, el corte no se hace
+    r = lnActualizar_(false, true);
+    if (r.error) throw new Error('No se hizo el corte porque la última actualización tuvo avisos o errores: ' + r.resumen);
+    fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+    props.setProperty('LIBRO_NUEVO_CORTE', fecha);
+    sigbeLimpiarCaches_();
+    sigbeInvalidar_();
+    try { sigbeVigilar_(true); } catch (e) { /* primera foto del libro nuevo: desde ya se anotan sus cambios directos */ }
+  } finally {
+    lock.releaseLock();
+  }
   return lnMostrar_('Corte hecho (' + fecha + '). Desde ahora la app y el equipo trabajan solo en el libro nuevo; ' +
     'el 1.0 y el 2.0 quedan como histórico. La tarea automática sigue: ahora solo anota los cambios hechos directamente ' +
     'en el libro nuevo (los que no pasen por la app).\n\n' + r.resumen);
@@ -217,7 +229,20 @@ function libroNuevoCorte() {
 
 function libroNuevoQuitarCorte() {
   lnSoloDueno_();
+  const corte = prop_('LIBRO_NUEVO_CORTE');
+  if (!corte) return lnMostrar_('No hay corte hecho.');
+  // Lo guardado en el libro nuevo después del corte se perdería con la próxima copia desde el 1.0 y el 2.0
+  const desde = new Date(corte.replace(' ', 'T') + ':00');
+  const reg = sigbeRegistro_(), sh = reg && reg.getSheetByName(SIGBE_HOJA_BITACORA);
+  if (sh && sh.getLastRow() > 1) {
+    const n = Math.min(sh.getLastRow() - 1, 3000);
+    const despues = sh.getRange(sh.getLastRow() - n + 1, 1, n, 3).getValues()
+      .filter(f => f[0] instanceof Date && f[0] >= desde && !/^EXCEL/i.test(String(f[1])) && !/^Aviso por correo$/.test(String(f[2]))).length;
+    if (despues) throw new Error('No se quitó el corte: desde el ' + corte + ' se hicieron ' + despues + ' cambio(s) desde la app en el libro nuevo, ' +
+      'y la próxima copia desde el 1.0 y el 2.0 los borraría. El libro nuevo es el oficial.');
+  }
   props_().deleteProperty('LIBRO_NUEVO_CORTE');
+  sigbeLimpiarCaches_();
   sigbeInvalidar_();
   return lnMostrar_('Corte quitado. Ojo: la próxima actualización vuelve a traer las pestañas del 1.0 y el 2.0 ' +
     'y reemplaza lo que se haya escrito en esas pestañas del libro nuevo.');
@@ -225,12 +250,16 @@ function libroNuevoQuitarCorte() {
 
 // ───────────────────────────── PROCESO ─────────────────────────────
 
-function lnActualizar_(forzar) {
-  const props = props_();
-  const corte = props.getProperty('LIBRO_NUEVO_CORTE');
-  if (corte) return { resumen: 'Corte hecho el ' + corte + ': el libro nuevo ya no se actualiza desde el 1.0 y el 2.0.', error: false };
+function lnActualizar_(forzar, yaBloqueado) {
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) return { resumen: 'Ya había una actualización en curso.', error: false };
+  if (!yaBloqueado && !lock.tryLock(30000)) return { resumen: 'Ya había una actualización en curso.', error: false, ocupado: true };
+  // Leído después de tomar el bloqueo: si mientras se esperaba se hizo el corte, ya no se copia nada
+  const props = propsFrescas_();
+  const corte = props.getProperty('LIBRO_NUEVO_CORTE');
+  if (corte) {
+    if (!yaBloqueado) lock.releaseLock();
+    return { resumen: 'Corte hecho el ' + corte + ': el libro nuevo ya no se actualiza desde el 1.0 y el 2.0.', error: false };
+  }
   const log = [];
   let error = false;
   try {
@@ -301,7 +330,7 @@ function lnActualizar_(forzar) {
     error = true;
     log.unshift('✖ No se actualizó el libro nuevo: ' + e.message);
   } finally {
-    lock.releaseLock();
+    if (!yaBloqueado) lock.releaseLock();
   }
   const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
   const resumen = fecha + '\n' + log.join('\n');
@@ -317,24 +346,35 @@ function lnReorganizarTrasCorte_() {
   const id = lnIdLibro_();
   if (!id) return '';
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) return '';
+  if (!lock.tryLock(30000)) return 'ℹ Reorganizar la lista: el sistema estaba ocupado; se hace en la próxima pasada.';
   try {
     const libro = SpreadsheetApp.openById(id);
     const crono = buscarHoja_(libro, LN_HOJA_CRONOGRAMA);
     const lista = libro.getSheetByName(LN_HOJA_ASISTENCIA);
     if (!crono || !lista) return '';
-    const huella = huella_(crono);
-    if (props_().getProperty('LIBRO_NUEVO_HUELLA_CRONO_CORTE') === huella) return '';
-    const r = lnOrganizarAsistencia_(lista, crono);
+    // Huella solo de lo que usa la organización (fechas, "-", gris, filas y bloques) y del tamaño de la lista:
+    // cambiar el estado o las observaciones de una sesión no reorganiza; agregar una persona sí.
+    const leido = lnLeerCronogramaHoja_(crono);
+    const huella = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
+      LN_VERSION + JSON.stringify([leido, lista.getLastRow(), lista.getLastColumn()])));
+    if (propsFrescas_().getProperty('LIBRO_NUEVO_HUELLA_CRONO_CORTE') === huella) return '';
+    sigbeRespaldoHoy_(libro);
+    const r = lnOrganizarAsistencia_(lista, crono, leido);
     props_().setProperty('LIBRO_NUEVO_HUELLA_CRONO_CORTE', huella);
-    return '✔ El cronograma cambió: lista de asistencia reorganizada (' + r.resumen + ')';
+    sigbeInvalidar_();
+    return '✔ Lista de asistencia reorganizada con el cronograma (' + r.resumen + ')' + r.avisos.map(a => '\n   · ' + a).join('');
   } finally {
     lock.releaseLock();
   }
 }
 
+function lnLeerCronogramaHoja_(sh) {
+  const rc = sh.getDataRange();
+  return lnLeerCronograma_(rc.getValues(), rc.getDisplayValues(), rc.getBackgrounds());
+}
+
 /** Aplica el cronograma a la pestaña de asistencia ya copiada en el libro nuevo. */
-function lnOrganizarAsistencia_(hoja, cronoHoja) {
+function lnOrganizarAsistencia_(hoja, cronoHoja, cronoLeido) {
   const filas = hoja.getLastRow(), cols = hoja.getLastColumn();
   const rango = hoja.getRange(1, 1, filas, cols);
   const dvs = rango.getDataValidations();
@@ -345,8 +385,7 @@ function lnOrganizarAsistencia_(hoja, cronoHoja) {
     formatos: rango.getNumberFormats(),
     casillas: dvs.map(f => f.map(dv => !!dv && dv.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX)),
   };
-  const rc = cronoHoja.getRange(1, 1, cronoHoja.getLastRow(), cronoHoja.getLastColumn());
-  const crono = lnLeerCronograma_(rc.getValues(), rc.getDisplayValues(), rc.getBackgrounds());
+  const crono = cronoLeido || lnLeerCronogramaHoja_(cronoHoja);
   const p = lnPlanAsistencia_(datos, crono, new Date());
 
   // Se escribe de una vez el bloque de módulos + cumplimiento (desde la primera fila de datos)
@@ -560,16 +599,22 @@ function lnPlanAsistencia_(datos, crono, hoy) {
         else { const celda = fila.celdas[bloques[u.sesion - 1].i]; tipo = celda.tipo; fecha = celda.fecha || null; }
       }
       if (tipo === 'noaplica') {
-        if (V[r][u.ca] === true) aviso('marca:' + planta + u.clave + u.sesion, planta + ' ' + u.clave + ' sesión ' + u.sesion +
-          ': tenía asistencias marcadas pero según el cronograma no aplica; no se cuentan.');
+        // Una marca de asistencia nunca se borra: si el cronograma cambia (o se equivoca) y luego se corrige, la marca sigue ahí.
+        // Con "No aplica" en la fecha no cuenta en el cumplimiento y la app la muestra en Revisión de datos.
+        const marcada = V[r][u.ca] === true;
+        if (marcada) aviso('marca:' + planta + u.clave + u.sesion, planta + ' ' + u.clave + ' sesión ' + u.sesion +
+          ': tiene asistencias marcadas pero según el cronograma no aplica; se dejaron marcadas y no se cuentan.');
         V[r][u.cf] = LN_NO_APLICA; F[r][u.cf] = '';
-        V[r][u.ca] = ''; F[r][u.ca] = ''; C[r][u.ca] = false;
+        if (!marcada) { V[r][u.ca] = ''; F[r][u.ca] = ''; C[r][u.ca] = false; }
         B[r][u.cf] = LN_GRIS; B[r][u.ca] = LN_GRIS;
         cuenta.noAplica++;
         return;
       }
-      if (tipo === 'fecha') {
-        const antes = V[r][u.cf];
+      const antes = V[r][u.cf];
+      // Texto propio de esa persona en la fecha (p. ej. "NO HACÍA PARTE"): se respeta
+      const textoPropio = typeof antes === 'string' && antes.trim() !== '' && antes !== LN_NO_APLICA && !F[r][u.cf] &&
+        !/^\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4}$/.test(antes.trim()); // una fecha escrita como texto sí se reemplaza
+      if (tipo === 'fecha' && !textoPropio) {
         if (antes instanceof Date && dia(antes) !== dia(fecha)) aviso('fecha:' + planta + u.clave + u.sesion, planta + ' ' + u.clave +
           ' sesión ' + u.sesion + ': en el 2.0 decía ' + dia(antes) + ' y el cronograma dice ' + dia(fecha) + ' (quedó la del cronograma).');
         V[r][u.cf] = fecha; F[r][u.cf] = ''; N[r][u.cf] = 'dd/mm/yyyy';
@@ -579,7 +624,7 @@ function lnPlanAsistencia_(datos, crono, hoy) {
       }
       B[r][u.cf] = blanco(B[r][u.cf]); B[r][u.ca] = blanco(B[r][u.ca]);
       C[r][u.ca] = true;
-      if (typeof V[r][u.ca] !== 'boolean' && !F[r][u.ca]) V[r][u.ca] = false;
+      if (typeof V[r][u.ca] !== 'boolean' && !F[r][u.ca]) V[r][u.ca] = /^(SI|SÍ|X|TRUE|VERDADERO|1)$/i.test(String(V[r][u.ca]).trim());
     });
   }
 
