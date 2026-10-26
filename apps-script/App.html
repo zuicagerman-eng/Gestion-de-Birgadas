@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.5.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.6.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -115,8 +115,6 @@
       elegirPestana(leer('localStorage', 'sigbe_tab_inicio') || 'asistencia');
       $('cob-faltan').onchange = pintarCobertura;
       $('modal-faltantes').addEventListener('change', cambioFaltantes);
-      $('modal-cuadre').addEventListener('change', cambioCuadre);
-      $('modal-cuadre').addEventListener('input', cambioCuadre);
       $('falt-buscar').oninput = pintarFaltantes; $('falt-sede').onchange = pintarFaltantes; $('falt-desv').onchange = pintarFaltantes;
       $('form-ingreso').onsubmit = enviarIngreso;
       $('ing-buscar').oninput = pintarIngresos;
@@ -310,9 +308,7 @@
         ficha: () => abrirFicha(d.tipo, +d.j),
         completar: () => abrirFicha(d.tipo, +d.j, true, d.campo),
         'crono-editar': () => editarCrono(d.k),
-        'faltantes': () => { modal('modal-cuadre').hide(); abrirFaltantes(); },
-        'cuadre': abrirCuadre,
-        'cua-guardar': revisarCuadre,
+        'faltantes': abrirFaltantes,
         'falt-traer': revisarFaltantes,
         'cob-abrir': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = true; }),
         'cob-cerrar': () => document.querySelectorAll('.planta-cob').forEach(x => { x.open = false; }),
@@ -450,13 +446,13 @@
       const plantas = [];
       D.indicador.filter(enSede).forEach(f => { let pl = plantas.find(x => x.p === f.p); if (!pl) plantas.push(pl = { p: f.p, sede: f.sede, tot: null, emp: [] }); if (f.tot) pl.tot = f; else pl.emp.push(f); });
       plantas.forEach(pl => {
-        const sum = k => pl.emp.reduce((n, f) => n + f[k], 0);
-        pl.per = pl.tot ? pl.tot.per : sum('per'); pl.bri = pl.tot ? pl.tot.bri : sum('bri');
+        const sum = k => pl.emp.reduce((n, f) => n + (f[k] || 0), 0);
+        pl.per = pl.tot ? pl.tot.per : sum('per'); pl.bri = sum('lis'); // brigadistas: los de las listas de la app
         pl.metaN = enteros(pl.tot ? pl.tot.meta : sum('meta')); // 20 % de la planta, hacia arriba
         pl.faltan = Math.max(0, pl.metaN - pl.bri);
         pl.pct = pl.metaN ? Math.round(pl.bri / pl.metaN * 100) : 100;
         pl.pctPer = pl.per ? Math.round(pl.bri / pl.per * 1000) / 10 : 0;
-        pl.empresas = pl.emp.filter(f => f.per > 0).map(f => { const m = enteros(f.meta); return Object.assign({}, f, { metaN: m, faltan: Math.max(0, m - f.bri), pct: m ? Math.round(f.bri / m * 100) : 100 }); });
+        pl.empresas = pl.emp.filter(f => f.per > 0 || f.lis > 0).map(f => { const m = enteros(f.meta); return Object.assign({}, f, { bri: f.lis || 0, metaN: m, faltan: Math.max(0, m - (f.lis || 0)), pct: m ? Math.round((f.lis || 0) / m * 100) : 100 }); });
       });
       return plantas;
     }
@@ -1308,15 +1304,14 @@
       const per = plantas.reduce((n, x) => n + x.per, 0), bri = plantas.reduce((n, x) => n + x.bri, 0), meta = plantas.reduce((n, x) => n + x.metaN, 0);
       const cumplen = plantas.filter(x => !x.faltan).length, L = brigadistasEnListas();
       const kpi = (eti, num, sub, color) => `<div class="col-6 col-lg-3"><div class="kpi"><div class="eti">${eti}</div><div class="num" style="color:${color || 'inherit'}">${num}</div><div class="small text-muted">${sub}</div></div></div>`;
-      $(pre + '-kpis').innerHTML = kpi('Personal', per, 'trabajadores según el Indicador') +
-        kpi('Brigadistas', bri, `${per ? Math.round(bri / per * 1000) / 10 : 0} % del personal (según el Indicador)`) +
+      $(pre + '-kpis').innerHTML = kpi('Personal', per, 'trabajadores según la pestaña Indicador.') +
+        kpi('Brigadistas', L.t, `activos en las listas de la app (${L.h} Holcim · ${L.c} contratistas) · ${per ? Math.round(L.t / per * 1000) / 10 : 0} % del personal`) +
         kpi('Meta (20 %)', meta, meta > bri ? `faltan ${meta - bri} brigadistas · vas en ${meta ? Math.round(bri / meta * 100) : 0} % de la meta` : `meta cumplida (${meta ? Math.round(bri / meta * 100) : 0} %)`, meta > bri ? 'var(--s-mal)' : 'var(--s-ok)') +
         kpi('Plantas que cumplen', cumplen + ' de ' + plantas.length, `${plantas.length ? Math.round(cumplen / plantas.length * 100) : 0} % de las plantas${plantas.length - cumplen ? ' · ' + (plantas.length - cumplen) + ' por debajo de la meta' : ''}`, cumplen === plantas.length ? 'var(--s-ok)' : '#e8590c');
-      $(pre + '-diferencia').innerHTML = L.t === bri ? '<div class="alert alert-success small py-2"><i class="fa-solid fa-check me-1"></i>El Indicador y las listas de la app coinciden: ' + bri + ' brigadistas.</div>'
-        : `<div class="alert alert-warning small d-flex flex-wrap align-items-center gap-2"><i class="fa-solid fa-scale-unbalanced"></i>
-        <span>Los números no coinciden: el Indicador cuenta <b>${bri}</b> brigadistas y las listas de la app tienen <b>${L.t}</b> activos (${L.h} Holcim · ${L.c} contratistas). Hay que cuadrarlos.</span>
-        <span class="ms-auto d-flex gap-2 no-proveedor"><button class="btn btn-sm btn-dark" data-accion="cuadre"><i class="fa-solid fa-scale-balanced me-1"></i>Cuadrar con el Indicador</button>
-        <button class="btn btn-sm btn-outline-dark" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Traer los que faltan a las listas</button></span></div>`;
+      const sin = (D.indicadorSinFila || []).filter(x => sedeOk(x.sede));
+      $(pre + '-diferencia').innerHTML = sin.length ? `<details class="alert alert-light border small py-2"><summary><i class="fa-solid fa-circle-info me-1 text-primary"></i><b>${sin.length}</b> brigadista(s) de las listas no tienen fila en el Indicador (su empresa o planta no aparece allí), así que no cuentan para la meta de ninguna planta. Ver cuáles</summary>
+        <div class="mt-2">${unicos(sin.map(x => x.sede + ' · ' + x.empresa)).map(k => `<div><b>${esc(k)}</b>: ${sin.filter(x => x.sede + ' · ' + x.empresa === k).map(x => esc(x.nombre)).join(', ')}</div>`).join('')}
+        <div class="text-muted mt-1">Para que cuenten, agrega la fila de esa empresa (con su personal) en la pestaña Indicador. o corrige la empresa del brigadista.</div></div></details>` : '';
       const orden = enDash ? {} : (document.querySelector('#cob-orden [aria-pressed="true"]') || {}).dataset || {};
       const lista = plantas.filter(x => enDash || !$('cob-faltan').checked || x.faltan)
         .sort((a, b) => orden.orden === 'nombre' ? a.p.localeCompare(b.p, 'es') : a.pct - b.pct || b.faltan - a.faltan);
@@ -1324,102 +1319,24 @@
       const estado = x => x.faltan ? `<span class="estado-cob bg-danger-subtle text-danger-emphasis">Faltan ${x.faltan}</span>` : '<span class="estado-cob bg-success-subtle text-success-emphasis"><i class="fa-solid fa-check me-1"></i>Cumple</span>';
       $(pre + '-plantas').innerHTML = lista.map(x => {
         const emp = x.empresas.slice().sort((a, b) => b.faltan - a.faltan || a.pct - b.pct);
-        const sola = plantas.filter(y => y.sede === x.sede).length === 1, Ls = brigadistasEnListas(x.sede);
-        const listas = sola ? (Ls.t === x.bri ? `<span class="text-success"><i class="fa-solid fa-check me-1"></i>Las listas de la app tienen los mismos ${Ls.t}</span>`
-          : `<span class="${Ls.t < x.bri ? 'text-danger' : 'text-muted'}"><i class="fa-solid fa-scale-unbalanced me-1"></i>En las listas de la app: ${Ls.t}${Ls.t < x.bri ? ` (faltan ${x.bri - Ls.t} por registrar)` : ` (${Ls.t - x.bri} más que el Indicador)`}</span>`)
-          : `<span class="text-muted">En las listas de la app: ${Ls.t} en toda la sede ${esc(x.sede)}</span>`;
         return `<details class="planta-cob">
           <summary>
             <i class="fa-solid fa-chevron-right flecha" aria-hidden="true"></i>
             <span class="nombre">${esc(x.p)}<span class="d-block small text-muted fw-normal">${esc(x.sede)}</span></span>
             <span class="avance">${pctBarra(Math.min(x.pct, 100), color(x.pct))}
-              <span class="small text-muted"><b class="text-body fs-6">${x.pct} %</b> de la meta · <b class="text-body">${x.bri}</b> brigadistas de <b class="text-body">${x.metaN}</b> requeridos (20 % de ${x.per} personas; hoy son el ${x.pctPer} % del personal)</span>
-              <span class="small d-block">${listas}</span></span>
+              <span class="small text-muted"><b class="text-body fs-6">${x.pct} %</b> de la meta · <b class="text-body">${x.bri}</b> brigadistas de <b class="text-body">${x.metaN}</b> requeridos (20 % de ${x.per} personas; hoy son el ${x.pctPer} % del personal)</span></span>
             ${estado(x)}
             <span class="small text-muted">${emp.length} empresa(s)</span>
           </summary>
           <div class="p-2">
             <table class="table table-sm align-middle mb-1 tabla-compacta">
               <thead><tr><th scope="col">Empresa</th><th scope="col" class="text-end">Personal</th><th scope="col" class="text-end">Brigadistas</th><th scope="col" class="text-end">Requeridos</th><th scope="col" style="min-width:160px">% de la meta</th><th scope="col" class="text-end"></th></tr></thead>
-              <tbody>${emp.map(f => `<tr><td>${esc(f.emp)}</td><td class="text-end">${f.per}</td><td class="text-end">${f.bri}</td><td class="text-end" title="20 % exacto: ${f.meta}">${f.metaN}</td>
+              <tbody>${emp.map(f => `<tr><td>${esc(f.emp)}</td><td class="text-end">${f.per}</td><td class="text-end" title="${esc((f.nom || []).join(', '))}">${f.bri}</td><td class="text-end" title="20 % exacto: ${f.meta}">${f.metaN}</td>
                 <td><div class="d-flex align-items-center gap-2"><div class="flex-grow-1">${pctBarra(Math.min(f.pct, 100), color(f.pct))}</div><span class="small fw-semibold" style="width:46px">${f.pct} %</span></div></td>
                 <td class="text-end">${f.faltan ? `<span class="badge bg-danger-subtle text-danger-emphasis">Faltan ${f.faltan}</span>` : '<i class="fa-solid fa-check text-success" aria-label="Cumple"></i>'}</td></tr>`).join('') || '<tr><td colspan="6" class="text-muted">Sin detalle por empresa en el Indicador.</td></tr>'}</tbody>
             </table>
           </div></details>`;
       }).join('') || '<p class="text-muted">Sin datos para esta sede o filtro.</p>';
-    }
-
-    // Cuadrar las listas de la app con la pestaña Indicador. (empresa por empresa)
-    const cua = { datos: null, sel: {}, val: {} };
-    async function abrirCuadre() {
-      if (soloHolcim()) return;
-      if (!E.usuario) return pedirSesion(abrirCuadre);
-      ocupado(true);
-      try { cua.datos = await api('getCuadreIndicador', E.token); ocupado(false); } catch (e) { return error(e); }
-      cua.sel = {}; cua.val = {};
-      // Marcado por defecto: en las sedes donde las listas suman más que el Indicador, hasta cubrir esa diferencia
-      const porSede = {};
-      cua.datos.filas.forEach(f => { const x = porSede[f.sede] = porSede[f.sede] || { ind: 0, lis: 0, filas: [] }; x.ind += f.bri; x.lis += f.listas; x.filas.push(f); });
-      Object.keys(porSede).forEach(sd => {
-        let resta = porSede[sd].lis - porSede[sd].ind;
-        porSede[sd].filas.forEach(f => {
-          cua.val[f.fila] = { bri: f.listas > f.bri ? f.listas : f.bri, per: f.per };
-          if (f.listas > f.bri && resta > 0 && !f.formula) { cua.sel[f.fila] = true; const d = Math.min(f.listas - f.bri, resta); cua.val[f.fila].bri = f.bri + d; resta -= d; }
-        });
-      });
-      cua.porSede = porSede;
-      pintarCuadre();
-      modal('modal-cuadre').show();
-    }
-    function pintarCuadre() {
-      const ps = cua.porSede, sedes = Object.keys(ps).sort((a, b) => Math.abs(ps[b].lis - ps[b].ind) - Math.abs(ps[a].lis - ps[a].ind) || a.localeCompare(b, 'es'));
-      $('cua-tabla').innerHTML = sedes.map(sd => {
-        const x = ps[sd], dif = x.lis - x.ind;
-        const filas = x.filas.filter(f => f.listas !== f.bri);
-        return `<div class="border rounded mb-2"><div class="d-flex flex-wrap align-items-center gap-2 px-3 py-2 ${dif ? 'bg-warning-subtle' : 'bg-success-subtle'}">
-          <b>${esc(sd)}</b><span class="small">Indicador <b>${x.ind}</b> · listas de la app <b>${x.lis}</b></span>
-          <span class="small ms-auto fw-semibold">${dif === 0 ? '<i class="fa-solid fa-check me-1"></i>Coinciden en total' : dif > 0 ? 'Las listas tienen ' + dif + ' más' : 'Faltan ' + (-dif) + ' en las listas'}</span></div>
-          ${filas.length ? `<table class="table table-sm small align-middle mb-0"><thead><tr><th></th><th>Planta</th><th>Empresa</th><th class="text-end">Personal</th><th class="text-end">Indicador</th><th class="text-end">Listas</th><th>Nuevo valor en el Indicador</th></tr></thead><tbody>` +
-            filas.map(f => { const v = cua.val[f.fila]; const mas = f.listas > f.bri; return `<tr><td>${mas && !f.formula ? `<input class="form-check-input cua-sel" type="checkbox" data-f="${f.fila}" ${cua.sel[f.fila] ? 'checked' : ''} aria-label="Actualizar ${esc(f.emp)}">` : ''}</td>
-              <td>${esc(f.p)}</td><td>${esc(f.emp)}${f.personas.length ? `<div class="text-muted" title="${esc(f.personas.join(', '))}">${esc(f.personas.slice(0, 3).join(', '))}${f.personas.length > 3 ? '…' : ''}</div>` : ''}</td>
-              <td class="text-end">${mas && !f.formula ? `<input type="number" min="0" class="form-control form-control-sm text-end cua-val d-inline-block" style="width:80px" data-f="${f.fila}" data-k="per" value="${v.per}">` : f.per}${v.bri > v.per ? '<div class="text-danger">menor que los brigadistas</div>' : ''}</td>
-              <td class="text-end">${f.bri}</td><td class="text-end fw-semibold">${f.listas}</td>
-              <td>${f.formula ? '<span class="text-muted">tiene fórmula: no se cambia</span>' : mas ? `<input type="number" min="0" class="form-control form-control-sm cua-val d-inline-block" style="width:80px" data-f="${f.fila}" data-k="bri" value="${v.bri}">` : `<span class="text-danger">faltan ${f.bri - f.listas} en las listas</span>`}</td></tr>`; }).join('') + '</tbody></table>' : ''}</div>`;
-      }).join('');
-      const n = Object.keys(cua.sel).filter(k => cua.sel[k]).length;
-      const totInd = sedes.reduce((t, sd) => t + ps[sd].ind, 0), totLis = sedes.reduce((t, sd) => t + ps[sd].lis, 0);
-      const nuevo = totInd + Object.keys(cua.sel).filter(k => cua.sel[k]).reduce((t, k) => t + (cua.val[k].bri - cua.datos.filas.find(f => f.fila === +k).bri), 0);
-      $('cua-resumen').innerHTML = `Hoy: Indicador ${totInd} · listas ${totLis}. Con lo marcado el Indicador quedaría en <b>${nuevo}</b>${nuevo > totLis ? ` (faltan ${nuevo - totLis} en las listas: tráelos con "Traer los que faltan")` : ''}.`;
-      $('cua-guardar').disabled = !n; $('cua-guardar').textContent = n ? 'Guardar ' + n + ' cambio(s) en el Indicador' : 'Guardar en el Indicador';
-    }
-    function cambioCuadre(ev) {
-      const el = ev.target, f = el.dataset.f;
-      if (!f) return;
-      if (el.classList.contains('cua-sel')) cua.sel[f] = el.checked;
-      if (el.classList.contains('cua-val')) { cua.val[f][el.dataset.k] = Math.max(0, Number(el.value) || 0); cua.sel[f] = true; }
-      if (ev.type === 'change') pintarCuadre();
-    }
-    function revisarCuadre() {
-      const cambios = cua.datos.filas.filter(f => cua.sel[f.fila]).map(f => {
-        const v = cua.val[f.fila], c = { fila: f.fila, emp: f.emp, p: f.p, anteriores: { bri: f.bri, per: f.per } };
-        if (v.bri !== f.bri) c.bri = v.bri; if (v.per !== f.per) c.per = v.per; return c; }).filter(c => c.bri !== undefined || c.per !== undefined);
-      if (!cambios.length) return avisar('No hay cambios marcados.', 'info');
-      $('conf-titulo').textContent = 'Actualizar ' + cambios.length + ' fila(s) del Indicador';
-      $('conf-cuerpo').innerHTML = '<table class="table table-sm small mb-2"><thead><tr><th>Planta</th><th>Empresa</th><th>Dato</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
-        cambios.map(c => ['bri', 'per'].filter(k => c[k] !== undefined).map(k => `<tr><td>${esc(c.p)}</td><td>${esc(c.emp)}</td><td>${k === 'bri' ? 'Brigadistas' : 'Personal'}</td><td class="text-muted">${c.anteriores[k]}</td><td class="fw-semibold">${c[k]}</td></tr>`).join('')).join('') +
-        '</tbody></table><p class="small text-muted mb-0">Se escribe en la pestaña Indicador. (antes se guarda un respaldo del día) y queda en el historial.</p>';
-      $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar';
-      $('conf-ok').onclick = () => guardarCuadre(cambios);
-      modal('modal-cuadre').hide(); modal('modal-confirmar').show();
-    }
-    async function guardarCuadre(cambios) {
-      modal('modal-confirmar').hide(); ocupado(true);
-      try {
-        const r = await api('guardarIndicador', E.token, cambios);
-        ocupado(false); if (revisarSesion(r)) return;
-        avisar(esc(r.mensaje), r.exito ? (r.rechazos && r.rechazos.length ? 'warning' : 'success') : 'danger', 12000);
-        if (r.exito) { await cargarDatos(false); cargarVista(); }
-      } catch (e) { error(e); }
     }
 
     // Brigadistas que faltan en las listas (están en otras pestañas del 1.0 / 2.0 / libro nuevo)
@@ -1432,7 +1349,6 @@
       const d = falt.datos;
       falt.fuentes = {}; falt.marcados = {}; falt.ajustes = {};
       d.fuentes.forEach(f => { falt.fuentes[f.fuente] = !f.evacuadores && !f.contacto; });
-      $('falt-sedes').innerHTML = d.sedes.map(x => { const dif = x.listas - x.indicador; return `<tr><td>${esc(x.sede)}</td><td class="text-end">${x.indicador}</td><td class="text-end">${x.listas}</td><td class="text-end ${dif < 0 ? 'text-danger fw-semibold' : dif > 0 ? 'text-muted' : 'text-success'}">${dif < 0 ? 'faltan ' + (-dif) : dif > 0 ? '+' + dif : 'igual'}</td></tr>`; }).join('');
       $('falt-fuentes').innerHTML = d.fuentes.map((f, k) => `<div class="form-check"><input class="form-check-input" type="checkbox" id="falt-f-${k}" data-fuente="${esc(f.fuente)}" ${falt.fuentes[f.fuente] ? 'checked' : ''}>
         <label class="form-check-label" for="falt-f-${k}">${esc(f.fuente)} <span class="text-muted">(${f.n})</span>${f.evacuadores ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">evacuadores, no brigadistas</span>' : f.contacto ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">contactos</span>' : ''}</label></div>`).join('') || '<span class="text-muted">No se encontraron personas fuera de las listas.</span>';
       $('falt-sede').innerHTML = opciones(unicos(d.candidatos.map(c => c.sede || '(sin planta)')), '', 'Todas las sedes');
@@ -1506,7 +1422,6 @@
       'fecha-distinta': ['aviso', 'Fecha de la hoja distinta al cronograma'],
       'cedula-invalida': ['aviso', 'Cédula vacía o con formato raro'],
       'planta-sin-crono': ['aviso', 'Planta sin cronograma'],
-      'indicador-difiere': ['aviso', 'Indicador distinto a las listas'],
       'seguimiento-sin-marcas': ['aviso', 'Seguimiento dice que se dictó, la lista no tiene asistentes'],
       'seguimiento-difiere': ['info', 'Seguimiento y lista con distinta cantidad de asistentes'],
       'seguimiento-sin-sesion': ['info', 'Sesión del Seguimiento sin pareja en el cronograma'],
@@ -1565,13 +1480,6 @@
       Object.keys(porCed).forEach(c => { if (porCed[c].length > 1) add('cedula-dup', { sede: porCed[c][0].sede, planta: porCed[c][0].p, persona: porCed[c][0], detalle: `Cédula ${c}: ${porCed[c].map(p => p.n + ' (' + p.p + ', ' + (p.tipo === 'HOLCIM' ? 'Holcim' : 'contratista') + ')').join(' / ')}.`, que: 'Deja una sola fila por persona o corrige la cédula equivocada.' }); });
       Object.keys(porNom).forEach(n => { const l = porNom[n]; if (l.length > 1 && unicos(l.map(p => String(p.c).replace(/\D/g, ''))).length > 1) add('nombre-dup', { sede: l[0].sede, planta: l[0].p, persona: l[0], detalle: `${l[0].n}: ${l.map(p => p.c + ' (' + p.p + ')').join(' / ')}.`, que: 'Si es la misma persona, deja una sola cédula.' }); });
       I.forEach(p => { if (p.activo && !tieneCert(p.ce)) add('sin-cert', { sede: p.sede, planta: p.p, persona: p, detalle: `${p.n} (${p.k}): certificado "${p.ce || 'vacío'}".`, que: 'Actualiza el certificado en su ficha cuando lo tenga.' }); });
-      // Indicador frente a las listas
-      unicos(D.indicador.map(f => f.sede)).forEach(sede => {
-        const filas = D.indicador.filter(f => f.sede === sede && !f.tot);
-        const hInd = filas.filter(f => /holcim/i.test(f.emp)).reduce((n, f) => n + f.bri, 0);
-        const hLista = P.filter(p => p.activo && p.sede === sede).length;
-        if (filas.length && hLista && hInd !== hLista) add('indicador-difiere', { sede: sede, detalle: `${sede}: el Indicador dice ${hInd} brigadistas Holcim y en la lista hay ${hLista} activos.`, que: 'Actualiza la pestaña Indicador. o revisa los estados en la lista.' });
-      });
       // "2026 Seguimiento" frente a las marcas de la lista: se empareja por tema y fecha (los nombres de planta no coinciden entre pestañas)
       (D.seguimiento || []).forEach(sg => {
         if (!sg.i || !/realiz/i.test(sg.ej) || !sg.cl) return;

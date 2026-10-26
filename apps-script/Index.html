@@ -287,7 +287,7 @@
             </div>
             <div class="tarjeta p-3 panel-inicio" role="tabpanel" id="tab-cobertura" aria-labelledby="pt-cobertura" hidden>
               <div class="d-flex justify-content-between align-items-center mb-2">
-                <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Cobertura de brigadistas <span class="small text-muted fw-normal">(meta: 20 % del personal, pestaña Indicador.)</span></h2>
+                <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Cobertura de brigadistas <span class="small text-muted fw-normal">(brigadistas de las listas de la app · meta: 20 % del personal del Indicador.)</span></h2>
                 <a href="#" data-ir="cobertura" class="small">Abrir Cobertura</a>
               </div>
               <div class="row g-3 mb-3" id="inicio-cob-kpis"></div>
@@ -416,7 +416,7 @@
           <!-- COBERTURA -->
           <section class="vista" id="v-cobertura" aria-labelledby="t-cob">
             <h1 class="titulo-vista" id="t-cob">Cobertura de brigadistas</h1>
-            <p class="sub-vista">Meta: brigadistas = 20 % del personal (pestaña <i>Indicador.</i>). Cada tarjeta es una planta; ábrela para ver el detalle por empresa. Los requeridos se redondean hacia arriba (no se puede tener 0,6 brigadistas).</p>
+            <p class="sub-vista">Brigadistas = los activos en las listas de la app (lista de asistencia Holcim y contratistas registrados). Personal = pestaña <i>Indicador.</i>; meta = 20 % del personal, redondeada hacia arriba. Cada tarjeta es una planta; ábrela para ver el detalle por empresa.</p>
             <div class="row g-3 mb-3" id="cob-kpis"></div>
             <div id="cob-diferencia"></div>
             <div class="tarjeta p-3 mb-2">
@@ -771,28 +771,12 @@
       <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-success">Revisar y guardar</button></div>
     </form></div>
   </div>
-  <!-- MODAL: cuadrar listas e Indicador -->
-  <div class="modal fade" id="modal-cuadre" tabindex="-1" aria-labelledby="cua-titulo" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
-      <div class="modal-header"><h2 class="modal-title h5" id="cua-titulo"><i class="fa-solid fa-scale-balanced text-primary me-2"></i>Cuadrar las listas con el Indicador</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
-      <div class="modal-body">
-        <p class="small text-muted mb-2">Empresa por empresa: lo que dice la pestaña <i>Indicador.</i> y cuántos brigadistas activos hay en las listas de la app (Holcim → fila "Holcim…", contratistas → la fila de su empresa).</p>
-        <ul class="small mb-3">
-          <li><b>Las listas tienen más</b> → se puede llevar ese número al Indicador (marcado cuando la sede completa tiene más en las listas).</li>
-          <li><b>El Indicador tiene más</b> → faltan personas en las listas: usa <a href="#" data-accion="faltantes">Traer los que faltan</a> o regístralas en Brigadistas.</li>
-        </ul>
-        <div id="cua-tabla"></div>
-      </div>
-      <div class="modal-footer"><span class="small text-muted me-auto" id="cua-resumen"></span><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button type="button" class="btn btn-success" data-accion="cua-guardar" id="cua-guardar">Guardar en el Indicador</button></div>
-    </div></div>
-  </div>
   <!-- MODAL: brigadistas que faltan en las listas -->
   <div class="modal fade" id="modal-faltantes" tabindex="-1" aria-labelledby="falt-titulo" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
       <div class="modal-header"><h2 class="modal-title h5" id="falt-titulo"><i class="fa-solid fa-user-clock text-primary me-2"></i>Brigadistas que faltan en las listas</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body">
-        <p class="small text-muted mb-2">El Indicador cuenta los brigadistas por planta y empresa; aquí se ve, por sede, cuántos hay en las listas de la app. Abajo están las personas con cédula y nombre que aparecen en otras pestañas del 1.0, el 2.0 o el libro nuevo (también ocultas) y no están en las listas. Revisa, ajusta la planta y el tipo, y trae las que sí son brigadistas.</p>
-        <div class="table-responsive mb-3"><table class="table table-sm small align-middle mb-0"><thead><tr><th>Sede</th><th class="text-end">Indicador</th><th class="text-end">Listas de la app</th><th class="text-end">Diferencia</th></tr></thead><tbody id="falt-sedes"></tbody></table></div>
+        <p class="small text-muted mb-2">Personas con cédula y nombre que aparecen en otras pestañas del 1.0 o el 2.0 (también ocultas) y no están en las listas de la app. Revisa, ajusta la planta y el tipo, y registra en la app solo las que sí son brigadistas.</p>
         <div class="fw-semibold small mb-1">Pestañas donde se encontraron personas (marca de cuáles traer):</div>
         <div id="falt-fuentes" class="d-flex flex-wrap gap-3 small mb-2"></div>
         <div class="filtros mb-2"><input type="search" id="falt-buscar" class="form-control form-control-sm" placeholder="Buscar nombre, cédula o planta…" aria-label="Buscar"><select id="falt-sede" class="form-select form-select-sm" aria-label="Sede"></select>
