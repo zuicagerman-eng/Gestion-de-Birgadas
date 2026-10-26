@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.8.3'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.8.4'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -24,7 +24,7 @@
     function soloHolcim() { if (!esProveedor()) return false; avisar('Esto lo hace un usuario de Holcim. Con tu usuario de Ambipar tomas asistencia y en el Cronograma pones la Fecha Ambipar, programas sesiones y creas módulos.', 'info', 8000); return true; }
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
     const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', planta: '', inactivos: false, filtro: '' };
-    const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {} };
+    const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {}, plantas: [], empresas: [] };
     const crono = { cuando: 'proximas' };
     const rev = { g: '', tipo: '' };
     const cam = { o: '', limite: 200, visibles: [] };
@@ -135,7 +135,9 @@
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
       $('brig-buscar').oninput = conEspera(pintarBrigadistas);
-      ['brig-planta', 'brig-estado', 'brig-empresa', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
+      ['brig-estado', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
+      escucharMultiSel('brig-planta', brig.plantas, 'Todas las plantas', 'plantas', pintarBrigadistas);
+      escucharMultiSel('brig-empresa', brig.empresas, 'Todas las empresas', 'empresas', pintarBrigadistas);
       $('brig-tabla').addEventListener('change', cambioEnTabla);
       $('brig-tabla').addEventListener('input', cambioEnTabla);
       $('mat-buscar').oninput = conEspera(pintarMatriz); $('mat-ver').oninput = pintarMatriz;
@@ -825,18 +827,48 @@
       REV = null;
     }
     function todosBrigadistas() { return P.concat(I); }
+    /**
+     * Lista desplegable con casillas para elegir varias opciones a la vez (como el selector de sedes). sel es el arreglo
+     * de elegidas: vacío = todas. "solo" deja únicamente esa opción.
+     */
+    function pintarMultiSel(id, opciones, sel, todas, plural) {
+      const vigentes = sel.filter(x => opciones.indexOf(x) !== -1); sel.length = 0; vigentes.forEach(x => sel.push(x));
+      $(id).dataset.opciones = JSON.stringify(opciones);
+      textoMultiSel(id, sel, todas, plural);
+      $(id + '-menu').innerHTML = `<div class="d-flex gap-2 px-2 pb-2 mb-1 border-bottom small"><button type="button" class="btn btn-sm btn-link p-0" data-multi-todas>Todas</button><span class="text-muted">·</span><span class="text-muted">marca una o varias</span></div>` +
+        opciones.map((o, k) => `<div class="sede-op d-flex align-items-center gap-2 px-2"><input class="form-check-input mt-0" type="checkbox" id="${id}-${k}" data-v="${esc(o)}" ${sel.indexOf(o) !== -1 ? 'checked' : ''}>
+          <label class="form-check-label flex-grow-1 py-1" for="${id}-${k}">${esc(o)}</label><button type="button" class="btn btn-sm btn-link p-0 solo" data-solo="${esc(o)}">solo</button></div>`).join('') +
+        (opciones.length ? '' : '<div class="px-2 small text-muted">No hay opciones.</div>');
+    }
+    function textoMultiSel(id, sel, todas, plural) {
+      $(id).textContent = !sel.length ? todas : sel.length === 1 ? sel[0] : sel.length + ' ' + plural;
+      $(id).title = sel.join(', ');
+      $(id).classList.toggle('sede-filtrada', sel.length > 0);
+    }
+    function escucharMultiSel(id, sel, todas, plural, alCambiar) {
+      const menu = $(id + '-menu');
+      const poner = lista => { sel.length = 0; lista.forEach(x => sel.push(x)); textoMultiSel(id, sel, todas, plural); alCambiar(); };
+      menu.addEventListener('change', ev => {
+        const c = ev.target.closest('input[data-v]'); if (!c) return;
+        poner([...menu.querySelectorAll('input[data-v]:checked')].map(x => x.dataset.v));
+      });
+      menu.addEventListener('click', ev => {
+        if (ev.target.closest('[data-multi-todas]')) { menu.querySelectorAll('input[data-v]').forEach(x => { x.checked = false; }); poner([]); return; }
+        const solo = ev.target.closest('[data-solo]');
+        if (solo) { menu.querySelectorAll('input[data-v]').forEach(x => { x.checked = x.dataset.v === solo.dataset.solo; }); poner([solo.dataset.solo]); bootstrap.Dropdown.getOrCreateInstance($(id)).hide(); }
+      });
+    }
     function prepararBrigadistas() {
       const base = todosBrigadistas().filter(enSede);
-      const pl = $('brig-planta').value, em = $('brig-empresa').value;
-      const plantas = unicos(base.map(p => p.p)), empresas = unicos(base.map(p => datosDe(p).empresa));
-      $('brig-planta').innerHTML = opciones(plantas, plantas.indexOf(pl) !== -1 ? pl : '', 'Todas las plantas');
-      $('brig-empresa').innerHTML = opciones(empresas, empresas.indexOf(em) !== -1 ? em : '', 'Todas las empresas');
+      pintarMultiSel('brig-planta', unicos(base.map(p => p.p)), brig.plantas, 'Todas las plantas', 'plantas');
+      pintarMultiSel('brig-empresa', unicos(base.map(p => datosDe(p).empresa)), brig.empresas, 'Todas las empresas', 'empresas');
       pintarBrigadistas();
     }
     function listaBrigadistas() {
-      const q = norm($('brig-buscar').value), pl = $('brig-planta').value, est = $('brig-estado').value, em = $('brig-empresa').value, dat = $('brig-datos').value;
-      const lista = todosBrigadistas().filter(p => enSede(p) && (!brig.tipo || p.tipo === brig.tipo) && (!pl || p.p === pl) &&
-        (est === '' || (est === 'act') === p.activo) && (!em || datosDe(p).empresa === em) &&
+      const q = norm($('brig-buscar').value), est = $('brig-estado').value, dat = $('brig-datos').value;
+      const pls = brig.plantas, ems = brig.empresas; // vacío = todas
+      const lista = todosBrigadistas().filter(p => enSede(p) && (!brig.tipo || p.tipo === brig.tipo) && (!pls.length || pls.indexOf(p.p) !== -1) &&
+        (est === '' || (est === 'act') === p.activo) && (!ems.length || ems.indexOf(datosDe(p).empresa) !== -1) &&
         (!dat || (dat === 'incompletos') === (faltantes(p).length > 0)) &&
         (!q || norm([p.n, p.c, p.p, datosDe(p).empresa].join(' ')).includes(q)));
       const k = brig.orden, d = brig.dir;

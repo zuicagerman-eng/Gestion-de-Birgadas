@@ -46,7 +46,7 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   ingresos) · *Sistema* (Estado del sistema, Configuración, Ayuda).
 - **Brigadistas**: columnas Planta, Nombres y apellidos, Cédula, Grupo sanguíneo, Fecha de ingreso, Empresa,
   Brigadista Clase I, Estado y Fecha de retiro (solo si no está activo). Filtros por tipo, planta, estado, empresa y
-  "datos por completar"; lo que falta aparece como **Completar**. **Editar en la tabla** convierte las celdas en
+  "datos por completar" (en **Planta** y **Empresa** se pueden marcar varias a la vez); lo que falta aparece como **Completar**. **Editar en la tabla** convierte las celdas en
   desplegables y fechas y guarda todo junto (con confirmación). Si la hoja no tiene la columna de un dato, la app la
   crea al final de los encabezados al guardar el primero. Ficha con sus sesiones y registro de personas nuevas.
   En la ficha, cada sesión tiene una casilla **Asistió**: se marcan o desmarcan varias (o **Marcar todas las ya

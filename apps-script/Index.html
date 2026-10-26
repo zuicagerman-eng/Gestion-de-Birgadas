@@ -133,7 +133,8 @@
     body.modo-ingreso #columna { flex: 0 0 100%; max-width: 100%; }
     body.rol-proveedor .no-proveedor { display: none !important; }
     .solo-proveedor { display: none !important; } body.rol-proveedor .solo-proveedor { display: revert !important; }
-    #sel-sede.sede-filtrada { border-color: #0d6efd; background-color: #eef4ff; font-weight: 600; }
+    #sel-sede.sede-filtrada, .multi-sel.sede-filtrada { border-color: #0d6efd; background-color: #eef4ff; font-weight: 600; }
+    .multi-sel { min-width: 170px; max-width: 240px; } .multi-menu { min-width: 250px; max-height: 60vh; overflow-y: auto; }
     .sede-op:hover { background: #f1f5fb; }
     .sede-op .solo { visibility: hidden; font-size: .78rem; }
     .sede-op:hover .solo, .sede-op .solo:focus { visibility: visible; }
@@ -359,9 +360,9 @@
                 </span>
               </div>
               <div class="filtros">
-                <select id="brig-planta" class="form-select form-select-sm" aria-label="Planta"></select>
+                <div class="dropdown"><button type="button" id="brig-planta" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Plantas (varias a la vez)">Todas las plantas</button><div class="dropdown-menu shadow py-2 multi-menu" id="brig-planta-menu"></div></div>
                 <select id="brig-estado" class="form-select form-select-sm" aria-label="Estado"><option value="act">Activos</option><option value="des">Desvinculados</option><option value="">Todos los estados</option></select>
-                <select id="brig-empresa" class="form-select form-select-sm" aria-label="Empresa"></select>
+                <div class="dropdown"><button type="button" id="brig-empresa" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Empresas (varias a la vez)">Todas las empresas</button><div class="dropdown-menu shadow py-2 multi-menu" id="brig-empresa-menu"></div></div>
                 <select id="brig-datos" class="form-select form-select-sm" aria-label="Datos"><option value="">Datos: todos</option><option value="incompletos">Con datos por completar</option><option value="completos">Datos completos</option></select>
                 <span class="contador ms-auto" id="brig-conteo"></span>
               </div>
