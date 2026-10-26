@@ -30,8 +30,25 @@ const HOJAS_CELDA_POR_CELDA = [
 
 // ───────────────────────────── CONFIGURACIÓN (propiedades del script) ─────────────────────────────
 
-function props_() { return PropertiesService.getScriptProperties(); }
+// Cada lectura de una propiedad es una llamada a Google: se leen todas una vez por ejecución y se guardan aquí.
+// Lo que se escribe con props_() actualiza también esta copia. Para leer-modificar-escribir algo que otra
+// ejecución puede cambiar a la vez (la cola de avisos), usar propsFrescas_() dentro del bloqueo.
+let sigbePropsMemo_ = null;
+function props_() {
+  const p = PropertiesService.getScriptProperties();
+  if (!sigbePropsMemo_) sigbePropsMemo_ = p.getProperties();
+  const m = sigbePropsMemo_;
+  const w = {
+    getProperty: k => (Object.prototype.hasOwnProperty.call(m, k) ? m[k] : null),
+    getProperties: () => Object.assign({}, m),
+    setProperty: (k, v) => { p.setProperty(k, v); m[k] = String(v); return w; },
+    setProperties: o => { p.setProperties(o); Object.keys(o).forEach(k => { m[k] = String(o[k]); }); return w; },
+    deleteProperty: k => { p.deleteProperty(k); delete m[k]; return w; },
+  };
+  return w;
+}
 function prop_(k) { return props_().getProperty(k); }
+function propsFrescas_() { sigbePropsMemo_ = null; return props_(); }
 
 /** Acepta la URL completa de una hoja de cálculo o solo su ID. */
 function idDesdeTexto_(t) {

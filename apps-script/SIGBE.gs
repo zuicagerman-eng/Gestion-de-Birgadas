@@ -328,7 +328,7 @@ function sigbeGuardarAsistencia_(token, cambios) {
     };
 
     sigbeRespaldoHoy_(F.asistencia);
-    const conflictos = [], bitacora = [], aplicados = [], porSede = {};
+    const conflictos = [], bitacora = [], aplicados = [], porSede = {}, escribir = [];
     let guardados = 0;
     cambios.forEach(c => {
       const s = sesiones[claves.indexOf(c.key)];
@@ -342,7 +342,7 @@ function sigbeGuardarAsistencia_(token, cambios) {
       if (c.valor === true && /NO HACIA PARTE|NO APLICA/.test(sigbeNorm_(p.valores[s.colFecha - 1]))) {
         conflictos.push(quien + ' (en la hoja dice "' + String(p.valores[s.colFecha - 1]).trim() + '")'); return;
       }
-      sh.getRange(p.fila, s.colAsis).setValue(c.valor === true);
+      escribir.push({ fila: p.fila, col: s.colAsis, v: c.valor === true });
       p.valores[s.colAsis - 1] = c.valor === true;
       guardados++;
       const sd = sigbeSede_(p.planta), k = s.clave + ' Sesión ' + s.n + (s.titulo ? ' (' + s.titulo + ')' : '');
@@ -352,6 +352,7 @@ function sigbeGuardarAsistencia_(token, cambios) {
       bitacora.push(['Asistencia', sh.getName(), p.fila, p.cedula, p.nombre, s.clave + ' Sesión ' + s.n,
         actual === true ? 'Asistió' : 'No', c.valor === true ? 'Asistió' : 'No']);
     });
+    sigbeEscribirCeldas_(sh, escribir);
     if (guardados) {
       sigbeTrasGuardar_(F, usuario, bitacora);
       const eventos = [];
@@ -371,6 +372,21 @@ function sigbeGuardarAsistencia_(token, cambios) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Escribe celdas sueltas juntando las filas seguidas de una misma columna en una sola escritura. */
+function sigbeEscribirCeldas_(sh, celdas) {
+  const porCol = {};
+  celdas.forEach(c => { (porCol[c.col] = porCol[c.col] || []).push(c); });
+  Object.keys(porCol).forEach(col => {
+    const l = porCol[col].sort((a, b) => a.fila - b.fila);
+    for (let i = 0; i < l.length;) {
+      let j = i;
+      while (j + 1 < l.length && l[j + 1].fila === l[j].fila + 1) j++;
+      sh.getRange(l[i].fila, Number(col), j - i + 1, 1).setValues(l.slice(i, j + 1).map(c => [c.v]));
+      i = j + 1;
+    }
+  });
 }
 
 /** Agrega un brigadista al final de su planta, copiando formato y desplegables de la fila de arriba. */
@@ -1049,7 +1065,7 @@ function sigbeNotificar_(autor, asunto, eventos) {
   if (!eventos || !eventos.length) return 0;
   // No se envía en el momento (tarda y gasta el cupo): se junta y sale un solo resumen por persona unos minutos después
   try {
-    const props = props_();
+    const props = propsFrescas_(); // la cola la pueden cambiar otras ejecuciones
     const cola = sigbeJson_(props.getProperty('SIGBE_AVISOS_COLA'), []);
     cola.push({ a: autor, s: asunto, t: Date.now(), e: eventos.slice(0, 60) });
     const txt = JSON.stringify(cola);
@@ -1076,7 +1092,7 @@ function sigbeAvisosPendientes() {
   if (!lock.tryLock(30000)) return 0;
   let cola;
   try {
-    const props = props_();
+    const props = propsFrescas_();
     cola = sigbeJson_(props.getProperty('SIGBE_AVISOS_COLA'), []);
     props.deleteProperty('SIGBE_AVISOS_COLA');
     props.deleteProperty('SIGBE_AVISOS_PROG');
@@ -1181,7 +1197,7 @@ function getTemarioCapacitacion(token, nombreHoja) {
   if (c) return c;
   const sh = sigbeFuentes_().datos.getSheetByName(nombreHoja);
   if (!sh || !/TEMARIO/i.test(nombreHoja)) throw new Error('No existe la hoja de temario ' + nombreHoja);
-  const v = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), Math.max(sh.getLastColumn(), 1)).getDisplayValues();
+  const v = sh.getDataRange().getDisplayValues(); // una llamada (no getLastRow + getLastColumn + lectura)
   const r0 = v.findIndex(f => f.filter(x => String(x).trim()).length >= 3);
   let res = { encabezado: '', grupos: [] };
   if (r0 !== -1) {
@@ -1249,7 +1265,7 @@ function sigbeEsHojaPropia_(nombre) {
 /** Historial: cambios hechos desde la app y cambios detectados en el Excel (los más recientes primero). */
 function getCambios(token) {
   sigbeExigirLectura_(token);
-  const reg = sigbeFuentes_().registro;
+  const reg = sigbeRegistro_();
   const sh = reg && reg.getSheetByName(SIGBE_HOJA_BITACORA);
   if (!sh || sh.getLastRow() < 2) return [];
   const n = Math.min(sh.getLastRow() - 1, 3000);
@@ -1356,7 +1372,7 @@ function sigbeDiferencias_(a, b) {
 /** Quita de la lista los cambios que ya están en el historial como hechos desde la app (últimas 48 horas). */
 function sigbeQuitarHechosPorApp_(cambios) {
   if (!cambios.length) return cambios;
-  const reg = sigbeFuentes_().registro;
+  const reg = sigbeRegistro_();
   const sh = reg && reg.getSheetByName(SIGBE_HOJA_BITACORA);
   if (!sh || sh.getLastRow() < 2) return cambios;
   const n = Math.min(sh.getLastRow() - 1, 1500);
@@ -1513,9 +1529,10 @@ function sigbeHorasDesde_(txt) {
 
 function validarLoginAdmin(usuario, clave) {
   const cache = CacheService.getScriptCache();
-  const intentos = Number(cache.get('sigbe_intentos')) || 0;
-  if (intentos >= 5) return { exito: false, mensaje: 'Demasiados intentos. Espera 10 minutos.' };
-  const props = PropertiesService.getScriptProperties();
+  const claveIntentos = 'sigbe_intentos_' + sigbeHash_(String(usuario || '').trim().toLowerCase(), 'intentos').slice(0, 20);
+  const intentos = Number(cache.get(claveIntentos)) || 0;
+  if (intentos >= 5) return { exito: false, mensaje: 'Demasiados intentos con ese usuario. Espera 10 minutos.' };
+  const props = props_();
   sigbeConsumirClaveInicial_(props);
   const u = props.getProperty('SIGBE_USUARIO');
   const hash = props.getProperty('SIGBE_CLAVE_HASH');
@@ -1532,12 +1549,12 @@ function validarLoginAdmin(usuario, clave) {
   }
   sigbeAnotarIngreso_(quien ? ['Ingreso · ' + SIGBE_ROLES[sigbeRol_(quien)], '', quien, '', '', '', '', ''] : ['Intento fallido', '', escrito.slice(0, 40), '', '', '', '', '']);
   if (quien) {
-    cache.remove('sigbe_intentos');
+    cache.remove(claveIntentos);
     const token = Utilities.getUuid();
     cache.put('sigbe_sesion_' + token, quien, SIGBE_HORAS_SESION * 3600);
     return { exito: true, token: token, usuario: quien, perfil: sigbePerfil_(quien), mensaje: 'Acceso autorizado' };
   }
-  cache.put('sigbe_intentos', String(intentos + 1), 600);
+  cache.put(claveIntentos, String(intentos + 1), 600);
   return { exito: false, mensaje: 'Usuario o clave incorrectos' };
 }
 
@@ -1557,7 +1574,7 @@ function sigbeConsumirClaveInicial_(props) {
 function sigbeGuardarClave_(usuario, clave) {
   if (String(clave || '').length < 8) throw new Error('La clave debe tener al menos 8 caracteres.');
   const sal = Utilities.getUuid();
-  PropertiesService.getScriptProperties().setProperties({
+  props_().setProperties({
     SIGBE_USUARIO: String(usuario || 'admin').trim(),
     SIGBE_SAL: sal,
     SIGBE_CLAVE_HASH: sigbeHash_(clave, sal),
@@ -1725,7 +1742,7 @@ const SIGBE_HOJA_INGRESOS = 'Ingresos SIGBE';
 /** Fila en "Ingresos SIGBE": [tipo, cédula, nombre, en las listas, autorizó datos, confidencialidad, versión, navegador]. */
 function sigbeAnotarIngreso_(fila) {
   try {
-    const ss = sigbeFuentes_().registro;
+    const ss = sigbeRegistro_();
     let sh = ss.getSheetByName(SIGBE_HOJA_INGRESOS);
     if (!sh) {
       sh = ss.insertSheet(SIGBE_HOJA_INGRESOS);
@@ -1743,7 +1760,7 @@ function sigbeAnotarIngreso_(fila) {
 /** Últimos ingresos (solo administradores). */
 function getIngresos(token) {
   sigbeExigirRol_(token, ['gestor', 'holcim']);
-  const reg = sigbeFuentes_().registro;
+  const reg = sigbeRegistro_();
   const sh = reg && reg.getSheetByName(SIGBE_HOJA_INGRESOS);
   if (!sh || sh.getLastRow() < 2) return [];
   const n = Math.min(sh.getLastRow() - 1, 3000);
@@ -1757,11 +1774,16 @@ function getIngresos(token) {
 
 /** Qué falta para que la app pueda funcionar. */
 function sigbeEstadoSetup_() {
-  const props = PropertiesService.getScriptProperties();
+  const props = props_();
   const credenciales = !!(props.getProperty('SIGBE_USUARIO') && (props.getProperty('SIGBE_CLAVE_HASH') || props.getProperty('SIGBE_CLAVE_INICIAL')));
   let datosOk = false, datosError = '';
   const configurado = !!(idDestino_() || lnIdLibro_());
-  if (configurado) { try { sigbeFuentes_(); datosOk = true; } catch (e) { datosError = e.message; } }
+  if (configurado) {
+    // Abrir los archivos solo para comprobar el acceso tarda: si abrieron bien hace menos de 10 minutos, no se repite
+    const cache = CacheService.getScriptCache();
+    if (cache.get('sigbe_fuentes_ok') === '1') datosOk = true;
+    else { try { sigbeFuentes_(); datosOk = true; cache.put('sigbe_fuentes_ok', '1', 600); } catch (e) { datosError = e.message; } }
+  }
   return {
     listo: credenciales && datosOk,
     credenciales: credenciales,
@@ -1787,7 +1809,7 @@ function sigbeEsPropietario_() {
 
 /** Configuración inicial desde la app: solo sin credenciales y solo la cuenta dueña. */
 function configuracionInicial(datos) {
-  const props = PropertiesService.getScriptProperties();
+  const props = props_();
   if (props.getProperty('SIGBE_USUARIO') && (props.getProperty('SIGBE_CLAVE_HASH') || props.getProperty('SIGBE_CLAVE_INICIAL'))) {
     return { exito: false, mensaje: 'La app ya tiene usuario y clave. Inicia sesión y usa Configuración.' };
   }
@@ -1809,7 +1831,7 @@ function configuracionInicial(datos) {
 
 function getConfiguracion(token) {
   sigbeExigirSesion_(token);
-  const props = PropertiesService.getScriptProperties();
+  const props = props_();
   const info = id => { if (!id || /^NINGUNO$/i.test(id)) return { id: id || '', nombre: '', url: '' }; try { const ss = SpreadsheetApp.openById(id); return { id: id, nombre: ss.getName(), url: ss.getUrl() }; } catch (e) { return { id: id, nombre: '', url: '', error: 'No se puede abrir con la cuenta ' + cuentaScript_() }; } };
   const cfg = configOrigen_();
   let respaldos = [];
@@ -1831,7 +1853,7 @@ function getConfiguracion(token) {
 function guardarConfiguracion(token, cfg) {
   const usuario = sigbeExigirSesion_(token);
   if (!sigbePerfil_(usuario).principal) return { exito: false, mensaje: 'Solo el usuario principal cambia los archivos y el acceso.' };
-  const props = PropertiesService.getScriptProperties();
+  const props = props_();
   const cambios = [];
   let reiniciarEspejo = false;
   try {
@@ -1885,7 +1907,7 @@ function configurarAutomatico(token, activar, cadaHoras) {
 
 function cambiarClave(token, claveActual, usuarioNuevo, claveNueva) {
   const yo = sigbeExigirSesion_(token);
-  const props = PropertiesService.getScriptProperties();
+  const props = props_();
   if (yo !== props.getProperty('SIGBE_USUARIO')) { // otro usuario: solo su clave (el nombre de usuario no cambia)
     const lista = sigbeUsuarios_(), x = lista[yo];
     if (!x || sigbeHash_(claveActual, x.sal) !== x.hash) return { exito: false, mensaje: 'La clave actual no es correcta.' };
@@ -1913,6 +1935,12 @@ let sigbeFuentesCache_ = null;
 
 /** Olvida los archivos abiertos en esta ejecución (tras cambiar la configuración). */
 function sigbeLimpiarCaches_() { sigbeFuentesCache_ = null; }
+
+/** Libro del historial y los ingresos. Si aún no se abrieron las fuentes, abre solo ese libro (abrir cada archivo tarda). */
+function sigbeRegistro_() {
+  if (sigbeFuentesCache_) return sigbeFuentesCache_.registro;
+  return sigbeAbrir_(lnIdLibro_()) || sigbeFuentes_().registro;
+}
 
 function sigbeAbrir_(id) {
   if (!id || /^NINGUNO$/i.test(id)) return null;
@@ -1991,7 +2019,7 @@ function sigbeCacheLeer_(clave) {
 /** Agrega filas a la "Bitácora SIGBE" (la crea si no existe). */
 function sigbeBitacora_(usuario, filas) {
   try {
-    const ss = sigbeFuentes_().registro;
+    const ss = sigbeRegistro_();
     let sh = ss.getSheetByName(SIGBE_HOJA_BITACORA);
     if (!sh) {
       sh = ss.insertSheet(SIGBE_HOJA_BITACORA);
@@ -2024,7 +2052,7 @@ function sigbeHoja_(ss, nombre) {
  * pedidos) y devuelve las filas de datos con su número real de fila.
  */
 function sigbeTabla_(sh, requeridos) {
-  const v = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), Math.max(sh.getLastColumn(), 1)).getValues();
+  const v = sh.getDataRange().getValues();
   const r0 = v.slice(0, 10).findIndex(f => requeridos.every(req => f.some(x => sigbeNorm_(x) === sigbeNorm_(req))));
   if (r0 === -1) throw new Error('No se encontraron los encabezados (' + requeridos.join(', ') + ') en "' + sh.getName() + '".');
   const enc = v[r0].map(sigbeNorm_);
