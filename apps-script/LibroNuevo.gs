@@ -563,6 +563,7 @@ function lnPlanAsistencia_(datos, crono, hoy) {
   const cCedula = enc.findIndex(x => x.indexOf('CEDULA') === 0);
   const cCumpl = enc.findIndex(x => /^CU+M+PLIMIENTO/.test(x));
   const cPorc = enc.findIndex(x => x.indexOf('% DE CUMPLIMIENTO') === 0);
+  const cIngreso = enc.findIndex(x => x.indexOf('FECHA DE INGRESO') === 0);
 
   const unidades = [];
   enc.forEach((x, c) => {
@@ -643,7 +644,9 @@ function lnPlanAsistencia_(datos, crono, hoy) {
         const g = grupos[k];
         const marcas = g.map(u => 'AND(' + L(u.ca) + fila + '=TRUE,' + L(u.cf) + fila + '<>"' + LN_NO_APLICA + '")');
         asis.push('N(OR(' + marcas.join(',') + '))');
-        debe.push('N(OR(' + marcas.concat(g.map(u => 'AND(ISNUMBER(' + L(u.cf) + fila + '),' + L(u.cf) + fila + '<=h)')).join(',') + '))');
+        // Debe la sesión si ya pasó y (si hay fecha de ingreso) fue después de que entró a la brigada
+        const ing = u => cIngreso >= 0 ? ',OR(NOT(ISNUMBER(' + L(cIngreso) + fila + ')),' + L(u.cf) + fila + '>=' + L(cIngreso) + fila + ')' : '';
+        debe.push('N(OR(' + marcas.concat(g.map(u => 'AND(ISNUMBER(' + L(u.cf) + fila + '),' + L(u.cf) + fila + '<=h' + ing(u) + ')')).join(',') + '))');
       });
       return '=LET(h,TODAY(),c,' + asis.join('+') + ',t,' + debe.join('+') + ',c&" / "&t)';
     };

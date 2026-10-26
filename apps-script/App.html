@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.8.4'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.9.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -443,9 +443,13 @@
         if (/^\d{2}\/\d{2}\/\d{4}$/.test(x)) { if (s.o !== 'cronograma') { f = x; iso = isoDe(x); } }
         else { nota = x; if (/no hac[ií]a parte|no aplica/i.test(x)) aplica = false; }
       }
+      // Quien entró a la brigada después de la sesión no la debía: no le aplica (no cuenta como "no asistió")
+      const ing = isoDe(p.fi);
+      const antesIngreso = aplica && !!ing && !!iso && iso < ing;
+      if (antesIngreso) { aplica = false; nota = 'ingresó a la brigada el ' + p.fi + ', después de esta sesión'; }
       const marcada = p.m.charAt(i) === '1';
       const est = marcada ? (aplica ? 'si' : 'sina') : !aplica ? 'na' : iso && iso <= D.hoy ? 'no' : 'pend';
-      return { aplica: aplica, f: f, iso: iso, marcada: marcada, est: est, nota: nota, mo: s.mo, e: s.e, o: s.o, xFecha: x && /^\d{2}\//.test(x) ? x : '' };
+      return { aplica: aplica, f: f, iso: iso, marcada: marcada, est: est, nota: nota, mo: s.mo, e: s.e, o: s.o, xFecha: x && /^\d{2}\//.test(x) ? x : '', antesIngreso: antesIngreso };
     }
     /** Módulos asistidos / módulos que aplican y ya pasaron (con 2 sesiones basta una). */
     function cumplimiento(p) {
@@ -609,8 +613,12 @@
       const s = sesionActual();
       const todas = personasSede(E.sede);
       const plantas = unicos(todas.map(p => p.p));
-      const visibles = todas.filter(p => (asis.inactivos || p.activo) && (!asis.planta || p.p === asis.planta)); // el buscador filtra sin repintar
-      const conInfo = visibles.map(p => ({ p: p, x: ses(p, s.i) }));
+      // A quien no le aplica la sesión (p. ej. entró a la brigada después) no se le muestra, salvo que ya tenga la marca o
+      // se pida "Ver desvinculados y a quienes no les aplica". El buscador filtra sin repintar.
+      const enPlanta = todas.filter(p => !asis.planta || p.p === asis.planta).map(p => ({ p: p, x: ses(p, s.i) }));
+      const seVe = o => asis.inactivos || (o.p.activo && (o.x.aplica || o.x.marcada || o.p.j in asis.cambios));
+      const conInfo = enPlanta.filter(seVe);
+      const noAplican = enPlanta.filter(o => o.p.activo && !seVe(o)), porIngreso = noAplican.filter(o => o.x.antesIngreso).length;
       const fechas = unicos(conInfo.filter(o => o.x.aplica).map(o => o.x.f).filter(Boolean));
       const n = Object.keys(asis.cambios).length;
       const guardadas = todas.filter(p => p.activo && p.m.charAt(s.i) === '1').length;
@@ -631,8 +639,9 @@
             ${plantas.length > 1 ? `<select class="form-select form-select-sm" id="asis-planta" aria-label="Planta">${opciones(plantas, asis.planta, 'Todas las plantas')}</select>` : ''}
             <button class="btn btn-sm btn-outline-success" data-accion="asis-todos" data-v="1" ${puede ? '' : 'disabled'}>Marcar todos</button>
             <button class="btn btn-sm btn-outline-secondary" data-accion="asis-todos" data-v="0" ${puede ? '' : 'disabled'}>Quitar todos</button>
-            <div class="form-check ms-2"><input class="form-check-input" type="checkbox" id="asis-inact" ${asis.inactivos ? 'checked' : ''}><label class="form-check-label small" for="asis-inact">Ver desvinculados</label></div>
+            <div class="form-check ms-2"><input class="form-check-input" type="checkbox" id="asis-inact" ${asis.inactivos ? 'checked' : ''}><label class="form-check-label small" for="asis-inact">Ver desvinculados y a quienes no les aplica</label></div>
           </div>
+          ${noAplican.length ? `<div class="small text-muted mt-2"><i class="fa-solid fa-circle-info me-1"></i>${noAplican.length} persona(s) no aparecen porque esta sesión no les aplica${porIngreso ? ` (${porIngreso} ingresaron a la brigada después de la fecha de la sesión)` : ''}; no cuentan como "no asistió".</div>` : ''}
           ${E.usuario ? '' : '<div class="alert alert-info small mt-3 mb-0"><i class="fa-solid fa-lock me-1"></i>Estás en <b>solo lectura</b>. <a href="#" data-accion="login">Inicia sesión</a> para marcar asistencia.</div>'}
         </div>
         <div class="d-grid gap-2 mb-3">` +
@@ -640,7 +649,7 @@
           const v = valorActual(p), cambiada = p.j in asis.cambios;
           const habil = puede && p.activo && (x.aplica || v);
           return `<div class="fila-persona d-flex flex-wrap align-items-center gap-2 ${cambiada ? 'cambiada' : ''} ${p.activo && x.aplica ? '' : 'inactiva'}" data-busca="${esc(norm(p.n + ' ' + p.c))}">
-            <div class="flex-grow-1"><div class="fw-semibold">${esc(p.n)}</div><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? '' : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
+            <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? '' : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
             <button class="btn ${v ? 'btn-success' : 'btn-outline-secondary'} btn-asistio" data-accion="asis-alternar" data-j="${p.j}" aria-pressed="${v}" ${habil ? '' : 'disabled'}>${v ? '<i class="fa-solid fa-check me-1"></i>Asistió' : '<i class="fa-regular fa-square me-1"></i>No asistió'}</button></div>`;
         }).join('') + `<p class="text-muted" id="asis-vacio" style="${conInfo.length ? 'display:none' : ''}">No hay brigadistas para mostrar.</p></div>` +
         (n ? `<div class="barra-guardar p-3 d-flex flex-wrap align-items-center gap-2 rounded-top" role="region" aria-label="Cambios sin guardar">
@@ -824,6 +833,7 @@
       Object.keys(cambios).forEach(k => { if (mapa[k]) p[mapa[k]] = k === 'empresa' && p.tipo === 'INHOUSE' ? String(cambios[k]).toUpperCase() : iso2txt(String(cambios[k])); });
       p.activo = !/desvinculado/i.test(p.e);
       if (p.tipo === 'INHOUSE') p.emp = p.k || 'Contratista';
+      else p.cump = cumplimiento(p); // la fecha de ingreso cambia qué sesiones le aplican
       REV = null;
     }
     function todosBrigadistas() { return P.concat(I); }
@@ -1022,14 +1032,15 @@
       if (f.tipo === 'HOLCIM' && !editando) {
         const filas = D.sesiones.map(s => Object.assign({ s: s }, ses(f, s.i)));
         const txt = { si: '<span class="pildora e-si">✓ Asistió</span>', no: '<span class="pildora e-no">✗ No asistió</span>', pend: '<span class="pildora e-pend">· Pendiente</span>', na: '<span class="pildora e-na">— No aplica</span>', sina: '<span class="pildora e-sina">! Marcada sin aplicar</span>' };
-        const ocultas = filas.filter(y => y.est === 'na').length;
+        const ocultas = filas.filter(y => y.est === 'na' && !y.antesIngreso).length, antesDeEntrar = filas.filter(y => y.est === 'na' && y.antesIngreso).length;
         const marcables = fichaMarcable() ? filas.filter(y => y.est === 'no') : [];
         html += `<div class="d-flex flex-wrap align-items-center gap-2 mt-3 mb-2"><h3 class="h6 fw-bold m-0 me-auto">Sesiones</h3>
           <span class="small text-muted">Marca las casillas y pulsa <b>Guardar asistencia</b>.</span>${marcables.length ? '<button class="btn btn-sm btn-outline-success" data-accion="ficha-todas"><i class="fa-solid fa-check-double me-1"></i>Marcar todas las ya realizadas</button>' : ''}</div>
           <div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead><tr><th>Sesión</th><th>Tema</th><th>Fecha</th><th>Estado</th><th>Asistió</th></tr></thead><tbody>` +
           filas.filter(y => y.est !== 'na').map(y => `<tr id="ficha-ses-${y.s.i}" class="${y.s.i in fichaPend ? 'fila-pendiente' : ''}"><td class="text-nowrap"><b>${esc(y.s.clave)}</b> · S${y.s.n}</td><td>${esc(y.s.titulo)}</td><td class="text-nowrap">${esc(y.f || 'sin fecha')}${y.xFecha && y.xFecha !== y.f ? '<br><span class="text-warning">hoja: ' + esc(y.xFecha) + '</span>' : ''}</td><td>${txt[y.est]}</td>
             <td class="text-nowrap">${casillaFicha(y)}<div><button class="btn btn-sm btn-link p-0 small" data-accion="ficha-asistencia" data-sede="${esc(f.sede)}" data-planta="${esc(f.p)}" data-key="${esc(y.s.key)}">Abrir lista</button></div></td></tr>`).join('') +
-          (ocultas ? `<tr class="text-muted"><td colspan="5"><i class="fa-solid fa-circle-info me-1"></i>${ocultas} sesión(es) no aplican en ${esc(f.p)} según el cronograma.</td></tr>` : '') + '</tbody></table></div>';
+          (ocultas ? `<tr class="text-muted"><td colspan="5"><i class="fa-solid fa-circle-info me-1"></i>${ocultas} sesión(es) no aplican en ${esc(f.p)} según el cronograma.</td></tr>` : '') +
+          (antesDeEntrar ? `<tr class="text-muted"><td colspan="5"><i class="fa-solid fa-circle-info me-1"></i>${antesDeEntrar} sesión(es) fueron antes de su ingreso a la brigada (${esc(f.fi)}): no le aplican ni cuentan en su cumplimiento.</td></tr>` : '') + '</tbody></table></div>';
       }
       html += `<p class="small text-muted mt-3 mb-0">Fila ${esc(f.r)} de "${esc(f.tipo === 'HOLCIM' ? 'Lista HOLCIM' : 'INHOUSE')}" · ${esc(f.tipo === 'HOLCIM' ? D.fuentes.asistencia.nombre : D.fuentes.datos.nombre)}</p>`;
       $('ficha-cuerpo').innerHTML = html;

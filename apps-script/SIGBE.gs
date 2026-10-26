@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.8.4';
+const SIGBE_VERSION = '4.9.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -324,6 +324,14 @@ function sigbeGuardarAsistencia_(token, cambios) {
       if (!info[p.planta]) info[p.planta] = sigbeInfoPlanta_(crono, p.planta, sesiones, h.personas.filter(x => x.planta === p.planta));
       return info[p.planta].s[sesiones.indexOf(s)].a === 1;
     };
+    // Una sesión anterior a la fecha de ingreso a la brigada no le correspondía (igual que en la pantalla)
+    const antesDelIngreso = (p, s) => {
+      const ing = sigbeIso_(p.fechaIngreso);
+      if (!ing || !crono) return false;
+      aplica(p, s);
+      const iso = info[p.planta].s[sesiones.indexOf(s)].i;
+      return !!iso && iso < ing;
+    };
 
     sigbeRespaldoHoy_(F.asistencia, true);
     const conflictos = [], bitacora = [], aplicados = [], porSede = {}, escribir = [];
@@ -337,6 +345,7 @@ function sigbeGuardarAsistencia_(token, cambios) {
       if (actual !== true && actual !== false && actual !== '') { conflictos.push(quien + ' (la celda no es una casilla)'); return; }
       if ((actual === true) !== (c.anterior === true)) { conflictos.push(quien + ' (alguien la cambió mientras tanto)'); return; }
       if (c.valor === true && !aplica(p, s)) { conflictos.push(quien + ' (según el cronograma esa sesión no aplica en ' + p.planta + ')'); return; }
+      if (c.valor === true && antesDelIngreso(p, s)) { conflictos.push(quien + ' (ingresó a la brigada el ' + p.fechaIngreso + ', después de esta sesión; si la fecha de ingreso está mal, corrígela primero)'); return; }
       if (c.valor === true && /NO HACIA PARTE|NO APLICA/.test(sigbeNorm_(p.valores[s.colFecha - 1]))) {
         conflictos.push(quien + ' (en la hoja dice "' + String(p.valores[s.colFecha - 1]).trim() + '")'); return;
       }

@@ -140,6 +140,15 @@ planta con una sola sesión → la Sesión 2 no aplica; filas `AGG:`, `CEM:`, `R
 partes (M8-1, M8-2, M8-3) y cada una es una sesión distinta. La app **no deja marcar** asistencia en una sesión que no
 aplica: si sí se dictó, se corrige el cronograma.
 
+**Fecha de ingreso a la brigada:** una sesión con fecha anterior al ingreso de la persona **no le aplica**. No sale en la
+lista de esa sesión (una nota dice cuántos quedaron fuera y por qué; "Ver desvinculados y a quienes no les aplica" los
+muestra), no cuenta como "no asistió" ni en su cumplimiento, en el avance por planta o en el Dashboard, y no se puede
+marcar (si la fecha de ingreso está mal, se corrige primero). La fórmula de cumplimiento del libro nuevo hace lo mismo.
+Si la persona no tiene fecha de ingreso, le aplican todas.
+
+**Por sesión o por persona:** en *Tomar asistencia* se marca a todos los de una sesión; al tocar el nombre de alguien se
+abre su ficha, donde se marcan sus sesiones (también desde *Brigadistas*).
+
 ## Revisión de datos
 
 | Tipo | Gravedad |
