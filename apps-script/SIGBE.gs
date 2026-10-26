@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.8.1';
+const SIGBE_VERSION = '4.8.2';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -690,7 +690,8 @@ function guardarCronograma(token, lista) {
       Object.keys(x.cambios || {}).forEach(campo => {
         const def = SIGBE_CAMPOS_CRONO[campo];
         if (!def) return;
-        if (campo === 'fecha' && rol === 'proveedor') { rechazos.push('Fecha (Holcim): la cambia Holcim; Ambipar diligencia la Fecha Ambipar'); return; }
+        const habilitar = campo === 'fecha' && actualDe('fecha') === '-' && !String(x.cambios.fecha || '').trim(); // quitar el "-" sin poner fecha
+        if (campo === 'fecha' && rol === 'proveedor' && !habilitar) { rechazos.push('Fecha (Holcim): la cambia Holcim; Ambipar diligencia la Fecha Ambipar'); return; }
         const c = b.col[def.col];
         if (c === undefined) { rechazos.push(def.etiqueta + ': el bloque de ' + b.nombre + ' no tiene esa columna'); return; }
         let nuevo = String(x.cambios[campo] === null || x.cambios[campo] === undefined ? '' : x.cambios[campo]).trim();
@@ -759,7 +760,7 @@ function guardarCronograma(token, lista) {
 function crearModulo(token, d) {
   const lock = LockService.getScriptLock();
   try {
-    const usuario = sigbeExigirRol_(token, ['gestor', 'holcim']);
+    const usuario = sigbeExigirRol_(token, ['gestor', 'holcim', 'proveedor']);
     if (!sigbeBloquear_(lock, 30000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
     const F = sigbeFuentes_();
     sigbeExigirEscritura_(F, 'datos');
@@ -892,7 +893,7 @@ function sigbeColumnasSesion_(shL, h, despues, clave, sesiones, titulo, avisos) 
 function agregarSesion(token, d) {
   const lock = LockService.getScriptLock();
   try {
-    const usuario = sigbeExigirRol_(token, ['gestor', 'holcim']);
+    const usuario = sigbeExigirRol_(token, ['gestor', 'holcim', 'proveedor']);
     if (!sigbeBloquear_(lock, 30000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
     const F = sigbeFuentes_();
     sigbeExigirEscritura_(F, 'datos');
@@ -905,6 +906,7 @@ function agregarSesion(token, d) {
     if (!propios.length) return { exito: false, mensaje: 'No se encontró la planta "' + d.pl + '" en el cronograma.' };
     const libre = propios.findIndex(x => f.celdas[x.i].tipo === 'noaplica');
     if (libre !== -1) return { exito: false, habilitar: true, mensaje: 'La planta ya tiene la ' + propios[libre].b.sesion + ' (con "-" en este tema): habilítala en vez de crear otra.' };
+    if (d.fecha && sigbeRol_(usuario) === 'proveedor') return { exito: false, mensaje: 'La Fecha Holcim la pone Holcim; tú pones la Fecha Ambipar.' };
     if (d.fecha && !/^\d{4}-\d{2}-\d{2}$/.test(d.fecha)) return { exito: false, mensaje: 'Fecha no válida.' };
     if (d.ambipar && !/^\d{4}-\d{2}-\d{2}$/.test(d.ambipar)) return { exito: false, mensaje: 'Fecha Ambipar no válida.' };
     const n = propios.length + 1, ultimo = propios[propios.length - 1].b;
@@ -1266,13 +1268,13 @@ function getTemarioCapacitacion(token, nombreHoja) {
 
 /** Pestañas visibles que no tienen pantalla propia (Seguimiento, Datos de contacto, Evacuadores…). */
 function getHojasExtra(token) {
-  sigbeExigirSesion_(token);
+  sigbeExigirRol_(token, ['gestor', 'holcim']);
   return sigbeFuentes_().datos.getSheets().filter(h => !h.isSheetHidden() && !sigbeEsHojaPropia_(h.getName())).map(h => h.getName());
 }
 
 /** Una pestaña como tabla: { nombre, titulo, encabezados, filas }. Detecta la fila de títulos sola. */
 function getHojaExtra(token, nombre) {
-  sigbeExigirSesion_(token);
+  sigbeExigirRol_(token, ['gestor', 'holcim']);
   const clave = 'sigbe_x_' + sigbeGen_() + '_' + Utilities.base64EncodeWebSafe(String(nombre)).slice(0, 120);
   const c = sigbeCacheLeer_(clave);
   if (c) return c;
@@ -1310,7 +1312,7 @@ function sigbeEsHojaPropia_(nombre) {
 
 /** Historial: cambios hechos desde la app y cambios detectados en el Excel (los más recientes primero). */
 function getCambios(token) {
-  sigbeExigirSesion_(token);
+  sigbeExigirRol_(token, ['gestor', 'holcim']);
   const reg = sigbeRegistro_();
   const sh = reg && reg.getSheetByName(SIGBE_HOJA_BITACORA);
   if (!sh || sh.getLastRow() < 2) return [];
@@ -1455,7 +1457,7 @@ function sigbeQuitarHechosPorApp_(cambios) {
 // ═════════════════════════════ ESTADO DEL SISTEMA ═════════════════════════════
 
 function getEstadoSistema(token) {
-  sigbeExigirSesion_(token);
+  sigbeExigirRol_(token, ['gestor', 'holcim']);
   const props = props_();
   const archivo = (prop, nombre) => {
     const id = idDesdeTexto_(prop_(prop));
@@ -1497,7 +1499,7 @@ function actualizarAhora(token) {
 
 /** Revisa todo lo que puede fallar y dice qué hacer en cada caso. */
 function diagnosticoSistema(token) {
-  sigbeExigirSesion_(token);
+  sigbeExigirRol_(token, ['gestor', 'holcim']);
   const R = [];
   const add = (estado, titulo, detalle, solucion) => R.push({ estado: estado, titulo: titulo, detalle: detalle || '', solucion: solucion || '' });
   const props = props_();
@@ -1689,6 +1691,7 @@ function sigbeEtiquetaUsuario_(usuario) {
 }
 
 function getUsuarios(token) {
+  sigbeExigirRol_(token, ['gestor', 'holcim']);
   const yo = sigbePerfil_(sigbeExigirSesion_(token));
   const lista = sigbeUsuarios_();
   return {
@@ -1813,9 +1816,10 @@ function sigbeHash_(texto, sal) {
 // ═════════════════════════════ TIPOS DE USUARIO ═════════════════════════════
 //  gestor    → el usuario principal (SIGBE_USUARIO): todo, y es el único que crea o elimina usuarios y cambia la configuración.
 //  holcim    → ve y cambia todo, menos usuarios y configuración.
-//  proveedor → Ambipar: toma asistencia y diligencia en el cronograma la Fecha Ambipar, el estado, las observaciones y
-//              el # de brigadistas; ve todo (también datos personales), pero no cambia la Fecha Holcim, ni crea módulos
-//              o sesiones, ni edita brigadistas, ni el Indicador.
+//  proveedor → Ambipar: toma asistencia; en el cronograma pone la Fecha Ambipar, el estado, las observaciones y el # de
+//              brigadistas, programa sesiones (y habilita las que tienen "-") y crea módulos. No cambia la Fecha Holcim ni
+//              edita brigadistas o el Indicador. Solo ve Dashboard, Tomar asistencia, Avance por planta, Cronograma,
+//              Temarios y su clave (no el historial, otras hojas, estado del sistema, configuración ni usuarios).
 const SIGBE_ROLES = { gestor: 'Gestor', holcim: 'Holcim', proveedor: 'Ambipar (proveedor)' };
 
 function sigbeRol_(usuario) {
@@ -1928,7 +1932,7 @@ function configuracionInicial(datos) {
 }
 
 function getConfiguracion(token) {
-  sigbeExigirSesion_(token);
+  sigbeExigirRol_(token, ['gestor', 'holcim']);
   const props = props_();
   const info = id => { if (!id || /^NINGUNO$/i.test(id)) return { id: id || '', nombre: '', url: '' }; try { const ss = SpreadsheetApp.openById(id); return { id: id, nombre: ss.getName(), url: ss.getUrl() }; } catch (e) { return { id: id, nombre: '', url: '', error: 'No se puede abrir con la cuenta ' + cuentaScript_() }; } };
   const cfg = configOrigen_();

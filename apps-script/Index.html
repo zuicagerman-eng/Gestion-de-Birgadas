@@ -132,6 +132,7 @@
     body.modo-ingreso .sidebar, body.modo-ingreso header.topbar { display: none !important; }
     body.modo-ingreso #columna { flex: 0 0 100%; max-width: 100%; }
     body.rol-proveedor .no-proveedor { display: none !important; }
+    .solo-proveedor { display: none !important; } body.rol-proveedor .solo-proveedor { display: revert !important; }
     #sel-sede.sede-filtrada { border-color: #0d6efd; background-color: #eef4ff; font-weight: 600; }
     .sede-op:hover { background: #f1f5fb; }
     .sede-op .solo { visibility: hidden; font-size: .78rem; }
@@ -181,22 +182,22 @@
             <nav aria-label="Secciones">
               <ul class="nav flex-column" id="nav">
                 <li><a href="#" class="nav-link" data-vista="inicio"><i class="fa-solid fa-gauge-high"></i>Dashboard</a></li>
-                <li class="nav-grupo">Brigada</li>
-                <li><a href="#" class="nav-link" data-vista="cobertura"><i class="fa-solid fa-chart-column"></i>Cobertura</a></li>
-                <li><a href="#" class="nav-link" data-vista="brigadistas"><i class="fa-solid fa-users"></i>Brigadistas</a></li>
+                <li class="nav-grupo no-proveedor">Brigada</li>
+                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="cobertura"><i class="fa-solid fa-chart-column"></i>Cobertura</a></li>
+                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="brigadistas"><i class="fa-solid fa-users"></i>Brigadistas</a></li>
                 <li class="nav-grupo">Asistencia y capacitaciones</li>
                 <li><a href="#" class="nav-link" data-vista="asistencia"><i class="fa-solid fa-clipboard-check"></i>Tomar asistencia</a></li>
                 <li><a href="#" class="nav-link" data-vista="matriz"><i class="fa-solid fa-table-cells"></i>Avance por planta</a></li>
                 <li><a href="#" class="nav-link" data-vista="cronograma"><i class="fa-solid fa-calendar-days"></i>Cronograma</a></li>
                 <li><a href="#" class="nav-link" data-vista="temarios"><i class="fa-solid fa-book-open"></i>Temarios</a></li>
-                <li><a href="#" class="nav-link" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
-                <li class="nav-grupo">Control</li>
-                <li><a href="#" class="nav-link" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
-                <li><a href="#" class="nav-link" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
-                <li><a href="#" class="nav-link no-proveedor" data-vista="ingresos"><i class="fa-solid fa-id-card"></i>Registro de ingresos</a></li>
+                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
+                <li class="nav-grupo no-proveedor">Control</li>
+                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
+                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
+                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="ingresos"><i class="fa-solid fa-id-card"></i>Registro de ingresos</a></li>
                 <li class="nav-grupo">Sistema</li>
-                <li><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
-                <li><a href="#" class="nav-link" data-vista="configuracion"><i class="fa-solid fa-gear"></i>Configuración</a></li>
+                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
+                <li><a href="#" class="nav-link" data-vista="configuracion"><i class="fa-solid fa-gear"></i><span class="no-proveedor">Configuración</span><span class="solo-proveedor">Mi clave</span></a></li>
                 <li><a href="#" class="nav-link" data-vista="ayuda"><i class="fa-solid fa-circle-question"></i>Ayuda</a></li>
               </ul>
             </nav>
@@ -276,9 +277,9 @@
             <p class="sub-vista" id="inicio-sub"></p>
             <div class="pestanas mb-3" role="tablist" aria-label="Secciones del Dashboard" id="inicio-tabs">
               <button type="button" class="pestana" role="tab" id="pt-asistencia" data-tab="asistencia" aria-controls="tab-asistencia" aria-selected="true"><i class="fa-solid fa-clipboard-check me-2"></i>Asistencia <span class="valor" id="tv-asistencia"></span></button>
-              <button type="button" class="pestana" role="tab" id="pt-cobertura" data-tab="cobertura" aria-controls="tab-cobertura" aria-selected="false" tabindex="-1"><i class="fa-solid fa-shield-halved me-2"></i>Cobertura <span class="valor" id="tv-cobertura"></span></button>
+              <button type="button" class="pestana no-proveedor" role="tab" id="pt-cobertura" data-tab="cobertura" aria-controls="tab-cobertura" aria-selected="false" tabindex="-1"><i class="fa-solid fa-shield-halved me-2"></i>Cobertura <span class="valor" id="tv-cobertura"></span></button>
               <button type="button" class="pestana" role="tab" id="pt-proximas" data-tab="proximas" aria-controls="tab-proximas" aria-selected="false" tabindex="-1"><i class="fa-solid fa-calendar-check me-2"></i>Próximas capacitaciones <span class="valor" id="tv-proximas"></span></button>
-              <button type="button" class="pestana" role="tab" id="pt-revision" data-tab="revision" aria-controls="tab-revision" aria-selected="false" tabindex="-1"><i class="fa-solid fa-magnifying-glass-chart me-2"></i>Revisión de datos <span class="valor" id="tv-revision"></span></button>
+              <button type="button" class="pestana no-proveedor" role="tab" id="pt-revision" data-tab="revision" aria-controls="tab-revision" aria-selected="false" tabindex="-1"><i class="fa-solid fa-magnifying-glass-chart me-2"></i>Revisión de datos <span class="valor" id="tv-revision"></span></button>
             </div>
             <div class="tarjeta p-3 panel-inicio" role="tabpanel" id="tab-asistencia" aria-labelledby="pt-asistencia">
               <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-clipboard-check me-2 text-success"></i>Asistencia a las capacitaciones</h2>
@@ -389,8 +390,8 @@
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
               <h1 class="titulo-vista mb-0" id="t-crono">Cronograma de capacitaciones</h1>
               <div class="d-flex gap-2">
-                <button class="btn btn-outline-success btn-sm no-proveedor" data-accion="nueva-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Programar / Agregar sesión</button>
-                <button class="btn btn-success btn-sm no-proveedor" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-1"></i>Nuevo módulo</button>
+                <button class="btn btn-outline-success btn-sm" data-accion="nueva-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Programar / Agregar sesión</button>
+                <button class="btn btn-success btn-sm" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-1"></i>Nuevo módulo</button>
               </div>
             </div>
             <p class="sub-vista">Programa desde aquí: <b>Programar / Editar</b> cambia la fecha, la fecha Ambipar, el estado y las observaciones de cada planta (también de varias plantas a la vez). Lo que no aplica ("-" o gris) está en <b>No aplican</b>, desde donde se puede habilitar.</p>
@@ -600,13 +601,14 @@
           <!-- CONFIGURACIÓN -->
           <section class="vista" id="v-configuracion" aria-labelledby="t-conf">
             <h1 class="titulo-vista" id="t-conf">Configuración</h1>
-            <p class="sub-vista">Usuarios, archivos, tarea automática, tu clave y respaldos. Todo queda en el historial.</p>
+            <p class="sub-vista no-proveedor">Usuarios, archivos, tarea automática, tu clave y respaldos. Todo queda en el historial.</p>
+            <p class="sub-vista solo-proveedor">Cambia aquí tu clave.</p>
             <div id="conf-sin-sesion" class="alert alert-info" style="display:none;"><i class="fa-solid fa-lock me-1"></i>Inicia sesión para ver y cambiar la configuración. <a href="#" data-accion="login">Iniciar sesión</a></div>
             <div id="conf-contenido" style="display:none;">
               <div class="alert alert-secondary small" id="conf-no-principal" style="display:none;"><i class="fa-solid fa-circle-info me-1"></i>Los archivos, la tarea automática y los usuarios los cambia solo el gestor. Aquí puedes cambiar tu clave.</div>
-              <div class="tarjeta p-3 mb-3">
+              <div class="tarjeta p-3 mb-3 no-proveedor">
                 <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-users-gear me-2 text-primary"></i>Usuarios</h2>
-                <p class="small text-muted mb-2">Tres tipos de usuario: <b>Gestor</b> (todo, y crea o elimina usuarios) · <b>Holcim</b> (ve y cambia todo, menos usuarios y configuración) · <b>Ambipar – proveedor</b> (toma asistencia y diligencia en el cronograma la Fecha Ambipar, el estado y las observaciones; ve todo, pero no cambia la Fecha Holcim, ni crea módulos o sesiones, ni edita brigadistas o el Indicador). En el historial queda quién hizo cada cambio.</p>
+                <p class="small text-muted mb-2">Tres tipos de usuario: <b>Gestor</b> (todo, y crea o elimina usuarios) · <b>Holcim</b> (ve y cambia todo, menos usuarios y configuración) · <b>Ambipar – proveedor</b> (toma asistencia y en el cronograma pone la Fecha Ambipar, el estado y las observaciones, programa sesiones y crea módulos; no cambia la Fecha Holcim. Solo ve Dashboard, Tomar asistencia, Avance por planta, Cronograma, Temarios y su clave). En el historial queda quién hizo cada cambio.</p>
                 <div class="table-responsive"><table class="table table-sm small align-middle mb-2"><thead><tr><th>Usuario</th><th>Nombre y correo</th><th>Tipo</th><th>Sedes</th><th>Avisos</th><th>Estado</th><th></th></tr></thead><tbody id="usr-tabla"></tbody></table></div>
                 <div id="usr-sin-correo" class="alert alert-warning small py-2" style="display:none;"><i class="fa-solid fa-envelope-circle-check me-1"></i>Los avisos por correo aún no están autorizados: en el editor de Apps Script ejecuta <b>probarCorreo</b> una vez (te llega un correo de prueba).</div>
                 <form id="form-usuario" class="border rounded p-2 bg-light" style="display:none;">
@@ -624,7 +626,7 @@
                 </form>
               </div>
               <div class="row g-3">
-                <div class="col-lg-6 conf-principal"><div class="tarjeta p-3 h-100">
+                <div class="col-lg-6 conf-principal no-proveedor"><div class="tarjeta p-3 h-100">
                   <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-table me-2 text-primary"></i>Archivos</h2>
                   <div class="mb-2"><label class="form-label small mb-0" for="conf-origen">1.0 · archivo original (URL o NINGUNO)</label><input id="conf-origen" class="form-control form-control-sm"><div class="form-text" id="conf-origen-nombre"></div></div>
                   <div class="mb-2"><label class="form-label small mb-0" for="conf-destino">2.0 · lista de asistencia (URL)</label><input id="conf-destino" class="form-control form-control-sm"><div class="form-text" id="conf-destino-nombre"></div></div>
@@ -632,7 +634,7 @@
                   <button class="btn btn-sm btn-primary" data-accion="guardar-archivos"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar archivos</button>
                   <div class="small text-muted mt-2" id="conf-corte"></div>
                 </div></div>
-                <div class="col-lg-6 conf-principal">
+                <div class="col-lg-6 conf-principal no-proveedor">
                   <div class="tarjeta p-3">
                     <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-rotate me-2 text-primary"></i>Tarea automática</h2>
                     <p class="small text-muted mb-2">Actualiza el libro nuevo desde el 1.0 y el 2.0 (hasta el corte) y anota en el historial lo que se cambie directamente en el Excel.</p>
@@ -657,7 +659,7 @@
                     <button class="btn btn-sm btn-primary mt-3" type="submit">Cambiar</button>
                   </form>
                 </div></div>
-                <div class="col-lg-6"><div class="tarjeta p-3 h-100">
+                <div class="col-lg-6 no-proveedor"><div class="tarjeta p-3 h-100">
                   <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-box-archive me-2 text-primary"></i>Respaldos</h2>
                   <p class="small text-muted mb-2">Cada día la tarea automática guarda una copia completa de los archivos en la carpeta <i id="conf-carpeta"></i> (30 días; si un día no corrió, la hace el primer guardado). Para recuperar algo, abre la copia y copia lo que necesites. También está el historial de versiones de Google.</p>
                   <div class="table-responsive" style="max-height: 230px;"><table class="table table-sm small mb-0"><thead><tr><th>Fecha</th><th>Archivo</th><th></th></tr></thead><tbody id="conf-respaldos"></tbody></table></div>

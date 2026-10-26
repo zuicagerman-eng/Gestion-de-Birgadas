@@ -87,7 +87,7 @@ cada intento fallido quedan en la pestaña **"Ingresos SIGBE"** y se ven en **Re
 |---|---|
 | **Gestor** (el usuario principal, `SIGBE_USUARIO`) | Todo, y es el único que crea, desactiva o elimina usuarios y cambia la configuración (archivos, tarea automática). |
 | **Holcim** | Ve y cambia todo: asistencia, cronograma (fecha Holcim y Ambipar), módulos, sesiones, brigadistas, Indicador, traer faltantes. No administra usuarios ni la configuración. |
-| **Ambipar (proveedor)** | Ve todo (también datos personales). Toma asistencia y diligencia en el cronograma la **Fecha Ambipar**, el estado, las observaciones y el # de brigadistas. No cambia la Fecha Holcim ni crea módulos o sesiones, ni edita brigadistas o el Indicador. |
+| **Ambipar (proveedor)** | Toma asistencia. En el cronograma pone la **Fecha Ambipar**, el estado, las observaciones y el # de brigadistas, **programa sesiones** (también habilita las que tienen "-") y **crea módulos**. No cambia la Fecha Holcim ni edita brigadistas o el Indicador. Su menú es lo mínimo: Dashboard (asistencia y próximas), Tomar asistencia, Avance por planta, Cronograma, Temarios, Ayuda y **Mi clave**; el servidor tampoco le entrega historial, otras hojas, estado del sistema, configuración ni usuarios. |
 
 El gestor crea los usuarios en **Configuración → Usuarios** (usuario, nombre, correo, tipo, sedes y una clave temporal
 generada), les pone una clave nueva, los desactiva o los elimina. **La clave temporal le llega al usuario por correo**

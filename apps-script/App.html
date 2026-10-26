@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.8.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.8.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -21,7 +21,7 @@
     }
     function esProveedor() { return !!(E.perfil && E.perfil.rol === 'proveedor'); }
     /** true (y avisa) si el usuario es Ambipar y la acción es solo de Holcim. */
-    function soloHolcim() { if (!esProveedor()) return false; avisar('Esto lo hace un usuario de Holcim. Con tu usuario de Ambipar puedes tomar asistencia y diligenciar la Fecha Ambipar en el Cronograma.', 'info', 8000); return true; }
+    function soloHolcim() { if (!esProveedor()) return false; avisar('Esto lo hace un usuario de Holcim. Con tu usuario de Ambipar tomas asistencia y en el Cronograma pones la Fecha Ambipar, programas sesiones y creas módulos.', 'info', 8000); return true; }
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
     const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', planta: '', inactivos: false, filtro: '' };
     const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {} };
@@ -160,7 +160,7 @@
 
     /** Pestañas del Dashboard (se recuerda la última abierta en este equipo). */
     function elegirPestana(tab, foco) {
-      if (!$('tab-' + tab)) tab = 'asistencia';
+      if (!$('tab-' + tab) || (esProveedor() && (tab === 'cobertura' || tab === 'revision'))) tab = 'asistencia';
       document.querySelectorAll('#inicio-tabs .pestana').forEach(b => { const si = b.dataset.tab === tab; b.setAttribute('aria-selected', String(si)); b.tabIndex = si ? 0 : -1; if (si && foco) b.focus(); });
       document.querySelectorAll('.panel-inicio').forEach(p => { p.hidden = p.id !== 'tab-' + tab; });
       guardar('localStorage', 'sigbe_tab_inicio', tab);
@@ -280,8 +280,11 @@
       $('v-' + vista).style.display = 'block';
       document.querySelectorAll('#nav .nav-link').forEach(a => { const s = a.dataset.vista === vista; a.classList.toggle('active', s); s ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); });
     }
+    // Ambipar (proveedor) solo ve lo de su trabajo: asistencia, avance, cronograma, temarios, ayuda y su clave
+    const VISTAS_NO_PROVEEDOR = ['cobertura', 'brigadistas', 'hojas', 'cambios', 'revision', 'ingresos', 'estado'];
     function ir(vista) {
       if (!E.listo && vista !== 'setup' && vista !== 'ayuda') vista = 'setup';
+      if (esProveedor() && VISTAS_NO_PROVEEDOR.indexOf(vista) !== -1) vista = 'inicio';
       // Con la clave temporal que envió el gestor, primero hay que cambiarla
       if (E.listo && E.perfil && E.perfil.claveTemporal && vista !== 'configuracion' && vista !== 'ayuda') {
         vista = 'configuracion';
@@ -1218,6 +1221,7 @@
       if (!(await cargarCatalogos())) return;
       const c = D.cronoTodo[+k];
       if (!c) return;
+      if (c.na && esProveedor()) return abrirSesion(c.fila, c.pl); // Ambipar habilita una sesión con "-" desde Programar / Agregar sesión
       cronoEd = c;
       $('crono-titulo').textContent = (c.cl ? c.cl + ' · ' : '') + c.ent;
       $('crono-sub').innerHTML = `<i class="fa-solid fa-location-dot me-1"></i>${esc(c.pl)} · ${esc(c.ses)}${c.pre && c.pre !== 'TODOS' ? ' · solo ' + esc(c.pre) : ''}`;
@@ -1278,10 +1282,11 @@
     // Otra sesión de un módulo en una planta: habilita una que estaba en "-" o crea la Sesión N+1
     let sesPlan = null;
     async function abrirSesion(fila, pl) {
-      if (soloHolcim()) return;
       if (!E.usuario) return pedirSesion(() => abrirSesion(fila, pl));
       if (!(await cargarCatalogos())) return;
       $('form-sesion').reset();
+      $('ses-fecha').disabled = esProveedor(); // Ambipar pone la Fecha Ambipar; la Fecha Holcim la pone Holcim
+      $('ses-fecha').title = esProveedor() ? 'La Fecha Holcim la pone Holcim; tú pones la Fecha Ambipar' : '';
       const modulos = D.cronoFilas.filter(f => f.cl && D.cronoTodo.some(c => c.fila === f.fila));
       $('ses-fila').innerHTML = modulos.map(f => `<option value="${f.fila}" ${f.fila === fila ? 'selected' : ''}>${esc(f.cl)} · ${esc(f.nombre)}${f.pre && f.pre !== 'TODOS' ? ' (' + esc(f.pre) + ')' : ''}</option>`).join('');
       const plantas = unicos(D.cronoTodo.filter(enSede).map(c => c.pl));
@@ -1342,7 +1347,6 @@
       return 'M' + (Math.max.apply(null, n) + 1);
     }
     async function abrirModulo() {
-      if (soloHolcim()) return;
       if (!E.usuario) return pedirSesion(abrirModulo);
       if (!(await cargarCatalogos())) return;
       $('form-modulo').reset();
@@ -1778,13 +1782,17 @@
     // ══════════ CONFIGURACIÓN ══════════
     async function cargarConfiguracion() {
       if (!E.usuario) { $('conf-sin-sesion').style.display = 'block'; $('conf-contenido').style.display = 'none'; return; }
+      const temporal = !!(E.perfil && E.perfil.claveTemporal);
+      const pintarClave = () => {
+        $('conf-sin-sesion').style.display = 'none'; $('conf-contenido').style.display = 'block';
+        $('clave-temporal').style.display = temporal ? '' : 'none';
+        if (temporal) setTimeout(() => { $('form-clave').scrollIntoView({ block: 'center' }); $('clave-actual').focus(); }, 300);
+      };
+      if (esProveedor()) { pintarClave(); $('clave-usuario').value = E.usuario; $('clave-usuario').disabled = true; return; }
       leyendo(true);
       try {
         conf = await api('getConfiguracion', E.token);
-        $('conf-sin-sesion').style.display = 'none'; $('conf-contenido').style.display = 'block';
-        const temporal = !!(E.perfil && E.perfil.claveTemporal);
-        $('clave-temporal').style.display = temporal ? '' : 'none';
-        if (temporal) setTimeout(() => { $('form-clave').scrollIntoView({ block: 'center' }); $('clave-actual').focus(); }, 300);
+        pintarClave();
         const url = id => id ? 'https://docs.google.com/spreadsheets/d/' + id + '/edit' : '';
         const nombre = a => a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nombre)}</a>` : `<span class="text-danger">${esc(a.error || 'Sin configurar')}</span>`;
         $('conf-origen').value = conf.origen.modo === 'ninguno' ? 'NINGUNO' : url(conf.origen.id); $('conf-origen-nombre').innerHTML = conf.origen.modo === 'ninguno' ? 'Sin 1.0' : nombre(conf.origen);
