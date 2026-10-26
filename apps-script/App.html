@@ -2,7 +2,7 @@
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
     const VERSION_HTML = '4.7.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
-    const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
+    const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
     function sedesGuardadas() {
@@ -187,23 +187,24 @@
         '<div class="small mt-2">Si el mensaje no es claro: en el editor de Apps Script ejecuta <b>probarApp</b> y revisa el registro de ejecución.</div>' +
         '<button class="btn btn-sm btn-outline-danger mt-2" data-accion="reintentar"><i class="fa-solid fa-rotate me-1"></i>Reintentar</button>';
     }
-    window.addEventListener('error', ev => { if (!D) errorArranque('Error en la pantalla: ' + ev.message); });
-    window.addEventListener('unhandledrejection', ev => { if (!D) errorArranque('Error en la pantalla: ' + (ev.reason && ev.reason.message || ev.reason)); });
+    window.addEventListener('error', ev => { if (E.arrancando) errorArranque('Error en la pantalla: ' + ev.message); });
+    window.addEventListener('unhandledrejection', ev => { if (E.arrancando) errorArranque('Error en la pantalla: ' + (ev.reason && ev.reason.message || ev.reason)); });
 
     async function arrancar() {
+      E.arrancando = true;
       leyendo(true);
       pasoArranque('Conectando con el servidor…');
       try {
         const ctx = await api('getContexto', E.token);
-        E.usuario = ctx.usuario; E.perfil = ctx.perfil || null; E.lecturaPublica = !!ctx.lecturaPublica; E.listo = !!(ctx.setup && ctx.setup.listo); E.setup = ctx.setup;
+        E.usuario = ctx.usuario; E.perfil = ctx.perfil || null; E.listo = !!(ctx.setup && ctx.setup.listo); E.setup = ctx.setup;
         $('txt-version').textContent = 'SIGBE v' + (ctx.version || '?');
         $('ayuda-version').textContent = 'v' + (ctx.version || '?');
         if (ctx.version && ctx.version !== VERSION_HTML) banner('Los archivos de la app tienen versiones distintas (pantallas ' + esc(VERSION_HTML) + ', servidor ' + esc(ctx.version) + '). Vuelve a pegar <b>SIGBE.gs</b>, <b>Index.html</b> y <b>App.html</b> y publica una nueva versión.');
         if (!E.usuario) olvidarSesion(true);
         pintarSesion();
         if (!E.listo) { finArranque(); pintarSetup(ctx.setup); mostrar('setup'); return; }
-        if (!E.usuario) { finArranque(); bloqueo(false); mostrarIngreso(); return; }
-        bloqueo(false); document.body.classList.remove('modo-ingreso');
+        if (!E.usuario) { finArranque(); mostrarIngreso(); return; }
+        document.body.classList.remove('modo-ingreso');
         if (E.vista === 'ingreso') E.vista = 'inicio';
         pasoArranque('Leyendo las hojas de cálculo… (la primera vez puede tardar hasta un minuto)');
         D = await api('getDatos', E.token, false);
@@ -213,7 +214,7 @@
         ir(E.vista === 'setup' ? 'inicio' : E.vista);
       } catch (e) {
         if (/SESION_REQUERIDA/.test(e && e.message || '')) { finArranque(); olvidarSesion(true); mostrarIngreso(); } else errorArranque(e && e.message ? e.message : e);
-      } finally { leyendo(false); }
+      } finally { leyendo(false); E.arrancando = false; }
     }
 
     async function cargarDatos(forzar) {
@@ -227,6 +228,13 @@
 
     /** Prepara los datos para filtrar rápido en el navegador. */
     function preparar() {
+      // Los cambios sin guardar se guardan por posición (j). Al releer, las filas pueden moverse (alguien registró a otra
+      // persona en medio): se pasan a la nueva posición de la misma persona para no guardarlos en otra.
+      const quien = p => p.tipo + '|' + p.c + '|' + p.n + '|' + p.p;
+      const viejos = { HOLCIM: P, INHOUSE: I }, idAsis = {}, idBrig = {};
+      Object.keys(asis.cambios).forEach(j => { if (P[j]) idAsis[quien(P[j])] = asis.cambios[j]; });
+      Object.keys(brig.cambios).forEach(k => { const [t, j] = k.split(':'); const x = (viejos[t] || [])[j]; if (x) idBrig[quien(x)] = brig.cambios[k]; });
+      const fichaId = ficha ? quien(ficha) : '';
       D.sesiones.forEach((s, i) => { s.i = i; });
       // Las sesiones "no aplica" solo se ven (y se habilitan) en el Cronograma; el resto de pantallas usa D.crono
       D.cronoTodo = D.cronoTodo || D.crono;
@@ -237,15 +245,22 @@
       D.sesiones.forEach(s => { let u = D.unidades.find(x => x.clave === s.clave); if (!u) D.unidades.push(u = { clave: s.clave, modulo: s.modulo, parte: s.parte, titulo: s.titulo, ses: [] }); u.ses.push(s.i); });
       P = D.holcim.map((p, j) => { const o = Object.assign({}, p, { j: j, tipo: 'HOLCIM', sede: (D.plantas[p.p] || {}).sede || p.p, activo: !/desvinculado/i.test(p.e), emp: 'Holcim' }); o.cump = cumplimiento(o); return o; });
       I = D.inhouse.map((p, j) => Object.assign({}, p, { j: j, tipo: 'INHOUSE', activo: !/desvinculado/i.test(p.e), emp: p.k || 'Contratista', cump: { c: 0, t: 0, pct: null } }));
-      REV = null;
+      asis.cambios = {}; brig.cambios = {};
+      P.forEach(p => { const id = quien(p); if (id in idAsis) asis.cambios[p.j] = idAsis[id]; if (id in idBrig) brig.cambios['HOLCIM:' + p.j] = idBrig[id]; });
+      I.forEach(p => { const id = quien(p); if (id in idBrig) brig.cambios['INHOUSE:' + p.j] = idBrig[id]; });
+      if (fichaId) ficha = P.concat(I).find(p => quien(p) === fichaId) || ficha;
+      REV = null; CAMBIOS = null;
       E.sedes = E.sedes.filter(s => D.sedes.indexOf(s) !== -1);
       pintarSelectorSede();
       const avisos = (D.avisos || []).concat(D.fuentes.soloLectura && (D.fuentes.soloLectura.asistencia || D.fuentes.soloLectura.datos) ? ['Modo solo lectura en parte de los datos (ver Estado del sistema).'] : []);
       if (avisos.length) banner('<i class="fa-solid fa-triangle-exclamation me-1"></i>' + avisos.map(esc).join(' · ')); else if (!/versiones distintas/.test($('banner').innerHTML)) $('banner').style.display = 'none';
       pintarFrescura();
-      const rv = revision();
-      const n = rv.filter(r => r.g !== 'info').length;
-      $('badge-revision').textContent = n || '';
+      contarRevision();
+    }
+    /** Tras un cambio en memoria: la revisión y el historial se vuelven a calcular (una sola vez, no por cada sesión). */
+    function contarRevision() {
+      REV = null; CAMBIOS = null;
+      $('badge-revision').textContent = revision().filter(r => r.g !== 'info').length || '';
     }
     function banner(html) { $('banner').innerHTML = html; $('banner').style.display = 'block'; }
     function pintarFrescura() {
@@ -282,6 +297,7 @@
     }
     /** Selector de sedes (varias a la vez) arriba. */
     function pintarSelectorSede() {
+      if (!D) return;
       const foco = document.activeElement && document.activeElement.closest('#sede-menu') ? document.activeElement.dataset.sede : null;
       $('sel-sede').textContent = textoSedes();
       $('sel-sede').classList.toggle('sede-filtrada', E.sedes.length > 0);
@@ -306,7 +322,10 @@
       if (!el) return;
       const a = el.dataset.accion, d = el.dataset;
       const acciones = {
-        refrescar: async () => { await cargarDatos(true); cargarVista(); },
+        refrescar: async () => {
+          if ((hayCambios() || Object.keys(brig.cambios).length) && !confirm('Hay cambios sin guardar. Se conservan, pero revisa que sigan siendo de la misma persona. ¿Leer de nuevo las hojas?')) return;
+          catalogos = null; await cargarDatos(true); cargarVista();
+        },
         reintentar: () => arrancar(),
         login: () => pedirSesion(),
         registrar: abrirRegistro,
@@ -348,7 +367,7 @@
         'asis-descartar': () => { asis.cambios = {}; pintarAsistencia(); },
         'asis-guardar': confirmarAsistencia,
         'asis-imprimir': imprimirLista, 'asis-csv': csvAsistencia,
-        'ir-asistencia': () => { if (d.sede) { E.sedes = [d.sede]; guardar('localStorage', 'sigbe_sede', JSON.stringify(E.sedes)); pintarSelectorSede(); } asis.key = null; asis.paso = 'sesiones'; ir('asistencia'); if (d.key) elegirSesion(d.key); },
+        'ir-asistencia': () => { if (d.sede) { E.sedes = [d.sede]; guardar('localStorage', 'sigbe_sede', JSON.stringify(E.sedes)); pintarSelectorSede(); } asis.key = null; asis.paso = 'sesiones'; asis.planta = d.planta || ''; ir('asistencia'); if (d.key) elegirSesion(d.key); },
         'rev-tipo': () => { rev.tipo = rev.tipo === d.t ? '' : d.t; pintarRevision(); },
         'recargar-cambios': () => { CAMBIOS = null; cargarCambios(); },
         'cambios-mas': () => { cam.limite += 300; pintarCambios(); },
@@ -377,15 +396,8 @@
       $('btn-sesion').className = 'btn btn-sm ' + (E.usuario ? 'btn-outline-secondary' : 'btn-primary');
       const tipos = { gestor: 'Gestor', holcim: 'Holcim', proveedor: 'Ambipar' };
       $('txt-usuario').innerHTML = E.usuario ? '<i class="fa-solid fa-circle-check text-success me-1"></i>' + esc(E.usuario) + (rol ? ' <span class="badge ' + (rol === 'proveedor' ? 'bg-warning-subtle text-warning-emphasis' : 'bg-secondary-subtle text-secondary-emphasis') + '">' + tipos[rol] + '</span>' : '') : '';
-      document.querySelectorAll('.solo-admin').forEach(el => { el.style.display = E.usuario ? '' : 'none'; });
     }
     function olvidarSesion(silencio) { E.token = null; E.usuario = null; E.perfil = null; guardar('sessionStorage', 'sigbe_token', null); if (!silencio) pintarSesion(); }
-    function bloqueo(si) {
-      let b = $('bloqueo');
-      if (!b) { b = document.createElement('div'); b.id = 'bloqueo'; b.className = 'alert alert-info m-4'; b.innerHTML = '<i class="fa-solid fa-lock me-2"></i>Esta aplicación exige iniciar sesión para ver la información. <a href="#" data-accion="login">Iniciar sesión</a>'; $('contenido').prepend(b); }
-      b.style.display = si ? 'block' : 'none';
-      if (si) document.querySelectorAll('.vista').forEach(v => v.style.display = 'none');
-    }
     let trasLogin = null;
     function pedirSesion(luego) { trasLogin = luego || null; $('login-error').textContent = ''; $('login-clave').value = ''; modal('modal-login').show(); setTimeout(() => $('login-usuario').focus(), 300); }
     async function iniciarSesion(ev) {
@@ -681,7 +693,7 @@
         ocupado(false);
         if (revisarSesion(r)) return;
         if (!r.exito) return avisar(esc(r.mensaje), 'danger', 10000);
-        aplicarLocal(s, r.aplicados || []);
+        aplicarLocal(s, r.aplicados || []); contarRevision();
         asis.cambios = {};
         pintarLista();
         avisar('<b>' + esc(r.mensaje) + '</b>' + (r.conflictos.length ? '<ul class="small mb-0 mt-1">' + r.conflictos.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' : ''),
@@ -697,8 +709,6 @@
         D.holcim[p.j].m = p.m;
         p.cump = cumplimiento(p);
       });
-      REV = null;
-      const n = revision().filter(r => r.g !== 'info').length; $('badge-revision').textContent = n || '';
     }
     async function deshacer(s, aplicados) {
       ocupado(true);
@@ -706,9 +716,9 @@
         const r = await api('guardarAsistenciaLote', E.token, s.key, aplicados.map(a => ({ cedula: a.cedula, nombre: a.nombre, fila: a.fila, valor: a.anterior, anterior: a.valor })));
         ocupado(false);
         if (revisarSesion(r)) return;
-        if (r.exito) aplicarLocal(s, r.aplicados || []);
+        if (r.exito) { aplicarLocal(s, r.aplicados || []); contarRevision(); }
         avisar(r.exito ? 'Cambios deshechos.' : esc(r.mensaje), r.exito ? 'info' : 'danger');
-        if (E.vista === 'asistencia' && asis.paso === 'lista') pintarLista();
+        if (E.vista === 'asistencia' && asis.paso === 'lista') pintarLista(); else cargarVista(); // la pantalla de atrás también
       } catch (e) { error(e); }
     }
     function imprimirLista() {
@@ -765,7 +775,7 @@
           x.celdas.map(c => {
             const tit = c.u.clave + ' · ' + c.u.titulo + ' — ';
             if (c.pct !== null) return `<td class="celda ${color(c.pct)}" title="${esc(tit + c.n.si + ' de ' + c.debido + ' brigadistas asistieron' + (c.n.pend ? ' · ' + c.n.pend + ' aún no les toca' : '') + '. Clic: abrir la lista')}">
-              <a href="#" class="d-block text-reset text-decoration-none" data-accion="ir-asistencia" data-sede="${esc(x.sede)}" data-key="${esc(c.key)}">${c.pct}%<div class="fw-normal" style="font-size:.7rem">${c.n.si}/${c.debido}</div></a></td>`;
+              <a href="#" class="d-block text-reset text-decoration-none" data-accion="ir-asistencia" data-sede="${esc(x.sede)}" data-planta="${esc(x.p)}" data-key="${esc(c.key)}">${c.pct}%<div class="fw-normal" style="font-size:.7rem">${c.n.si}/${c.debido}</div></a></td>`;
             if (c.n.pend) return `<td class="celda e-pend" title="${esc(tit + 'pendiente' + (c.prox ? ': ' + c.prox.f : ': sin fecha en el cronograma'))}">·<div class="fw-normal" style="font-size:.7rem">${esc(corta(c.prox && c.prox.f)) || 's/f'}</div></td>`;
             return `<td class="celda e-na" title="${esc(tit + 'no aplica en esta planta')}">—</td>`;
           }).join('') +
@@ -920,11 +930,13 @@
           const ok = {}; Object.keys(x.cambios).forEach(c => { if (fallidos.indexOf(c) === -1) ok[c] = x.cambios[c]; });
           aplicarDatos(x.p, ok);
           (res.rechazos || []).forEach(t => rech.push(x.p.n + ' · ' + t));
-          if (!fallidos.length) delete brig.cambios[x.p.tipo + ':' + x.p.j];
+          const k = x.p.tipo + ':' + x.p.j;
+          Object.keys(ok).forEach(c => { if (brig.cambios[k]) delete brig.cambios[k][c]; });
+          if (brig.cambios[k] && !Object.keys(brig.cambios[k]).length) delete brig.cambios[k];
         });
         avisar('<b>' + esc(r.mensaje) + '</b>' + (rech.length ? '<ul class="small mb-0 mt-1">' + rech.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul>' : ''), rech.length ? 'warning' : 'success', 15000);
         pintarBrigadistas();
-        $('badge-revision').textContent = revision().filter(x => x.g !== 'info').length || '';
+        contarRevision();
       } catch (e) { error(e); }
     }
     function csvBrigadistas() {
@@ -971,12 +983,12 @@
         const filas = D.sesiones.map(s => Object.assign({ s: s }, ses(f, s.i)));
         const txt = { si: '<span class="pildora e-si">✓ Asistió</span>', no: '<span class="pildora e-no">✗ No asistió</span>', pend: '<span class="pildora e-pend">· Pendiente</span>', na: '<span class="pildora e-na">— No aplica</span>', sina: '<span class="pildora e-sina">! Marcada sin aplicar</span>' };
         const ocultas = filas.filter(y => y.est === 'na').length;
-        const marcables = filas.filter(y => y.est !== 'na' && !(y.iso && y.iso > D.hoy));
+        const marcables = fichaMarcable() ? filas.filter(y => y.est === 'no') : [];
         html += `<div class="d-flex flex-wrap align-items-center gap-2 mt-3 mb-2"><h3 class="h6 fw-bold m-0 me-auto">Sesiones</h3>
           <span class="small text-muted">Marca las casillas y pulsa <b>Guardar asistencia</b>.</span>${marcables.length ? '<button class="btn btn-sm btn-outline-success" data-accion="ficha-todas"><i class="fa-solid fa-check-double me-1"></i>Marcar todas las ya realizadas</button>' : ''}</div>
           <div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead><tr><th>Sesión</th><th>Tema</th><th>Fecha</th><th>Estado</th><th>Asistió</th></tr></thead><tbody>` +
           filas.filter(y => y.est !== 'na').map(y => `<tr id="ficha-ses-${y.s.i}" class="${y.s.i in fichaPend ? 'fila-pendiente' : ''}"><td class="text-nowrap"><b>${esc(y.s.clave)}</b> · S${y.s.n}</td><td>${esc(y.s.titulo)}</td><td class="text-nowrap">${esc(y.f || 'sin fecha')}${y.xFecha && y.xFecha !== y.f ? '<br><span class="text-warning">hoja: ' + esc(y.xFecha) + '</span>' : ''}</td><td>${txt[y.est]}</td>
-            <td class="text-nowrap">${casillaFicha(y)}<div><button class="btn btn-sm btn-link p-0 small" data-accion="ficha-asistencia" data-sede="${esc(f.sede)}" data-key="${esc(y.s.key)}">Abrir lista</button></div></td></tr>`).join('') +
+            <td class="text-nowrap">${casillaFicha(y)}<div><button class="btn btn-sm btn-link p-0 small" data-accion="ficha-asistencia" data-sede="${esc(f.sede)}" data-planta="${esc(f.p)}" data-key="${esc(y.s.key)}">Abrir lista</button></div></td></tr>`).join('') +
           (ocultas ? `<tr class="text-muted"><td colspan="5"><i class="fa-solid fa-circle-info me-1"></i>${ocultas} sesión(es) no aplican en ${esc(f.p)} según el cronograma.</td></tr>` : '') + '</tbody></table></div>';
       }
       html += `<p class="small text-muted mt-3 mb-0">Fila ${esc(f.r)} de "${esc(f.tipo === 'HOLCIM' ? 'Lista HOLCIM' : 'INHOUSE')}" · ${esc(f.tipo === 'HOLCIM' ? D.fuentes.asistencia.nombre : D.fuentes.datos.nombre)}</p>`;
@@ -991,10 +1003,13 @@
     }
     /** Casilla de asistencia de la ficha: se marcan varias y se guardan juntas (una sola llamada). */
     let fichaPend = {}, fichaCambio = false;
+    const fichaMarcable = () => ficha && ficha.activo && !!E.usuario && !(D.fuentes.soloLectura || {}).asistencia; // como en la lista
     function casillaFicha(y) {
       const i = y.s.i, v = i in fichaPend ? fichaPend[i] : y.marcada;
+      if (!fichaMarcable()) return '';
       if (!y.marcada && y.iso && y.iso > D.hoy) return `<span class="small text-muted" title="La sesión es el ${esc(y.f)}: se marca ese día o después">Aún no</span>`;
-      return `<label class="form-check m-0 d-inline-flex align-items-center gap-1 casilla-ficha"><input type="checkbox" class="form-check-input mt-0" data-ficha-i="${i}" ${v ? 'checked' : ''}>
+      // "Marcar todas las ya realizadas" solo toca las sesiones con fecha pasada (no las que aún no tienen fecha)
+      return `<label class="form-check m-0 d-inline-flex align-items-center gap-1 casilla-ficha"><input type="checkbox" class="form-check-input mt-0" data-ficha-i="${i}" ${y.est === 'no' ? 'data-pasada="1"' : ''} ${v ? 'checked' : ''}>
         <span>${i in fichaPend ? '<b class="text-primary">' + (v ? 'Asistió' : 'Quitar') + '</b>' : 'Asistió'}</span></label>`;
     }
     function pieFicha() {
@@ -1010,11 +1025,12 @@
       pieFicha();
     }
     function marcarTodasFicha() {
-      document.querySelectorAll('#ficha-cuerpo [data-ficha-i]').forEach(c => { if (!c.checked) { c.checked = true; cambiarCasillaFicha(+c.dataset.fichaI, true); } });
+      document.querySelectorAll('#ficha-cuerpo [data-ficha-i][data-pasada]').forEach(c => { if (!c.checked) { c.checked = true; cambiarCasillaFicha(+c.dataset.fichaI, true); } });
     }
     /** Aplica en la memoria lo guardado en varias sesiones. */
     function aplicarVarias(aplicados) {
       D.sesiones.forEach(s => { const a = aplicados.filter(x => x.key === s.key); if (a.length) aplicarLocal(s, a); });
+      contarRevision();
     }
     async function guardarAsistenciaFicha() {
       const f = ficha, idx = Object.keys(fichaPend).map(Number);
@@ -1044,8 +1060,8 @@
         if (revisarSesion(r)) return;
         if (r.exito) aplicarVarias(r.aplicados || []);
         avisar(r.exito ? 'Cambios deshechos.' : esc(r.mensaje), r.exito ? 'info' : 'danger');
-        fichaCambio = true;
-        if (ficha === f && $('modal-ficha').classList.contains('show')) pintarFicha(false);
+        if (ficha === f && $('modal-ficha').classList.contains('show')) { fichaCambio = true; pintarFicha(false); }
+        else cargarVista(); // la ficha ya se cerró: se repinta lo de atrás
       } catch (e) { error(e); }
     }
     async function cargarCatalogos() {
@@ -1073,7 +1089,9 @@
         if (!el || (k === 'fechaRetiro' && $('ed-retiro-box').style.display === 'none')) return;
         let v = el.value.trim();
         if (k === 'empresa' && f.tipo === 'INHOUSE') v = v.toUpperCase();
-        const actual = k === 'fechaIngreso' || k === 'fechaRetiro' ? isoDe(x[k]) || x[k] : x[k];
+        const esFecha = k === 'fechaIngreso' || k === 'fechaRetiro';
+        if (esFecha && !v && x[k] && !isoDe(x[k])) return; // "2023" u otro formato que el calendario no muestra: no se borra si no se tocó
+        const actual = esFecha ? isoDe(x[k]) || x[k] : x[k];
         if (v !== String(actual || '')) { cambios[k] = v; anteriores[k] = x[k] || ''; }
       });
       if (!Object.keys(cambios).length) return avisar('No cambiaste nada.', 'info');
@@ -1096,7 +1114,7 @@
         const fallidos = (r.rechazos || []).map(t => Object.keys(CAMPOS_B).find(c => t.indexOf(CAMPOS_B[c] + ':') === 0)).filter(Boolean);
         const ok = {}; Object.keys(cambios).forEach(c => { if (fallidos.indexOf(c) === -1) ok[c] = cambios[c]; });
         aplicarDatos(ficha, ok);
-        $('badge-revision').textContent = revision().filter(x => x.g !== 'info').length || '';
+        contarRevision();
         cargarVista();
       } catch (e) { error(e); }
     }
@@ -1522,7 +1540,7 @@
       const R = [];
       const add = (tipo, o) => R.push(Object.assign({ tipo: tipo, g: TIPOS_REV[tipo][0], titulo: TIPOS_REV[tipo][1] }, o));
       (D.avisos || []).forEach(a => add('datos', { detalle: a, que: 'Revisa Estado del sistema.' }));
-      const hace = n => { const d = new Date(D.hoy); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+      const hace = n => { const d = new Date(D.hoy); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
       P.forEach(p => {
         D.sesiones.forEach(s => {
           const x = ses(p, s.i);
@@ -1599,7 +1617,7 @@
       const max = 400;
       $('rev-lista').innerHTML = lista.slice(0, max).map(r => `<div class="rev rev-${r.g}"><div class="d-flex flex-wrap gap-2 align-items-start">
           <div class="flex-grow-1"><div class="small text-muted">${esc(r.titulo)}${r.sede ? ' · ' + esc(r.sede) : ''}</div><div>${esc(r.detalle)}</div><div class="small mt-1"><i class="fa-solid fa-arrow-right me-1 text-primary"></i>${esc(r.que)}</div></div>
-          ${r.completar ? `<button class="btn btn-sm btn-warning" data-accion="completar" data-tipo="${r.persona.tipo}" data-j="${r.persona.j}" data-campo="${r.completar}"><i class="fa-solid fa-pen me-1"></i>Completar</button>` : r.persona ? `<button class="btn btn-sm btn-outline-secondary" data-accion="ficha" data-tipo="${r.persona.tipo}" data-j="${r.persona.j}">Ver ficha</button>` : ''}
+          ${r.completar && !esProveedor() ? `<button class="btn btn-sm btn-warning" data-accion="completar" data-tipo="${r.persona.tipo}" data-j="${r.persona.j}" data-campo="${r.completar}"><i class="fa-solid fa-pen me-1"></i>Completar</button>` : r.persona ? `<button class="btn btn-sm btn-outline-secondary" data-accion="ficha" data-tipo="${r.persona.tipo}" data-j="${r.persona.j}">Ver ficha</button>` : ''}
           ${r.key ? `<button class="btn btn-sm btn-outline-primary" data-accion="ir-asistencia" data-sede="${esc(r.sede)}" data-key="${esc(r.key)}">Registrar</button>` : ''}</div></div>`).join('') +
         (lista.length > max ? `<p class="text-muted small">Se muestran ${max} de ${lista.length}; usa los filtros para ver el resto.</p>` : '') +
         (lista.length ? '' : '<p class="text-success"><i class="fa-solid fa-check me-1"></i>Nada que revisar con este filtro.</p>');
@@ -1770,7 +1788,6 @@
         $('conf-auto-estado').innerHTML = conf.automatica.activa ? `<span class="punto punto-ok"></span>Activa cada ${conf.automatica.cadaHoras} hora(s).` : '<span class="punto punto-aviso"></span>Apagada.';
         const principal = !!(E.perfil && E.perfil.principal);
         $('clave-usuario').value = principal ? conf.usuario : E.usuario; $('clave-usuario').disabled = !principal;
-        document.querySelectorAll('.solo-principal').forEach(el => { el.style.display = principal ? '' : 'none'; });
         document.querySelectorAll('#v-configuracion .conf-principal input, #v-configuracion .conf-principal select, #v-configuracion .conf-principal button').forEach(el => { el.disabled = !principal; });
         $('conf-no-principal').style.display = principal ? 'none' : '';
         cargarUsuarios();
@@ -1783,7 +1800,7 @@
       try { const r = await api('guardarConfiguracion', E.token, datos); ocupado(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000); if (r.exito && luego) await luego(); }
       catch (e) { error(e); }
     }
-    function guardarArchivos() { guardarConf({ idOrigen: $('conf-origen').value, idDestino: $('conf-destino').value, idLibro: $('conf-libro').value }, async () => { temarios = null; hojas = null; CAMBIOS = null; await cargarDatos(true); cargarConfiguracion(); }); }
+    function guardarArchivos() { guardarConf({ idOrigen: $('conf-origen').value, idDestino: $('conf-destino').value, idLibro: $('conf-libro').value }, async () => { temarios = null; hojas = null; CAMBIOS = null; catalogos = null; await cargarDatos(true); cargarConfiguracion(); }); }
     async function cambiarAutomatico(activar) {
       ocupado(true);
       try { const r = await api('configurarAutomatico', E.token, activar, Number($('conf-horas').value)); ocupado(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000); cargarConfiguracion(); }
