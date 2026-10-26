@@ -140,10 +140,10 @@ function automaticoActivo_() {
 }
 
 /** Compatibilidad con la versión 3: si quedó un activador viejo, ahora hace la tarea nueva (nunca copia 1.0 → 2.0). */
-function sincronizar() { return libroNuevoActualizar(); }
+function sincronizar(e) { return libroNuevoActualizar(e); }
 
 /** Compatibilidad con la versión 3 (actualización rápida tras guardar desde la app). */
-function sincronizarPendiente() { return libroNuevoPendiente(); }
+function sincronizarPendiente(e) { return libroNuevoPendiente(e); }
 
 /** Pestañas del archivo que se pueden usar (Google a veces deja copias dañadas que fallan al tocarlas). */
 function hojasSanas_(ss) {

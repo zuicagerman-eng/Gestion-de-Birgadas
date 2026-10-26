@@ -118,21 +118,24 @@ function libroNuevoCrear() {
  * las pestañas que cambiaron; antes y después del corte anota en el historial los cambios hechos
  * directamente en el Excel (los que no se hicieron desde la app). Si algo falla, Google avisa por correo.
  */
-function libroNuevoActualizar() {
-  try { sigbeAvisosPendientes(); } catch (e) { console.log('Avisos pendientes: ' + e.message); } // por si la tarea de 5 minutos no corrió
+function libroNuevoActualizar(e) {
+  lnTareaODueno_(e);
+  try { sigbeEnviarCola_(); } catch (err) { console.log('Avisos pendientes: ' + err.message); } // por si la tarea de 5 minutos no corrió
   const r = lnActualizar_(false);
   let vig = '';
   if (props_().getProperty('LIBRO_NUEVO_CORTE')) {
     try { const t = lnReorganizarTrasCorte_(); if (t) r.resumen += '\n' + t; } catch (e) { r.resumen += '\n✖ Reorganizar la lista con el cronograma: ' + e.message; r.error = true; }
   }
   try { vig = sigbeVigilar_(); } catch (e) { vig = '✖ Revisión de cambios en el Excel: ' + e.message; }
+  try { sigbeRespaldosDelDia_(); } catch (e) { console.log('Respaldo del día: ' + e.message); }
   const texto = r.resumen + (vig ? '\n' + vig : '');
   if (r.error || /^✖/.test(vig)) throw new Error(texto);
   return lnMostrar_(texto);
 }
 
 /** Actualización rápida ~1 minuto después de guardar desde la app (activador de un solo uso). */
-function libroNuevoPendiente() {
+function libroNuevoPendiente(e) {
+  lnTareaODueno_(e);
   ScriptApp.getProjectTriggers()
     .filter(t => ['libroNuevoPendiente', 'sincronizarPendiente'].indexOf(t.getHandlerFunction()) !== -1)
     .forEach(t => ScriptApp.deleteTrigger(t));
@@ -166,6 +169,7 @@ function libroNuevoDesactivarAutomatico() {
 
 /** Revisa, sin cambiar nada, que la cuenta del script pueda abrir el 1.0, el 2.0 y el libro nuevo. */
 function libroNuevoProbarAcceso() {
+  lnSoloDueno_();
   const lineas = ['Cuenta que ejecuta el script: ' + cuentaScript_()];
   const probar = (nombre, propiedad) => {
     const id = idDesdeTexto_(prop_(propiedad));
@@ -678,6 +682,17 @@ function lnPlanAsistencia_(datos, crono, hoy) {
 // ───────────────────────────── UTILIDADES ─────────────────────────────
 
 function lnIdLibro_() { return idDesdeTexto_(prop_('LIBRO_NUEVO_ID')); }
+
+/**
+ * Tareas automáticas: las corre su activador o la cuenta dueña desde el editor. Desde la app publicada nadie puede
+ * llamarlas (cualquier función sin _ al final se puede llamar desde el navegador).
+ */
+function lnTareaODueno_(e) {
+  if (e && e.triggerUid) {
+    try { if (ScriptApp.getProjectTriggers().some(t => t.getUniqueId() === e.triggerUid)) return; } catch (err) { /* se mira la cuenta */ }
+  }
+  lnSoloDueno_();
+}
 
 /** Estas funciones cambian archivos: solo la cuenta dueña, desde el editor (no desde la app publicada). */
 function lnSoloDueno_() {

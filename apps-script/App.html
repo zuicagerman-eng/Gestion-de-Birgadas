@@ -674,7 +674,7 @@
     }
     async function guardarAsistencia() {
       const s = sesionActual();
-      const cambios = Object.keys(asis.cambios).map(Number).map(j => ({ cedula: P[j].c, nombre: P[j].n, valor: asis.cambios[j], anterior: P[j].m.charAt(s.i) === '1' }));
+      const cambios = Object.keys(asis.cambios).map(Number).map(j => ({ cedula: P[j].c, nombre: P[j].n, fila: P[j].r, valor: asis.cambios[j], anterior: P[j].m.charAt(s.i) === '1' }));
       ocupado(true);
       try {
         const r = await api('guardarAsistenciaLote', E.token, s.key, cambios);
@@ -691,7 +691,7 @@
     /** Refleja lo guardado sin volver a leer todo. */
     function aplicarLocal(s, aplicados) {
       aplicados.forEach(a => {
-        const p = P.find(x => x.c === a.cedula && x.n === a.nombre) || P.find(x => x.c === a.cedula);
+        const p = P.find(x => x.r === a.fila && x.n === a.nombre) || P.find(x => x.c === a.cedula && x.n === a.nombre) || (a.cedula ? P.find(x => x.c === a.cedula) : null);
         if (!p) return;
         p.m = p.m.slice(0, s.i) + (a.valor ? '1' : '0') + p.m.slice(s.i + 1);
         D.holcim[p.j].m = p.m;
@@ -703,7 +703,7 @@
     async function deshacer(s, aplicados) {
       ocupado(true);
       try {
-        const r = await api('guardarAsistenciaLote', E.token, s.key, aplicados.map(a => ({ cedula: a.cedula, nombre: a.nombre, valor: a.anterior, anterior: a.valor })));
+        const r = await api('guardarAsistenciaLote', E.token, s.key, aplicados.map(a => ({ cedula: a.cedula, nombre: a.nombre, fila: a.fila, valor: a.anterior, anterior: a.valor })));
         ocupado(false);
         if (revisarSesion(r)) return;
         if (r.exito) aplicarLocal(s, r.aplicados || []);
@@ -908,7 +908,7 @@
     async function guardarTabla(items) {
       modal('modal-confirmar').hide(); ocupado(true);
       try {
-        const lote = items.map(x => { const ant = {}; Object.keys(x.cambios).forEach(c => { ant[c] = datosDe(x.p)[c]; }); return { tipo: x.p.tipo, cedula: x.p.c, nombre: x.p.n, cambios: x.cambios, anteriores: ant }; });
+        const lote = items.map(x => { const ant = {}; Object.keys(x.cambios).forEach(c => { ant[c] = datosDe(x.p)[c]; }); return { tipo: x.p.tipo, cedula: x.p.c, nombre: x.p.n, fila: x.p.r, cambios: x.cambios, anteriores: ant }; });
         const r = await api('actualizarBrigadistasLote', E.token, lote);
         ocupado(false);
         if (revisarSesion(r)) return;
@@ -1019,7 +1019,7 @@
     async function guardarAsistenciaFicha() {
       const f = ficha, idx = Object.keys(fichaPend).map(Number);
       if (!f || !idx.length) return;
-      const cambios = idx.map(i => ({ key: D.sesiones[i].key, cedula: f.c, nombre: f.n, valor: fichaPend[i], anterior: f.m.charAt(i) === '1' }));
+      const cambios = idx.map(i => ({ key: D.sesiones[i].key, cedula: f.c, nombre: f.n, fila: f.r, valor: fichaPend[i], anterior: f.m.charAt(i) === '1' }));
       ocupado(true);
       try {
         const r = await api('guardarAsistenciaVarias', E.token, cambios);
@@ -1039,7 +1039,7 @@
     async function deshacerVarias(f, aplicados) {
       ocupado(true);
       try {
-        const r = await api('guardarAsistenciaVarias', E.token, aplicados.map(a => ({ key: a.key, cedula: a.cedula, nombre: a.nombre, valor: a.anterior, anterior: a.valor })));
+        const r = await api('guardarAsistenciaVarias', E.token, aplicados.map(a => ({ key: a.key, cedula: a.cedula, nombre: a.nombre, fila: a.fila, valor: a.anterior, anterior: a.valor })));
         ocupado(false);
         if (revisarSesion(r)) return;
         if (r.exito) aplicarVarias(r.aplicados || []);
@@ -1088,7 +1088,7 @@
     async function guardarEdicion(cambios, anteriores) {
       modal('modal-confirmar').hide(); ocupado(true);
       try {
-        const r = await api('actualizarBrigadista', E.token, { tipo: ficha.tipo, cedula: ficha.c, nombre: ficha.n, cambios: cambios, anteriores: anteriores });
+        const r = await api('actualizarBrigadista', E.token, { tipo: ficha.tipo, cedula: ficha.c, nombre: ficha.n, fila: ficha.r, cambios: cambios, anteriores: anteriores });
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? (r.rechazos && r.rechazos.length ? 'warning' : 'success') : 'danger', 10000);
@@ -1346,7 +1346,7 @@
     function revisarModulo(ev) {
       ev.preventDefault();
       const crono = $('mod-tipo-crono').checked;
-      const d = crono ? { fila: +$('mod-fila').value } : { nombre: $('mod-nombre').value.trim(), mes: $('mod-mes').value, lineas: [...document.querySelectorAll('#mod-lineas input:checked')].map(x => x.value) };
+      const d = crono ? { fila: +$('mod-fila').value, ent: (D.cronoFilas.find(f => f.fila === +$('mod-fila').value) || {}).nombre } : { nombre: $('mod-nombre').value.trim(), mes: $('mod-mes').value, lineas: [...document.querySelectorAll('#mod-lineas input:checked')].map(x => x.value) };
       if (!crono && d.nombre.length < 4) return avisar('Escribe el nombre del entrenamiento.', 'warning');
       $('conf-titulo').textContent = 'Crear módulo';
       $('conf-cuerpo').innerHTML = '<p class="mb-2">' + $('mod-resumen').innerHTML + '</p><p class="small text-muted mb-0">Cambia la estructura de la lista de asistencia y del cronograma (antes se guarda un respaldo del día). Queda en el historial.</p>';
