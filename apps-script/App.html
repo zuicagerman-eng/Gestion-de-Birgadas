@@ -41,7 +41,8 @@
     function norm(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase(); }
     function unicos(a) { return a.filter((x, i) => x && a.indexOf(x) === i).sort((x, y) => String(x).localeCompare(String(y), 'es')); }
     function isoDe(t) { const m = String(t || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? m[3] + '-' + m[2] + '-' + m[1] : ''; }
-    function diasEntre(a, b) { return Math.round((new Date(b) - new Date(a)) / 86400000); }
+    /** Espera a que se deje de escribir (150 ms) antes de repintar una lista grande. */
+    function conEspera(fn) { let t = null; return () => { clearTimeout(t); t = setTimeout(fn, 150); }; }
     function api(nombre, ...args) { return new Promise((ok, mal) => google.script.run.withSuccessHandler(ok).withFailureHandler(mal)[nombre](...args)); }
     function ocupado(si) { $('cubierta').style.display = si ? 'flex' : 'none'; }
     let lecturas = 0;
@@ -121,31 +122,33 @@
       elegirPestana(leer('localStorage', 'sigbe_tab_inicio') || 'asistencia');
       $('cob-faltan').onchange = pintarCobertura;
       $('modal-faltantes').addEventListener('change', cambioFaltantes);
-      $('falt-buscar').oninput = pintarFaltantes; $('falt-sede').onchange = pintarFaltantes; $('falt-desv').onchange = pintarFaltantes;
+      $('falt-buscar').oninput = conEspera(pintarFaltantes); $('falt-sede').onchange = pintarFaltantes; $('falt-desv').onchange = pintarFaltantes;
       $('form-ingreso').onsubmit = enviarIngreso;
-      $('ing-buscar').oninput = pintarIngresos;
+      $('ing-buscar').oninput = conEspera(pintarIngresos);
       grupoChips('ing-tipo', 'tipo', v => { ingr.tipo = v; pintarIngresos(); });
       $('cr-na').onchange = () => { $('cr-fecha').disabled = $('cr-na').checked; };
       $('form-modulo').onsubmit = revisarModulo;
       $('form-sesion').onsubmit = revisarSesion2;
       $('ses-fila').onchange = ajustarSesion; $('ses-pl').onchange = ajustarSesion;
-      $('form-modulo').addEventListener('input', ajustarModulo);
-      $('form-modulo').addEventListener('change', ajustarModulo);
+      $('form-modulo').addEventListener('input', ajustarModulo); // los select y casillas también disparan "input"
       $('form-usuario').onsubmit = nuevoUsuario;
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
-      ['brig-buscar', 'brig-planta', 'brig-estado', 'brig-empresa', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
+      $('brig-buscar').oninput = conEspera(pintarBrigadistas);
+      ['brig-planta', 'brig-estado', 'brig-empresa', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
       $('brig-tabla').addEventListener('change', cambioEnTabla);
       $('brig-tabla').addEventListener('input', cambioEnTabla);
-      ['mat-buscar', 'mat-ver'].forEach(id => $(id).oninput = pintarMatriz);
-      ['crono-buscar', 'crono-mes', 'crono-modulo', 'crono-estado'].forEach(id => $(id).oninput = pintarCronograma);
-      ['rev-buscar'].forEach(id => $(id).oninput = pintarRevision);
-      ['cam-buscar', 'cam-hoja', 'cam-desde', 'cam-hasta'].forEach(id => $(id).oninput = () => { cam.limite = 200; pintarCambios(); });
-      ['hoja-buscar', 'hoja-val'].forEach(id => $(id).oninput = pintarHoja);
+      $('mat-buscar').oninput = conEspera(pintarMatriz); $('mat-ver').oninput = pintarMatriz;
+      $('crono-buscar').oninput = conEspera(pintarCronograma);
+      ['crono-mes', 'crono-modulo', 'crono-estado'].forEach(id => $(id).oninput = pintarCronograma);
+      $('rev-buscar').oninput = conEspera(pintarRevision);
+      $('cam-buscar').oninput = conEspera(() => { cam.limite = 200; pintarCambios(); });
+      ['cam-hoja', 'cam-desde', 'cam-hasta'].forEach(id => $(id).oninput = () => { cam.limite = 200; pintarCambios(); });
+      $('hoja-buscar').oninput = conEspera(pintarHoja); $('hoja-val').oninput = pintarHoja;
       $('hoja-col').oninput = () => { llenarValoresHoja(); pintarHoja(); };
       $('hoja-sel').oninput = cargarHoja;
       $('tem-hoja').oninput = cargarTemario;
-      $('tem-buscar').oninput = filtrarTemario;
+      $('tem-buscar').oninput = conEspera(filtrarTemario);
       grupoChips('brig-tipo', 'tipo', v => { brig.tipo = v; pintarBrigadistas(); });
       grupoChips('crono-cuando', 'cuando', v => { crono.cuando = v; pintarCronograma(); });
       grupoChips('rev-grav', 'g', v => { rev.g = v; pintarRevision(); });
@@ -249,7 +252,7 @@
       P.forEach(p => { const id = quien(p); if (id in idAsis) asis.cambios[p.j] = idAsis[id]; if (id in idBrig) brig.cambios['HOLCIM:' + p.j] = idBrig[id]; });
       I.forEach(p => { const id = quien(p); if (id in idBrig) brig.cambios['INHOUSE:' + p.j] = idBrig[id]; });
       if (fichaId) ficha = P.concat(I).find(p => quien(p) === fichaId) || ficha;
-      REV = null; CAMBIOS = null;
+      REV = null; CAMBIOS = null; AVANCE = null;
       E.sedes = E.sedes.filter(s => D.sedes.indexOf(s) !== -1);
       pintarSelectorSede();
       const avisos = (D.avisos || []).concat(D.fuentes.soloLectura && (D.fuentes.soloLectura.asistencia || D.fuentes.soloLectura.datos) ? ['Modo solo lectura en parte de los datos (ver Estado del sistema).'] : []);
@@ -259,7 +262,7 @@
     }
     /** Tras un cambio en memoria: la revisión y el historial se vuelven a calcular (una sola vez, no por cada sesión). */
     function contarRevision() {
-      REV = null; CAMBIOS = null;
+      REV = null; CAMBIOS = null; AVANCE = null;
       $('badge-revision').textContent = revision().filter(r => r.g !== 'info').length || '';
     }
     function banner(html) { $('banner').innerHTML = html; $('banner').style.display = 'block'; }
@@ -343,7 +346,6 @@
         'cr-otra-sesion': () => { const c = cronoEd; modal('modal-crono').hide(); abrirSesion(c.fila, c.pl); },
         'cr-todas': () => document.querySelectorAll('#cr-otras input').forEach(x => { x.checked = true; }),
         'cr-ninguna': () => document.querySelectorAll('#cr-otras input').forEach(x => { x.checked = false; }),
-        'usr-nuevo': nuevoUsuario,
         'usr-clave': () => restablecerClave(d.u),
         'usr-activo': () => activarUsuario(d.u, d.v === '1'),
         'usr-quitar': () => eliminarUsuario(d.u),
@@ -481,18 +483,6 @@
       });
       return plantas;
     }
-    /** Las mismas plantas sumadas por sede. */
-    function coberturaSedes() {
-      const out = {};
-      plantasCobertura().forEach(pl => { const x = out[pl.sede] = out[pl.sede] || { sd: pl.sede, per: 0, bri: 0, metaN: 0 }; x.per += pl.per; x.bri += pl.bri; x.metaN += pl.metaN; });
-      return Object.keys(out).map(k => Object.assign(out[k], { pct: out[k].metaN ? Math.round(out[k].bri / out[k].metaN * 100) : 100 })).sort((a, b) => a.pct - b.pct);
-    }
-    function resumenCobertura(lista) {
-      const per = lista.reduce((n, x) => n + x.per, 0), bri = lista.reduce((n, x) => n + x.bri, 0), meta = lista.reduce((n, x) => n + x.metaN, 0);
-      const cumplen = lista.filter(x => x.bri >= x.metaN).length;
-      return `En total: <b class="text-body">${bri}</b> brigadistas de <b class="text-body">${meta}</b> requeridos (${meta ? Math.round(bri / meta * 100) : 0} %) · ${per} personas · <b class="text-body">${cumplen} de ${lista.length}</b> sedes cumplen la meta.`;
-    }
-
     function pintarInicio() {
       $('inicio-sub').textContent = E.sedes.length ? (E.sedes.length === 1 ? 'Sede ' : 'Sedes ') + E.sedes.join(', ') : 'Todas las sedes · haz clic en una sede de las barras o elige una o varias arriba';
       // 1) Asistencia a las capacitaciones (personal Holcim; solo módulos que aplican y cuya fecha ya pasó)
@@ -539,13 +529,6 @@
     }
 
     /** Sesiones de la sede (por planta) que ya pasaron, aplican y no tienen ninguna asistencia. */
-    function sesionesSinRegistro() {
-      const out = [];
-      const sedes = unicos(P.map(p => p.sede)).filter(sedeOk);
-      sedes.forEach(sede => sesionesSede(sede).forEach(x => { if (x.aplica && x.iso && x.iso < D.hoy && !x.marcadas && x.total) out.push(Object.assign({ sede: sede }, x)); }));
-      return out.sort((a, b) => a.iso < b.iso ? 1 : -1);
-    }
-
     // ══════════ TOMAR ASISTENCIA ══════════
     function hayCambios() { return Object.keys(asis.cambios).length > 0; }
     function personasSede(sede) { return P.filter(p => p.sede === sede); }
@@ -612,9 +595,8 @@
       migas();
       const s = sesionActual();
       const todas = personasSede(E.sede);
-      const q = norm(asis.buscar);
       const plantas = unicos(todas.map(p => p.p));
-      const visibles = todas.filter(p => (asis.inactivos || p.activo) && (!asis.planta || p.p === asis.planta) && (!q || norm(p.n + ' ' + p.c).includes(q)));
+      const visibles = todas.filter(p => (asis.inactivos || p.activo) && (!asis.planta || p.p === asis.planta)); // el buscador filtra sin repintar
       const conInfo = visibles.map(p => ({ p: p, x: ses(p, s.i) }));
       const fechas = unicos(conInfo.filter(o => o.x.aplica).map(o => o.x.f).filter(Boolean));
       const n = Object.keys(asis.cambios).length;
@@ -644,18 +626,26 @@
         conInfo.map(({ p, x }) => {
           const v = valorActual(p), cambiada = p.j in asis.cambios;
           const habil = puede && p.activo && (x.aplica || v);
-          return `<div class="fila-persona d-flex flex-wrap align-items-center gap-2 ${cambiada ? 'cambiada' : ''} ${p.activo && x.aplica ? '' : 'inactiva'}">
+          return `<div class="fila-persona d-flex flex-wrap align-items-center gap-2 ${cambiada ? 'cambiada' : ''} ${p.activo && x.aplica ? '' : 'inactiva'}" data-busca="${esc(norm(p.n + ' ' + p.c))}">
             <div class="flex-grow-1"><div class="fw-semibold">${esc(p.n)}</div><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? '' : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
             <button class="btn ${v ? 'btn-success' : 'btn-outline-secondary'} btn-asistio" data-accion="asis-alternar" data-j="${p.j}" aria-pressed="${v}" ${habil ? '' : 'disabled'}>${v ? '<i class="fa-solid fa-check me-1"></i>Asistió' : '<i class="fa-regular fa-square me-1"></i>No asistió'}</button></div>`;
-        }).join('') + (conInfo.length ? '' : '<p class="text-muted">No hay brigadistas para mostrar.</p>') + '</div>' +
+        }).join('') + `<p class="text-muted" id="asis-vacio" style="${conInfo.length ? 'display:none' : ''}">No hay brigadistas para mostrar.</p></div>` +
         (n ? `<div class="barra-guardar p-3 d-flex flex-wrap align-items-center gap-2 rounded-top" role="region" aria-label="Cambios sin guardar">
             <div class="flex-grow-1"><i class="fa-solid fa-triangle-exclamation text-warning me-1"></i><b>${n}</b> cambio(s) sin guardar</div>
             <button class="btn btn-outline-secondary" data-accion="asis-descartar">Descartar</button>
             <button class="btn btn-success" data-accion="asis-guardar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button></div>` : '');
       const b = $('asis-buscar');
-      b.oninput = () => { asis.buscar = b.value; const pos = b.selectionStart; pintarLista(); const nb = $('asis-buscar'); nb.focus(); nb.setSelectionRange(pos, pos); };
+      b.oninput = () => { asis.buscar = b.value; filtrarLista(); };
+      filtrarLista();
       if ($('asis-planta')) $('asis-planta').oninput = ev => { asis.planta = ev.target.value; pintarLista(); };
       $('asis-inact').onchange = ev => { asis.inactivos = ev.target.checked; pintarLista(); };
+    }
+    function filtrarLista() {
+      const q = norm(asis.buscar);
+      let n = 0;
+      // classList d-none (no style.display): la fila tiene d-flex de Bootstrap, que lleva !important
+      document.querySelectorAll('#asis-contenido .fila-persona').forEach(f => { const ve = !q || f.dataset.busca.includes(q); f.classList.toggle('d-none', !ve); if (ve) n++; });
+      const v = $('asis-vacio'); if (v) v.style.display = n ? 'none' : '';
     }
     function alternar(j) {
       const p = P[j], s = sesionActual();
@@ -741,7 +731,14 @@
     // ══════════ AVANCE POR PLANTA ══════════
     // Planta × módulo: % de brigadistas Holcim activos que asistieron, entre los que ya debían tomarlo (sesión que aplica
     // y cuya fecha pasó). "·" = todavía no le toca (con la próxima fecha); "—" = no aplica en esa planta.
+    let AVANCE = null;
     function avancePlantas() {
+      const k = E.sedes.join('|');
+      if (AVANCE && AVANCE.k === k) return AVANCE.v;
+      AVANCE = { k: k, v: calcularAvancePlantas() };
+      return AVANCE.v;
+    }
+    function calcularAvancePlantas() {
       return unicos(P.filter(p => p.activo && enSede(p)).map(p => p.p)).map(pl => {
         const pers = P.filter(p => p.activo && p.p === pl), info = D.plantas[pl] || { s: [] };
         let c = 0, t = 0;
@@ -1195,10 +1192,12 @@
       const grupos = {};
       lista.forEach(c => { const k = na ? 'na' : c.i ? c.i.slice(0, 7) : 'sin'; (grupos[k] = grupos[k] || []).push(c); });
       const nombreMes = k => k === 'na' ? 'No aplican (con "-" o en gris)' : k === 'sin' ? 'Por definir' : MESES_L[+k.slice(5) - 1] + ' ' + k.slice(0, 4);
+      const conLista = new Set(D.sesiones.map(s => s.key)), bloquesUsados = new Set();
+      Object.keys(D.plantas).forEach(pl => D.plantas[pl].bloques.forEach(b => bloquesUsados.add(b)));
       $('crono-lista').innerHTML = Object.keys(grupos).map(k => `<div class="mes-titulo mt-3 mb-2">${nombreMes(k)} <span class="text-muted fw-normal">(${grupos[k].length})</span></div><div class="tarjeta">` +
         grupos[k].map(c => {
           const key = c.cl ? c.cl + '|' + c.n : '';
-          const hay = !c.na && key && D.sesiones.some(s => s.key === key) && Object.keys(D.plantas).some(pl => D.plantas[pl].bloques.indexOf(c.pl + ' · ' + c.ses) !== -1);
+          const hay = !c.na && key && conLista.has(key) && bloquesUsados.has(c.pl + ' · ' + c.ses);
           return `<div class="d-flex flex-wrap align-items-center gap-3 p-3 border-bottom ${c.na || (c.i && c.i < D.hoy) ? 'opacity-75' : ''}">${c.na ? '<div class="fecha-chip gris"><div class="mes">no aplica</div></div>' : chipFecha(c.i, c.f)}
             <div class="flex-grow-1" style="min-width:220px"><div class="fw-semibold small">${c.cl ? '<span class="badge text-bg-dark me-1">' + esc(c.cl) + '</span>' : ''}${esc(c.ent)}${c.pre && c.pre !== 'TODOS' ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">' + esc(c.pre) + '</span>' : ''}</div>
               <div class="small text-muted"><i class="fa-solid fa-location-dot me-1"></i>${esc(c.pl)} · ${esc(c.ses)}${c.amb && c.amb !== c.f ? ' · Ambipar: ' + esc(c.amb) : ''}${c.br ? ' · ' + esc(c.br) + ' brigadistas' : ''}${c.obs ? ' · ' + esc(c.obs) : ''}</div></div>
@@ -1430,7 +1429,7 @@
             ${estado(x)}
             <span class="small text-muted">${emp.length} empresa(s)</span>
           </summary>
-          <div class="p-2">
+          <div class="p-2 table-responsive">
             <table class="table table-sm align-middle mb-1 tabla-compacta">
               <thead><tr><th scope="col">Empresa</th><th scope="col" class="text-end">Personal</th><th scope="col" class="text-end">Brigadistas</th><th scope="col" class="text-end">Requeridos</th><th scope="col" style="min-width:160px">% de la meta</th><th scope="col" class="text-end"></th></tr></thead>
               <tbody>${emp.map(f => `<tr><td>${esc(f.emp)}</td><td class="text-end">${f.per}</td><td class="text-end" title="${esc((f.nom || []).join(', '))}">${f.bri}</td><td class="text-end" title="20 % exacto: ${f.meta}">${f.metaN}</td>

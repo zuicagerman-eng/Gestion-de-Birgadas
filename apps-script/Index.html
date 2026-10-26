@@ -23,10 +23,7 @@
     @media (min-width: 768px) { .sidebar { background: var(--s-oscuro); min-height: 100vh; } .sidebar .offcanvas-md { position: sticky; top: 0; } }
     .offcanvas-md.offcanvas-start { background: var(--s-oscuro); }
     .marca { display: flex; align-items: center; gap: 10px; }
-    .marca .logo { width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, #f59f00, #e8590c); display: flex; align-items: center; justify-content: center; color: #fff; }
-    .nav-grupo { color: #7d8b97; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; margin: 14px 12px 4px; }
     .sidebar .nav-link { color: #c8d1d9; padding: 8px 12px; margin: 1px 0; border-radius: 8px; font-weight: 600; font-size: .92rem; display: flex; align-items: center; gap: 10px; }
-    .sidebar .nav-link.sub { padding-left: 26px; font-weight: 500; font-size: .86rem; }
     .sidebar .nav-grupo { color: #7f93a3; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: 12px 12px 3px; }
     .sidebar .nav-link i { width: 18px; text-align: center; opacity: .9; }
     .sidebar .nav-link:hover { color: #fff; background: rgba(255,255,255,.07); }
@@ -82,9 +79,7 @@
     .planta-cob .avance { flex: 1 1 220px; min-width: 180px; }
     .planta-cob .barrita { height: 10px; }
     .estado-cob { font-weight: 700; border-radius: 999px; padding: 3px 12px; font-size: .85rem; white-space: nowrap; }
-    .fila-sede { border-radius: 6px; padding: 4px 6px; } .fila-sede[data-accion], .sede-cob > summary .fila-sede { cursor: pointer; } .fila-sede[data-accion]:hover, .sede-cob > summary:hover .fila-sede { background: #f6f9ff; }
-    .sede-cob > summary { list-style: none; } .sede-cob > summary::-webkit-details-marker { display: none; }
-    .sede-cob[open] { background: #fafcff; border-radius: 6px; margin-bottom: 6px; } .sede-cob[open] > summary .fila-sede { font-weight: 600; }
+    .fila-sede { border-radius: 6px; padding: 4px 6px; } .fila-sede[data-accion] { cursor: pointer; } .fila-sede[data-accion]:hover { background: #f6f9ff; }
     .contador { font-size: .85rem; color: #5f6b76; }
 
     /* Estados de sesión (color + símbolo, nunca solo color) */
@@ -134,7 +129,6 @@
     th.ordenable[aria-sort="ascending"]::after { content: " ▲"; font-size: .7em; }
     th.ordenable[aria-sort="descending"]::after { content: " ▼"; font-size: .7em; }
     .fila-click { cursor: pointer; }
-    .texto-legal { max-height: 150px; overflow-y: auto; font-size: .82rem; line-height: 1.45; background: #f6f8fb; border: 1px solid #dfe5ec; border-radius: .5rem; padding: .6rem .8rem; color: #33424f; white-space: pre-line; }
     body.modo-ingreso .sidebar, body.modo-ingreso header.topbar { display: none !important; }
     body.modo-ingreso #columna { flex: 0 0 100%; max-width: 100%; }
     body.rol-proveedor .no-proveedor { display: none !important; }
@@ -142,6 +136,8 @@
     .sede-op:hover { background: #f1f5fb; }
     .sede-op .solo { visibility: hidden; font-size: .78rem; }
     .sede-op:hover .solo, .sede-op .solo:focus { visibility: visible; }
+    @media (hover: none) { .sede-op .solo { visibility: visible; } } /* en pantallas táctiles no hay "pasar el mouse" */
+    @media (max-width: 576px) { .matriz .col-persona { min-width: 130px; max-width: 150px; } }
     .btn-completar { padding: 0 .4rem; font-size: .72rem; color: #8a5a00; background: #fff4d6; border: 1px dashed #f0b429; border-radius: 999px; white-space: nowrap; }
     .btn-completar:hover, .btn-completar:focus { background: #ffe8a8; color: #5c3c00; }
     #ficha-cuerpo tr.fila-pendiente > td { background: #e8f1ff; }
@@ -579,7 +575,7 @@
                 <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-sliders me-2 text-primary"></i>Opción A: desde el editor de Apps Script</h2>
                 <ol class="small">
                   <li>⚙️ <b>Configuración del proyecto</b> → <b>Propiedades del script</b>.</li>
-                  <li>Agrega: <code>SIGBE_ID_ORIGEN</code> (URL del 1.0), <code>SIGBE_ID_DESTINO</code> (URL del 2.0), <code>SIGBE_USUARIO</code>, <code>SIGBE_CLAVE_INICIAL</code> (8+ caracteres) y <code>SIGBE_LECTURA_PUBLICA</code> = <code>no</code>.</li>
+                  <li>Agrega: <code>SIGBE_ID_ORIGEN</code> (URL del 1.0), <code>SIGBE_ID_DESTINO</code> (URL del 2.0), <code>SIGBE_USUARIO</code>, <code>SIGBE_CLAVE_INICIAL</code> (8+ caracteres).</li>
                   <li>Comparte los archivos como <b>editor</b> con <b id="setup-cuenta"></b>.</li>
                   <li>Recarga esta página.</li>
                 </ol>
