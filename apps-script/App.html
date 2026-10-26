@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.6.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.6.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -131,7 +131,7 @@
       ['brig-buscar', 'brig-planta', 'brig-estado', 'brig-empresa', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
       $('brig-tabla').addEventListener('change', cambioEnTabla);
       $('brig-tabla').addEventListener('input', cambioEnTabla);
-      ['mat-buscar', 'mat-planta', 'mat-estado', 'mat-ver'].forEach(id => $(id).oninput = pintarMatriz);
+      ['mat-buscar', 'mat-ver'].forEach(id => $(id).oninput = pintarMatriz);
       ['crono-buscar', 'crono-mes', 'crono-modulo', 'crono-estado'].forEach(id => $(id).oninput = pintarCronograma);
       ['rev-buscar'].forEach(id => $(id).oninput = pintarRevision);
       ['cam-buscar', 'cam-hoja', 'cam-desde', 'cam-hasta'].forEach(id => $(id).oninput = () => { cam.limite = 200; pintarCambios(); });
@@ -715,42 +715,52 @@
         .concat(personasSede(E.sede).map(p => { const x = ses(p, s.i); return [p.n, p.c, p.p, p.e, nombreSesion(s) + ' ' + s.titulo, x.f, x.aplica ? 'SÍ' : 'NO', x.marcada ? 'SÍ' : 'NO']; })));
     }
 
-    // ══════════ AVANCE POR PERSONA (MATRIZ) ══════════
-    function prepararMatriz() {
-      const plantas = unicos(P.filter(enSede).map(p => p.p));
-      if (plantas.indexOf($('mat-planta').value) === -1) $('mat-planta').innerHTML = opciones(plantas, '', 'Todas las plantas');
-      pintarMatriz();
+    // ══════════ AVANCE POR PLANTA ══════════
+    // Planta × módulo: % de brigadistas Holcim activos que asistieron, entre los que ya debían tomarlo (sesión que aplica
+    // y cuya fecha pasó). "·" = todavía no le toca (con la próxima fecha); "—" = no aplica en esa planta.
+    function avancePlantas() {
+      return unicos(P.filter(p => p.activo && enSede(p)).map(p => p.p)).map(pl => {
+        const pers = P.filter(p => p.activo && p.p === pl), info = D.plantas[pl] || { s: [] };
+        let c = 0, t = 0;
+        const celdas = D.unidades.map(u => {
+          const n = { si: 0, no: 0, pend: 0, na: 0, sina: 0 };
+          pers.forEach(p => { n[estadoUnidad(p, u).est]++; });
+          const debido = n.si + n.no; c += n.si; t += debido;
+          const ses = u.ses.map(k => Object.assign({}, info.s[k] || {}, { idx: k })).filter(x => x.a); // x.i = fecha yyyy-MM-dd
+          const prox = ses.filter(x => x.i && x.i >= D.hoy).sort((a, b) => a.i < b.i ? -1 : 1)[0];
+          const clave = (ses.find(x => x.f) || ses[0] || {}).idx;
+          return { u: u, n: n, debido: debido, pct: debido ? Math.round(n.si / debido * 100) : null, prox: prox, key: clave !== undefined ? D.sesiones[clave].key : '' };
+        });
+        return { p: pl, sede: (D.plantas[pl] || {}).sede || pl, personas: pers.length, celdas: celdas, c: c, t: t, pct: t ? Math.round(c / t * 100) : null };
+      });
     }
+    function prepararMatriz() { pintarMatriz(); }
     function filasMatriz() {
-      const q = norm($('mat-buscar').value), pl = $('mat-planta').value, est = $('mat-estado').value, ver = $('mat-ver').value;
-      return P.filter(p => enSede(p) && (!pl || p.p === pl) && (est === '' || (est === 'act') === p.activo) && (!q || norm(p.n + ' ' + p.c).includes(q)) &&
-        (!ver || (ver === 'vencidos' && p.cump.t > p.cump.c) || (ver === 'completos' && p.cump.pct === 100) || (ver === 'cero' && p.cump.t > 0 && p.cump.c === 0)))
-        .sort((a, b) => a.p.localeCompare(b.p) || a.n.localeCompare(b.n));
+      const q = norm($('mat-buscar').value), ver = $('mat-ver').value;
+      return avancePlantas().filter(x => (!q || norm(x.p + ' ' + x.sede).includes(q)) &&
+        (!ver || (ver === 'atrasadas' && x.celdas.some(c => c.pct !== null && c.pct < 100)) || (ver === 'aldia' && x.t > 0 && x.c === x.t)))
+        .sort((a, b) => a.sede.localeCompare(b.sede, 'es') || a.p.localeCompare(b.p, 'es'));
     }
     function pintarMatriz() {
       const filas = filasMatriz();
-      $('mat-conteo').textContent = filas.length + ' persona(s)';
-      const simb = { si: '✓', no: '✗', pend: '·', na: '—', sina: '!' };
-      const cls = { si: 'e-si', no: 'e-no', pend: 'e-pend', na: 'e-na', sina: 'e-sina' };
-      const txt = { si: 'asistió', no: 'ya pasó y no asistió', pend: 'pendiente', na: 'no aplica', sina: 'marcada en una sesión que no aplica' };
-      let plantaAnt = '';
-      $('mat-tabla').innerHTML = `<table class="matriz"><thead><tr><th class="col-persona" scope="col">Brigadista</th>` +
+      $('mat-conteo').textContent = filas.length + ' planta(s) · ' + filas.reduce((n, x) => n + x.personas, 0) + ' brigadistas Holcim activos';
+      const color = pct => pct >= 80 ? 'e-si' : pct >= 40 ? 'e-pend' : 'e-no';
+      const corta = f => f ? f.slice(0, 5) : '';
+      $('mat-tabla').innerHTML = `<table class="matriz"><thead><tr><th class="col-persona" scope="col">Planta</th><th scope="col" title="Brigadistas Holcim activos">Brig.</th>` +
         D.unidades.map(u => `<th scope="col" title="${esc(u.clave + ': ' + u.titulo)}">${esc(u.clave)}</th>`).join('') + '<th scope="col">Avance</th></tr></thead><tbody>' +
-        filas.map(p => {
-          const cab = p.p !== plantaAnt ? `<tr><th colspan="${D.unidades.length + 2}" class="col-persona text-muted small" style="background:#f8fafc">${esc(p.p)}</th></tr>` : '';
-          plantaAnt = p.p;
-          return cab + `<tr><th scope="row" class="col-persona fw-normal"><a href="#" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}">${esc(p.n)}</a>${p.activo ? '' : ' <span class="badge text-bg-secondary">Desv.</span>'}</th>` +
-            D.unidades.map(u => {
-              const r = estadoUnidad(p, u);
-              const det = r.ss.map(x => 'Sesión ' + D.sesiones[x.i].n + ': ' + (x.f || 'sin fecha') + ' (' + txt[x.est] + ')').join(' · ');
-              return `<td class="celda ${cls[r.est]}" title="${esc(u.clave + ' · ' + txt[r.est] + ' · ' + det)}"><span aria-hidden="true">${simb[r.est]}</span><span class="visually-hidden">${txt[r.est]}</span></td>`;
-            }).join('') + `<td>${pildoraCump(p.cump)}</td></tr>`;
-        }).join('') + '</tbody></table>' + (filas.length ? '' : '<p class="text-muted p-3 mb-0">No hay personas con ese filtro.</p>');
+        filas.map(x => `<tr><th scope="row" class="col-persona fw-semibold">${esc(x.p)}<div class="small text-muted fw-normal">${esc(x.sede)}</div></th><td class="text-center">${x.personas}</td>` +
+          x.celdas.map(c => {
+            const tit = c.u.clave + ' · ' + c.u.titulo + ' — ';
+            if (c.pct !== null) return `<td class="celda ${color(c.pct)}" title="${esc(tit + c.n.si + ' de ' + c.debido + ' brigadistas asistieron' + (c.n.pend ? ' · ' + c.n.pend + ' aún no les toca' : '') + '. Clic: abrir la lista')}">
+              <a href="#" class="d-block text-reset text-decoration-none" data-accion="ir-asistencia" data-sede="${esc(x.sede)}" data-key="${esc(c.key)}">${c.pct}%<div class="fw-normal" style="font-size:.7rem">${c.n.si}/${c.debido}</div></a></td>`;
+            if (c.n.pend) return `<td class="celda e-pend" title="${esc(tit + 'pendiente' + (c.prox ? ': ' + c.prox.f : ': sin fecha en el cronograma'))}">·<div class="fw-normal" style="font-size:.7rem">${esc(corta(c.prox && c.prox.f)) || 's/f'}</div></td>`;
+            return `<td class="celda e-na" title="${esc(tit + 'no aplica en esta planta')}">—</td>`;
+          }).join('') +
+          `<td>${pildoraCump({ c: x.c, t: x.t, pct: x.pct })}</td></tr>`).join('') + '</tbody></table>' + (filas.length ? '' : '<p class="text-muted p-3 mb-0">No hay plantas con ese filtro.</p>');
     }
     function csvMatriz() {
-      const txt = { si: 'Asistió', no: 'No asistió', pend: 'Pendiente', na: 'No aplica', sina: 'Marcada sin aplicar' };
-      descargarCsv('avance_por_persona' + sufijoSede() + '.csv', [['Planta', 'Nombre', 'Cédula', 'Estado'].concat(D.unidades.map(u => u.clave), ['Cumplimiento'])]
-        .concat(filasMatriz().map(p => [p.p, p.n, p.c, p.e].concat(D.unidades.map(u => txt[estadoUnidad(p, u).est]), [p.cump.pct === null ? '' : p.cump.pct + '%']))));
+      descargarCsv('avance_por_planta' + sufijoSede() + '.csv', [['Sede', 'Planta', 'Brigadistas Holcim activos'].concat(D.unidades.map(u => u.clave), ['Avance'])]
+        .concat(filasMatriz().map(x => [x.sede, x.p, x.personas].concat(x.celdas.map(c => c.pct !== null ? c.pct + '% (' + c.n.si + '/' + c.debido + ')' : c.n.pend ? 'Pendiente' + (c.prox ? ' ' + c.prox.f : '') : 'No aplica'), [x.pct === null ? '' : x.pct + '% (' + x.c + '/' + x.t + ')']))));
     }
 
     // ══════════ BRIGADISTAS ══════════

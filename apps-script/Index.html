@@ -27,6 +27,7 @@
     .nav-grupo { color: #7d8b97; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; margin: 14px 12px 4px; }
     .sidebar .nav-link { color: #c8d1d9; padding: 8px 12px; margin: 1px 0; border-radius: 8px; font-weight: 600; font-size: .92rem; display: flex; align-items: center; gap: 10px; }
     .sidebar .nav-link.sub { padding-left: 26px; font-weight: 500; font-size: .86rem; }
+    .sidebar .nav-grupo { color: #7f93a3; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: 12px 12px 3px; }
     .sidebar .nav-link i { width: 18px; text-align: center; opacity: .9; }
     .sidebar .nav-link:hover { color: #fff; background: rgba(255,255,255,.07); }
     .sidebar .nav-link.active { color: #fff; background: var(--s-azul); }
@@ -183,18 +184,22 @@
             <nav aria-label="Secciones">
               <ul class="nav flex-column" id="nav">
                 <li><a href="#" class="nav-link" data-vista="inicio"><i class="fa-solid fa-gauge-high"></i>Dashboard</a></li>
+                <li class="nav-grupo">Brigada</li>
                 <li><a href="#" class="nav-link" data-vista="cobertura"><i class="fa-solid fa-chart-column"></i>Cobertura</a></li>
                 <li><a href="#" class="nav-link" data-vista="brigadistas"><i class="fa-solid fa-users"></i>Brigadistas</a></li>
-                <li><a href="#" class="nav-link sub" data-vista="matriz"><i class="fa-solid fa-table-cells"></i>Avance por persona</a></li>
+                <li class="nav-grupo">Asistencia y capacitaciones</li>
                 <li><a href="#" class="nav-link" data-vista="asistencia"><i class="fa-solid fa-clipboard-check"></i>Tomar asistencia</a></li>
+                <li><a href="#" class="nav-link" data-vista="matriz"><i class="fa-solid fa-table-cells"></i>Avance por planta</a></li>
                 <li><a href="#" class="nav-link" data-vista="cronograma"><i class="fa-solid fa-calendar-days"></i>Cronograma</a></li>
                 <li><a href="#" class="nav-link" data-vista="temarios"><i class="fa-solid fa-book-open"></i>Temarios</a></li>
-                <li><a href="#" class="nav-link sub" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
+                <li><a href="#" class="nav-link" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
+                <li class="nav-grupo">Control</li>
                 <li><a href="#" class="nav-link" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
-                <li><a href="#" class="nav-link sub" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
-                <li><a href="#" class="nav-link sub no-proveedor" data-vista="ingresos"><i class="fa-solid fa-id-card"></i>Registro de ingresos</a></li>
+                <li><a href="#" class="nav-link" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
+                <li><a href="#" class="nav-link no-proveedor" data-vista="ingresos"><i class="fa-solid fa-id-card"></i>Registro de ingresos</a></li>
+                <li class="nav-grupo">Sistema</li>
                 <li><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
-                <li><a href="#" class="nav-link sub" data-vista="configuracion"><i class="fa-solid fa-gear"></i>Configuración</a></li>
+                <li><a href="#" class="nav-link" data-vista="configuracion"><i class="fa-solid fa-gear"></i>Configuración</a></li>
                 <li><a href="#" class="nav-link" data-vista="ayuda"><i class="fa-solid fa-circle-question"></i>Ayuda</a></li>
               </ul>
             </nav>
@@ -319,18 +324,16 @@
 
           <!-- MATRIZ -->
           <section class="vista" id="v-matriz" aria-labelledby="t-matriz">
-            <h1 class="titulo-vista" id="t-matriz">Avance por persona</h1>
-            <p class="sub-vista">Cada columna es un módulo (M8 tiene 3 partes). Haz clic en un nombre para ver su ficha.</p>
+            <h1 class="titulo-vista" id="t-matriz">Avance por planta</h1>
+            <p class="sub-vista">Asistencia de los brigadistas Holcim activos de cada planta, módulo por módulo. El % es cuántos asistieron entre los que ya debían tomarlo (la sesión aplica y su fecha pasó). Haz clic en un % para abrir esa lista de asistencia. El detalle de cada persona está en su ficha (Brigadistas).</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros">
-                <input type="search" class="form-control form-control-sm" id="mat-buscar" placeholder="Buscar nombre o cédula…" aria-label="Buscar en el avance">
-                <select class="form-select form-select-sm" id="mat-planta" aria-label="Planta"></select>
-                <select class="form-select form-select-sm" id="mat-estado" aria-label="Estado"><option value="act">Solo activos</option><option value="">Activos y desvinculados</option><option value="des">Solo desvinculados</option></select>
-                <select class="form-select form-select-sm" id="mat-ver" aria-label="Mostrar"><option value="">Todas las personas</option><option value="vencidos">Con módulos vencidos sin asistir</option><option value="completos">Al día (100 %)</option><option value="cero">Sin ninguna asistencia</option></select>
+                <input type="search" class="form-control form-control-sm" id="mat-buscar" placeholder="Buscar planta o sede…" aria-label="Buscar planta">
+                <select class="form-select form-select-sm" id="mat-ver" aria-label="Mostrar"><option value="">Todas las plantas</option><option value="atrasadas">Con módulos sin completar</option><option value="aldia">Al día (100 %)</option></select>
                 <button class="btn btn-sm btn-outline-secondary ms-auto" data-accion="csv-matriz"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
               </div>
               <div class="small mt-2 d-flex flex-wrap gap-2 align-items-center">
-                <span class="pildora e-si">✓ asistió</span><span class="pildora e-no">✗ ya pasó y no asistió</span><span class="pildora e-pend">· pendiente</span><span class="pildora e-na">— no aplica</span><span class="pildora e-sina">! marcada sin aplicar</span>
+                <span class="pildora e-si">80 % o más</span><span class="pildora e-pend">40 a 79 %</span><span class="pildora e-no">menos de 40 %</span><span class="pildora e-pend">· aún no le toca (próxima fecha)</span><span class="pildora e-na">— no aplica</span>
                 <span class="contador ms-auto" id="mat-conteo"></span>
               </div>
             </div>

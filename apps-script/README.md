@@ -38,8 +38,12 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   pasadas sin asistencia, próximas capacitaciones y resumen de la revisión.
 - **Tomar asistencia**: sede → sesión (filtros: pasadas sin registrar, próximas, con asistencia, sin fecha, no aplican)
   → lista con buscador, planta, marcar todos, imprimir para firmar, CSV y deshacer.
-- **Avance por persona**: tabla persona × módulo (✓ asistió, ✗ ya pasó y no asistió, · pendiente, — no aplica,
-  ! marcada sin aplicar) con filtros por planta, estado y "con módulos vencidos", y CSV.
+- **Avance por planta**: planta × módulo con el % de brigadistas Holcim activos que asistieron entre los que ya debían
+  tomarlo (la sesión aplica y su fecha pasó); "·" con la próxima fecha si aún no le toca y "—" si no aplica. Clic en un %
+  abre esa lista de asistencia. Sin detalle por persona (eso está en la ficha de cada brigadista). CSV.
+- **Menú** agrupado: Dashboard · *Brigada* (Cobertura, Brigadistas) · *Asistencia y capacitaciones* (Tomar asistencia,
+  Avance por planta, Cronograma, Temarios, Otras hojas) · *Control* (Historial de cambios, Revisión de datos, Registro de
+  ingresos) · *Sistema* (Estado del sistema, Configuración, Ayuda).
 - **Brigadistas**: columnas Planta, Nombres y apellidos, Cédula, Grupo sanguíneo, Fecha de ingreso, Empresa,
   Brigadista Clase I, Estado y Fecha de retiro (solo si no está activo). Filtros por tipo, planta, estado, empresa y
   "datos por completar"; lo que falta aparece como **Completar**. **Editar en la tabla** convierte las celdas en
