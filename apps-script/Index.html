@@ -52,6 +52,18 @@
     /* Filtros y chips */
     .filtros { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .filtros .form-select, .filtros .form-control { width: auto; min-width: 140px; }
+    @media (max-width: 575.98px) {
+      .fila-sede { flex-wrap: wrap; row-gap: 2px !important; }
+      .fila-sede > div:nth-child(2) { order: 3; flex: 0 0 100%; }
+      .fila-sede > div:last-child { width: auto !important; flex: 1; }
+    }
+    .pestanas { display: flex; gap: 4px; border-bottom: 1px solid var(--s-borde); overflow-x: auto; scrollbar-width: thin; }
+    .pestana { border: 0; background: none; padding: 10px 16px; font-weight: 600; color: #5f6b76; border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; border-radius: 6px 6px 0 0; }
+    .pestana:hover { color: var(--s-azul); background: #f6f9ff; }
+    .pestana[aria-selected="true"] { color: var(--s-azul); border-bottom-color: var(--s-azul); background: #fff; }
+    .pestana .valor { font-size: .78rem; font-weight: 700; margin-left: 4px; padding: 1px 8px; border-radius: 999px; background: #eef1f5; color: #33424f; }
+    .pestana .valor:empty { display: none; }
+    .pestana .valor.mal { background: #fde2e2; color: #a61b1b; } .pestana .valor.medio { background: #fff1d6; color: #8a5a00; } .pestana .valor.bien { background: #dff3e6; color: #146c3a; }
     .chip { border: 1px solid var(--s-borde); background: #fff; border-radius: 999px; padding: 4px 12px; font-size: .85rem; cursor: pointer; white-space: nowrap; }
     .chip[aria-pressed="true"] { background: var(--s-azul); border-color: var(--s-azul); color: #fff; }
     .chip .n { font-weight: 700; margin-left: 4px; }
@@ -260,39 +272,41 @@
           <section class="vista" id="v-inicio" aria-labelledby="t-inicio">
             <h1 class="titulo-vista" id="t-inicio">Dashboard</h1>
             <p class="sub-vista" id="inicio-sub"></p>
-            <div class="row g-3 mb-3">
-              <div class="col-12"><div class="tarjeta p-3">
-                <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-clipboard-check me-2 text-success"></i>Asistencia a las capacitaciones</h2>
-                <p class="small text-muted mb-3">Personal Holcim de la lista de asistencia. Solo cuentan los módulos que aplican a cada planta y cuya fecha ya pasó según el cronograma.</p>
-                <div class="row g-3 mb-3" id="inicio-kpis"></div>
-                <div class="small fw-semibold text-muted text-uppercase mb-1" style="letter-spacing:.05em">Asistencia por sede</div>
-                <div id="inicio-por-sede" class="small"></div>
-              </div></div>
-              <div class="col-12"><div class="tarjeta p-3">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                  <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Cobertura de brigadistas <span class="small text-muted fw-normal">(meta: 20 % del personal, pestaña Indicador.)</span></h2>
-                  <a href="#" data-ir="cobertura" class="small">Abrir Cobertura</a>
-                </div>
-                <div class="row g-3 mb-3" id="inicio-cob-kpis"></div>
-                <div id="inicio-cob-diferencia"></div>
-                <div id="inicio-cob-plantas"></div>
-              </div></div>
+            <div class="pestanas mb-3" role="tablist" aria-label="Secciones del Dashboard" id="inicio-tabs">
+              <button type="button" class="pestana" role="tab" id="pt-asistencia" data-tab="asistencia" aria-controls="tab-asistencia" aria-selected="true"><i class="fa-solid fa-clipboard-check me-2"></i>Asistencia <span class="valor" id="tv-asistencia"></span></button>
+              <button type="button" class="pestana" role="tab" id="pt-cobertura" data-tab="cobertura" aria-controls="tab-cobertura" aria-selected="false" tabindex="-1"><i class="fa-solid fa-shield-halved me-2"></i>Cobertura <span class="valor" id="tv-cobertura"></span></button>
+              <button type="button" class="pestana" role="tab" id="pt-proximas" data-tab="proximas" aria-controls="tab-proximas" aria-selected="false" tabindex="-1"><i class="fa-solid fa-calendar-check me-2"></i>Próximas capacitaciones <span class="valor" id="tv-proximas"></span></button>
+              <button type="button" class="pestana" role="tab" id="pt-revision" data-tab="revision" aria-controls="tab-revision" aria-selected="false" tabindex="-1"><i class="fa-solid fa-magnifying-glass-chart me-2"></i>Revisión de datos <span class="valor" id="tv-revision"></span></button>
             </div>
-            <div class="row g-3">
-              <div class="col-lg-7"><div class="tarjeta p-3 h-100">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                  <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-calendar-check me-2 text-primary"></i>Próximas capacitaciones</h2>
-                  <a href="#" data-ir="cronograma" class="small">Ver cronograma</a>
-                </div>
-                <div id="inicio-proximas"></div>
-              </div></div>
-              <div class="col-lg-5"><div class="tarjeta p-3 h-100">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                  <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-magnifying-glass-chart me-2 text-warning"></i>Revisión de datos</h2>
-                  <a href="#" data-ir="revision" class="small">Ver todo</a>
-                </div>
-                <div id="inicio-revision" class="small"></div>
-              </div></div>
+            <div class="tarjeta p-3 panel-inicio" role="tabpanel" id="tab-asistencia" aria-labelledby="pt-asistencia">
+              <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-clipboard-check me-2 text-success"></i>Asistencia a las capacitaciones</h2>
+              <p class="small text-muted mb-3">Personal Holcim de la lista de asistencia. Solo cuentan los módulos que aplican a cada planta y cuya fecha ya pasó según el cronograma.</p>
+              <div class="row g-3 mb-3" id="inicio-kpis"></div>
+              <div class="small fw-semibold text-muted text-uppercase mb-1" style="letter-spacing:.05em">Asistencia por sede</div>
+              <div id="inicio-por-sede" class="small"></div>
+            </div>
+            <div class="tarjeta p-3 panel-inicio" role="tabpanel" id="tab-cobertura" aria-labelledby="pt-cobertura" hidden>
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-shield-halved me-2 text-primary"></i>Cobertura de brigadistas <span class="small text-muted fw-normal">(meta: 20 % del personal, pestaña Indicador.)</span></h2>
+                <a href="#" data-ir="cobertura" class="small">Abrir Cobertura</a>
+              </div>
+              <div class="row g-3 mb-3" id="inicio-cob-kpis"></div>
+              <div id="inicio-cob-diferencia"></div>
+              <div id="inicio-cob-plantas"></div>
+            </div>
+            <div class="tarjeta p-3 panel-inicio" role="tabpanel" id="tab-proximas" aria-labelledby="pt-proximas" hidden>
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-calendar-check me-2 text-primary"></i>Próximas capacitaciones</h2>
+                <a href="#" data-ir="cronograma" class="small">Ver cronograma</a>
+              </div>
+              <div id="inicio-proximas"></div>
+            </div>
+            <div class="tarjeta p-3 panel-inicio" role="tabpanel" id="tab-revision" aria-labelledby="pt-revision" hidden>
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-magnifying-glass-chart me-2 text-warning"></i>Revisión de datos</h2>
+                <a href="#" data-ir="revision" class="small">Ver todo</a>
+              </div>
+              <div id="inicio-revision" class="small"></div>
             </div>
           </section>
 

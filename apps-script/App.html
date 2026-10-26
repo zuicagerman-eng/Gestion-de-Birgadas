@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.5.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.5.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -104,6 +104,15 @@
       $('form-clave').onsubmit = cambiarClaveApp;
       $('form-crono').onsubmit = revisarCrono;
       grupoChips('cob-orden', 'orden', () => pintarCobertura());
+      $('inicio-tabs').addEventListener('click', ev => { const b = ev.target.closest('.pestana'); if (b) elegirPestana(b.dataset.tab); });
+      $('inicio-tabs').addEventListener('keydown', ev => {
+        const ts = [...document.querySelectorAll('#inicio-tabs .pestana')], i = ts.indexOf(document.activeElement);
+        if (i === -1 || ['ArrowRight', 'ArrowLeft', 'Home', 'End'].indexOf(ev.key) === -1) return;
+        ev.preventDefault();
+        const n = ev.key === 'Home' ? 0 : ev.key === 'End' ? ts.length - 1 : (i + (ev.key === 'ArrowRight' ? 1 : -1) + ts.length) % ts.length;
+        elegirPestana(ts[n].dataset.tab, true);
+      });
+      elegirPestana(leer('localStorage', 'sigbe_tab_inicio') || 'asistencia');
       $('cob-faltan').onchange = pintarCobertura;
       $('modal-faltantes').addEventListener('change', cambioFaltantes);
       $('modal-cuadre').addEventListener('change', cambioCuadre);
@@ -142,6 +151,13 @@
       await arrancar();
     }
 
+    /** Pestañas del Dashboard (se recuerda la última abierta en este equipo). */
+    function elegirPestana(tab, foco) {
+      if (!$('tab-' + tab)) tab = 'asistencia';
+      document.querySelectorAll('#inicio-tabs .pestana').forEach(b => { const si = b.dataset.tab === tab; b.setAttribute('aria-selected', String(si)); b.tabIndex = si ? 0 : -1; if (si && foco) b.focus(); });
+      document.querySelectorAll('.panel-inicio').forEach(p => { p.hidden = p.id !== 'tab-' + tab; });
+      guardar('localStorage', 'sigbe_tab_inicio', tab);
+    }
     function grupoChips(id, attr, fn) {
       $(id).addEventListener('click', ev => {
         const b = ev.target.closest('.chip'); if (!b) return;
@@ -481,8 +497,13 @@
       }).sort((x, y) => x.pct - y.pct).map(x => barraSede(x.sd, x.pct, x.txt, 'elegir-sede')).join('') || '<p class="text-muted mb-0">Sin datos.</p>';
       // 2) Cobertura de brigadistas: la misma vista de la pantalla Cobertura
       pintarCobertura('inicio-cob');
+      const nivel = x => x >= 80 ? 'bien' : x >= 40 ? 'medio' : 'mal';
+      const pc = plantasCobertura(), briT = pc.reduce((n, x) => n + x.bri, 0), metaT = pc.reduce((n, x) => n + x.metaN, 0), pctCob = metaT ? Math.round(briT / metaT * 100) : 0;
+      $('tv-asistencia').textContent = t ? pct + ' %' : ''; $('tv-asistencia').className = 'valor ' + (t ? nivel(pct) : '');
+      $('tv-cobertura').textContent = metaT ? pctCob + ' %' : ''; $('tv-cobertura').className = 'valor ' + (metaT ? nivel(pctCob) : '');
       // 3) Próximas capacitaciones y revisión de datos
-      const prox = D.crono.filter(c => enSede(c) && c.i && c.i >= D.hoy).sort((a, b) => a.i < b.i ? -1 : 1).slice(0, 7);
+      const proxTodas = D.crono.filter(c => enSede(c) && c.i && c.i >= D.hoy), prox = proxTodas.slice().sort((a, b) => a.i < b.i ? -1 : 1).slice(0, 10);
+      $('tv-proximas').textContent = proxTodas.length || '';
       $('inicio-proximas').innerHTML = prox.length ? prox.map(c => `<div class="d-flex align-items-center gap-3 py-2 border-bottom">${chipFecha(c.i, c.f)}
           <div class="flex-grow-1"><div class="fw-semibold small">${esc(c.ent)}</div><div class="small text-muted">${esc(c.pl)} · ${esc(c.ses)}${c.obs ? ' · ' + esc(c.obs) : ''}</div></div>${badgeEstadoCrono(c.e)}</div>`).join('')
         : '<p class="text-muted small mb-0">No hay capacitaciones programadas próximamente.</p>';
@@ -490,6 +511,8 @@
       const grupos = {};
       rv.forEach(r => { if (r.g === 'info') return; grupos[r.tipo] = grupos[r.tipo] || { n: 0, g: r.g, t: r.titulo }; grupos[r.tipo].n++; });
       const lista = Object.keys(grupos).sort((a, b) => (grupos[a].g === 'error' ? 0 : 1) - (grupos[b].g === 'error' ? 0 : 1) || grupos[b].n - grupos[a].n);
+      const nRev = lista.reduce((n, k) => n + grupos[k].n, 0), hayErr = lista.some(k => grupos[k].g === 'error');
+      $('tv-revision').textContent = nRev || ''; $('tv-revision').className = 'valor ' + (hayErr ? 'mal' : nRev ? 'medio' : '');
       $('inicio-revision').innerHTML = lista.length ? lista.map(k => `<div class="d-flex justify-content-between py-1 border-bottom"><span><span class="punto punto-${grupos[k].g}"></span>${esc(grupos[k].t)}</span><b>${grupos[k].n}</b></div>`).join('')
         : '<p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>Sin errores ni avisos.</p>';
     }
