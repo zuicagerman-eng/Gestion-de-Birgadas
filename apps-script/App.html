@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.8.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.8.3'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -483,6 +483,9 @@
       plantas.forEach(pl => {
         const sum = k => pl.emp.reduce((n, f) => n + (f[k] || 0), 0);
         pl.per = pl.tot ? pl.tot.per : sum('per'); pl.bri = sum('lis'); // brigadistas: los de las listas de la app
+        // Personal propio: las filas "Holcim…" o "Geocycle…" del Indicador (las mismas a las que van los brigadistas Holcim); el resto es inhouse
+        pl.perPropio = pl.emp.filter(f => /HOLCIM|GEOCYCLE/.test(norm(f.emp))).reduce((n, f) => n + (f.per || 0), 0);
+        pl.perInhouse = Math.max(0, pl.per - pl.perPropio);
         pl.metaN = enteros(pl.tot ? pl.tot.meta : sum('meta')); // 20 % de la planta, hacia arriba
         pl.faltan = Math.max(0, pl.metaN - pl.bri);
         pl.pct = pl.metaN ? Math.round(pl.bri / pl.metaN * 100) : 100;
@@ -1413,9 +1416,10 @@
       const plantas = plantasCobertura();
       const per = plantas.reduce((n, x) => n + x.per, 0), bri = plantas.reduce((n, x) => n + x.bri, 0), meta = plantas.reduce((n, x) => n + x.metaN, 0);
       const cumplen = plantas.filter(x => !x.faltan).length, L = brigadistasEnListas();
-      const kpi = (eti, num, sub, color) => `<div class="col-6 col-lg-3"><div class="kpi"><div class="eti">${eti}</div><div class="num" style="color:${color || 'inherit'}">${num}</div><div class="small text-muted">${sub}</div></div></div>`;
-      $(pre + '-kpis').innerHTML = kpi('Personal', per, 'trabajadores según la pestaña Indicador.') +
-        kpi('Brigadistas', L.t, `activos en las listas de la app (${L.h} Holcim · ${L.c} contratistas) · ${per ? Math.round(L.t / per * 1000) / 10 : 0} % del personal`) +
+      const kpi = (eti, num, sub, color, detalle) => `<div class="col-6 col-lg-3"><div class="kpi"><div class="eti">${eti}</div><div class="num" style="color:${color || 'inherit'}">${num}</div>${detalle ? '<div class="small fw-semibold">' + detalle + '</div>' : ''}<div class="small text-muted">${sub}</div></div></div>`;
+      const propios = plantas.reduce((n, x) => n + x.perPropio, 0), inhouse = plantas.reduce((n, x) => n + x.perInhouse, 0);
+      $(pre + '-kpis').innerHTML = kpi('Personal', per, 'trabajadores según la pestaña Indicador', '', `${propios} propios + ${inhouse} inhouse`) +
+        kpi('Brigadistas', L.t, `activos en las listas de la app · ${per ? Math.round(L.t / per * 1000) / 10 : 0} % del personal`, '', `${L.h} Holcim + ${L.c} inhouse`) +
         kpi('Meta (20 %)', meta, meta > bri ? `faltan ${meta - bri} brigadistas · vas en ${meta ? Math.round(bri / meta * 100) : 0} % de la meta` : `meta cumplida (${meta ? Math.round(bri / meta * 100) : 0} %)`, meta > bri ? 'var(--s-mal)' : 'var(--s-ok)') +
         kpi('Plantas que cumplen', cumplen + ' de ' + plantas.length, `${plantas.length ? Math.round(cumplen / plantas.length * 100) : 0} % de las plantas${plantas.length - cumplen ? ' · ' + (plantas.length - cumplen) + ' por debajo de la meta' : ''}`, cumplen === plantas.length ? 'var(--s-ok)' : '#e8590c');
       const sin = (D.indicadorSinFila || []).filter(x => sedeOk(x.sede));
