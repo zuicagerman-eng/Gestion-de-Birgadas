@@ -49,6 +49,8 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   "datos por completar"; lo que falta aparece como **Completar**. **Editar en la tabla** convierte las celdas en
   desplegables y fechas y guarda todo junto (con confirmación). Si la hoja no tiene la columna de un dato, la app la
   crea al final de los encabezados al guardar el primero. Ficha con sus sesiones y registro de personas nuevas.
+  En la ficha, cada sesión tiene **✓ Asistió** / **Quitar**: guarda la asistencia de esa persona al instante (con
+  Deshacer y aviso por correo, igual que la lista). Las sesiones con fecha futura muestran **Aún no**. Lo usan los tres tipos de usuario.
   Grupo sanguíneo: O+, O-, A+, A-, B+, B-, AB+, AB-. Clase I: la lista de la hoja si tiene desplegable; si no, Sí / No / En formación.
 - **Cronograma**: próximas / pasadas / por definir / no aplican, filtros por mes, tema y estado; botón para abrir la asistencia.
   **Programar / Editar** cambia la fecha (Holcim), la fecha Ambipar, el estado, # brigadistas y observaciones de una planta,

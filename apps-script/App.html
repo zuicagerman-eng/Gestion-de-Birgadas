@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.6.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.6.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -103,6 +103,7 @@
       $('form-setup').onsubmit = enviarSetup;
       $('form-clave').onsubmit = cambiarClaveApp;
       $('form-crono').onsubmit = revisarCrono;
+      $('modal-ficha').addEventListener('hidden.bs.modal', () => { if (fichaCambio) { fichaCambio = false; cargarVista(); } }); // lo de atrás se actualiza al cerrar
       grupoChips('cob-orden', 'orden', () => pintarCobertura());
       $('inicio-tabs').addEventListener('click', ev => { const b = ev.target.closest('.pestana'); if (b) elegirPestana(b.dataset.tab); });
       $('inicio-tabs').addEventListener('keydown', ev => {
@@ -349,8 +350,9 @@
         diagnostico: ejecutarDiagnostico, 'actualizar-ahora': actualizarAhora,
         'guardar-archivos': guardarArchivos,
         'auto-on': () => cambiarAutomatico(true), 'auto-off': () => cambiarAutomatico(false),
+        'ficha-marcar': () => marcarEnFicha(+d.i, d.v === '1'),
         'ficha-editar': () => editarFicha(), 'ficha-cancelar': () => pintarFicha(false), 'ficha-revisar': revisarEdicion,
-        'ficha-asistencia': () => { modal('modal-ficha').hide(); acciones['ir-asistencia'](); },
+        'ficha-asistencia': () => { fichaCambio = false; modal('modal-ficha').hide(); acciones['ir-asistencia'](); },
       };
       if (acciones[a]) { ev.preventDefault(); acciones[a](); }
     }
@@ -960,7 +962,7 @@
         const ocultas = filas.filter(y => y.est === 'na').length;
         html += `<h3 class="h6 fw-bold mt-3 mb-2">Sesiones</h3><div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead><tr><th>Sesión</th><th>Tema</th><th>Fecha</th><th>Estado</th><th></th></tr></thead><tbody>` +
           filas.filter(y => y.est !== 'na').map(y => `<tr><td class="text-nowrap"><b>${esc(y.s.clave)}</b> · S${y.s.n}</td><td>${esc(y.s.titulo)}</td><td class="text-nowrap">${esc(y.f || 'sin fecha')}${y.xFecha && y.xFecha !== y.f ? '<br><span class="text-warning">hoja: ' + esc(y.xFecha) + '</span>' : ''}</td><td>${txt[y.est]}</td>
-            <td><button class="btn btn-sm btn-link p-0" data-accion="ficha-asistencia" data-sede="${esc(f.sede)}" data-key="${esc(y.s.key)}">Abrir lista</button></td></tr>`).join('') +
+            <td class="text-nowrap">${botonMarcar(y)}<div><button class="btn btn-sm btn-link p-0 small" data-accion="ficha-asistencia" data-sede="${esc(f.sede)}" data-key="${esc(y.s.key)}">Abrir lista</button></div></td></tr>`).join('') +
           (ocultas ? `<tr class="text-muted"><td colspan="5"><i class="fa-solid fa-circle-info me-1"></i>${ocultas} sesión(es) no aplican en ${esc(f.p)} según el cronograma.</td></tr>` : '') + '</tbody></table></div>';
       }
       html += `<p class="small text-muted mt-3 mb-0">Fila ${esc(f.r)} de "${esc(f.tipo === 'HOLCIM' ? 'Lista HOLCIM' : 'INHOUSE')}" · ${esc(f.tipo === 'HOLCIM' ? D.fuentes.asistencia.nombre : D.fuentes.datos.nombre)}</p>`;
@@ -973,6 +975,30 @@
         const foco = campoFoco && $('ed-' + campoFoco);
         if (foco) setTimeout(() => foco.focus(), 350);
       }
+    }
+    /** Botón de la ficha para marcar o quitar la asistencia de esa persona en esa sesión (guarda al instante). */
+    function botonMarcar(y) {
+      if (y.marcada) return `<button class="btn btn-sm btn-outline-secondary" data-accion="ficha-marcar" data-i="${y.s.i}" data-v="0" title="Quitar la asistencia">Quitar</button>`;
+      if (y.iso && y.iso > D.hoy) return `<button class="btn btn-sm btn-outline-secondary" disabled title="La sesión es el ${esc(y.f)}: se marca ese día o después">Aún no</button>`;
+      return `<button class="btn btn-sm btn-success" data-accion="ficha-marcar" data-i="${y.s.i}" data-v="1" title="Marcar que asistió"><i class="fa-solid fa-check me-1"></i>Asistió</button>`;
+    }
+    let fichaCambio = false;
+    async function marcarEnFicha(i, valor) {
+      const f = ficha, s = D.sesiones[i];
+      if (!f || !s) return;
+      ocupado(true);
+      try {
+        const r = await api('guardarAsistenciaLote', E.token, s.key, [{ cedula: f.c, nombre: f.n, valor: valor, anterior: f.m.charAt(i) === '1' }]);
+        ocupado(false);
+        if (revisarSesion(r)) return;
+        if (!r.exito) return avisar(esc(r.mensaje), 'danger', 10000);
+        aplicarLocal(s, r.aplicados || []);
+        fichaCambio = true;
+        pintarFicha(false);
+        if (r.conflictos.length) return avisar('No se guardó: ' + esc(r.conflictos.join('; ')), 'warning', 12000);
+        avisar(`<b>${esc(f.n)}</b> · ${esc(nombreSesion(s))}: ${valor ? 'asistió' : 'asistencia quitada'}.`, 'success', 8000,
+          { texto: 'Deshacer', fn: async () => { await deshacer(s, r.aplicados); if (ficha === f) pintarFicha(false); fichaCambio = true; } });
+      } catch (e) { error(e); }
     }
     async function cargarCatalogos() {
       if (catalogos) return true;
