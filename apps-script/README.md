@@ -49,8 +49,9 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   "datos por completar"; lo que falta aparece como **Completar**. **Editar en la tabla** convierte las celdas en
   desplegables y fechas y guarda todo junto (con confirmación). Si la hoja no tiene la columna de un dato, la app la
   crea al final de los encabezados al guardar el primero. Ficha con sus sesiones y registro de personas nuevas.
-  En la ficha, cada sesión tiene **✓ Asistió** / **Quitar**: guarda la asistencia de esa persona al instante (con
-  Deshacer y aviso por correo, igual que la lista). Las sesiones con fecha futura muestran **Aún no**. Lo usan los tres tipos de usuario.
+  En la ficha, cada sesión tiene una casilla **Asistió**: se marcan o desmarcan varias (o **Marcar todas las ya
+  realizadas**) y **Guardar asistencia** las guarda juntas en una sola llamada (con Deshacer). Las sesiones con fecha
+  futura muestran **Aún no**. Si se cierra la ficha con cambios sin guardar, pregunta. Lo usan los tres tipos de usuario.
   Grupo sanguíneo: O+, O-, A+, A-, B+, B-, AB+, AB-. Clase I: la lista de la hoja si tiene desplegable; si no, Sí / No / En formación.
 - **Cronograma**: próximas / pasadas / por definir / no aplican, filtros por mes, tema y estado; botón para abrir la asistencia.
   **Programar / Editar** cambia la fecha (Holcim), la fecha Ambipar, el estado, # brigadistas y observaciones de una planta,
@@ -102,6 +103,10 @@ muestra sus sedes. Cuando alguien **crea un módulo o una sesión, pone o cambia
 de una sesión, o toma asistencia**, les llega un correo a los usuarios con correo y "Recibe avisos" de esa sede (Holcim,
 Ambipar y el gestor), menos a quien hizo el cambio. Un módulo nuevo avisa a todas las sedes. Cada envío queda en el
 historial ("Aviso por correo").
+
+Los avisos **no salen en el momento** (mandar correos tarda y gasta el cupo): se juntan y a los 5 minutos
+(`SIGBE_MINUTOS_AVISOS`) sale **un solo correo por persona** con todo lo que le toca ("Resumen de N cambio(s)"). Lo
+envía la tarea `sigbeAvisosPendientes`, que la app programa sola; la tarea de cada hora también envía lo que haya quedado.
 
 Los correos salen de la cuenta que ejecuta la app (MailApp). Para autorizarlos, el dueño ejecuta una vez **probarCorreo**
 en el editor (manda un correo de prueba). Google limita los envíos por día (unos 100 en cuentas Gmail personales, 1.500 en

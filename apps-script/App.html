@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.6.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.7.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -104,6 +104,11 @@
       $('form-clave').onsubmit = cambiarClaveApp;
       $('form-crono').onsubmit = revisarCrono;
       $('modal-ficha').addEventListener('hidden.bs.modal', () => { if (fichaCambio) { fichaCambio = false; cargarVista(); } }); // lo de atrás se actualiza al cerrar
+      $('modal-ficha').addEventListener('hide.bs.modal', ev => {
+        const n = Object.keys(fichaPend).length;
+        if (n && !confirm(n + ' cambio(s) de asistencia sin guardar. ¿Cerrar sin guardar?')) ev.preventDefault(); else fichaPend = {};
+      });
+      $('ficha-cuerpo').addEventListener('change', ev => { const c = ev.target.closest('[data-ficha-i]'); if (c) cambiarCasillaFicha(+c.dataset.fichaI, c.checked); });
       grupoChips('cob-orden', 'orden', () => pintarCobertura());
       $('inicio-tabs').addEventListener('click', ev => { const b = ev.target.closest('.pestana'); if (b) elegirPestana(b.dataset.tab); });
       $('inicio-tabs').addEventListener('keydown', ev => {
@@ -350,9 +355,15 @@
         diagnostico: ejecutarDiagnostico, 'actualizar-ahora': actualizarAhora,
         'guardar-archivos': guardarArchivos,
         'auto-on': () => cambiarAutomatico(true), 'auto-off': () => cambiarAutomatico(false),
-        'ficha-marcar': () => marcarEnFicha(+d.i, d.v === '1'),
+        'ficha-guardar-asis': () => guardarAsistenciaFicha(),
+        'ficha-descartar': () => { fichaPend = {}; pintarFicha(false); },
+        'ficha-todas': () => marcarTodasFicha(),
         'ficha-editar': () => editarFicha(), 'ficha-cancelar': () => pintarFicha(false), 'ficha-revisar': revisarEdicion,
-        'ficha-asistencia': () => { fichaCambio = false; modal('modal-ficha').hide(); acciones['ir-asistencia'](); },
+        'ficha-asistencia': () => {
+          const n = Object.keys(fichaPend).length;
+          if (n && !confirm(n + ' cambio(s) de asistencia sin guardar. ¿Salir sin guardar?')) return;
+          fichaPend = {}; fichaCambio = false; modal('modal-ficha').hide(); acciones['ir-asistencia']();
+        },
       };
       if (acciones[a]) { ev.preventDefault(); acciones[a](); }
     }
@@ -927,7 +938,7 @@
     function abrirFicha(tipo, j, editar, campo) {
       const p = tipo === 'INHOUSE' ? I[j] : P[j];
       if (!p) return;
-      ficha = p;
+      ficha = p; fichaPend = {};
       pintarFicha(false); // primero la ficha; si se va a editar y no hay sesión, el inicio de sesión sale encima
       modal('modal-ficha').show();
       if (editar) editarFicha(campo);
@@ -960,44 +971,81 @@
         const filas = D.sesiones.map(s => Object.assign({ s: s }, ses(f, s.i)));
         const txt = { si: '<span class="pildora e-si">✓ Asistió</span>', no: '<span class="pildora e-no">✗ No asistió</span>', pend: '<span class="pildora e-pend">· Pendiente</span>', na: '<span class="pildora e-na">— No aplica</span>', sina: '<span class="pildora e-sina">! Marcada sin aplicar</span>' };
         const ocultas = filas.filter(y => y.est === 'na').length;
-        html += `<h3 class="h6 fw-bold mt-3 mb-2">Sesiones</h3><div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead><tr><th>Sesión</th><th>Tema</th><th>Fecha</th><th>Estado</th><th></th></tr></thead><tbody>` +
-          filas.filter(y => y.est !== 'na').map(y => `<tr><td class="text-nowrap"><b>${esc(y.s.clave)}</b> · S${y.s.n}</td><td>${esc(y.s.titulo)}</td><td class="text-nowrap">${esc(y.f || 'sin fecha')}${y.xFecha && y.xFecha !== y.f ? '<br><span class="text-warning">hoja: ' + esc(y.xFecha) + '</span>' : ''}</td><td>${txt[y.est]}</td>
-            <td class="text-nowrap">${botonMarcar(y)}<div><button class="btn btn-sm btn-link p-0 small" data-accion="ficha-asistencia" data-sede="${esc(f.sede)}" data-key="${esc(y.s.key)}">Abrir lista</button></div></td></tr>`).join('') +
+        const marcables = filas.filter(y => y.est !== 'na' && !(y.iso && y.iso > D.hoy));
+        html += `<div class="d-flex flex-wrap align-items-center gap-2 mt-3 mb-2"><h3 class="h6 fw-bold m-0 me-auto">Sesiones</h3>
+          <span class="small text-muted">Marca las casillas y pulsa <b>Guardar asistencia</b>.</span>${marcables.length ? '<button class="btn btn-sm btn-outline-success" data-accion="ficha-todas"><i class="fa-solid fa-check-double me-1"></i>Marcar todas las ya realizadas</button>' : ''}</div>
+          <div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead><tr><th>Sesión</th><th>Tema</th><th>Fecha</th><th>Estado</th><th>Asistió</th></tr></thead><tbody>` +
+          filas.filter(y => y.est !== 'na').map(y => `<tr id="ficha-ses-${y.s.i}" class="${y.s.i in fichaPend ? 'fila-pendiente' : ''}"><td class="text-nowrap"><b>${esc(y.s.clave)}</b> · S${y.s.n}</td><td>${esc(y.s.titulo)}</td><td class="text-nowrap">${esc(y.f || 'sin fecha')}${y.xFecha && y.xFecha !== y.f ? '<br><span class="text-warning">hoja: ' + esc(y.xFecha) + '</span>' : ''}</td><td>${txt[y.est]}</td>
+            <td class="text-nowrap">${casillaFicha(y)}<div><button class="btn btn-sm btn-link p-0 small" data-accion="ficha-asistencia" data-sede="${esc(f.sede)}" data-key="${esc(y.s.key)}">Abrir lista</button></div></td></tr>`).join('') +
           (ocultas ? `<tr class="text-muted"><td colspan="5"><i class="fa-solid fa-circle-info me-1"></i>${ocultas} sesión(es) no aplican en ${esc(f.p)} según el cronograma.</td></tr>` : '') + '</tbody></table></div>';
       }
       html += `<p class="small text-muted mt-3 mb-0">Fila ${esc(f.r)} de "${esc(f.tipo === 'HOLCIM' ? 'Lista HOLCIM' : 'INHOUSE')}" · ${esc(f.tipo === 'HOLCIM' ? D.fuentes.asistencia.nombre : D.fuentes.datos.nombre)}</p>`;
       $('ficha-cuerpo').innerHTML = html;
-      $('ficha-pie').innerHTML = editando
-        ? '<button class="btn btn-outline-secondary" data-accion="ficha-cancelar">Cancelar</button><button class="btn btn-success" data-accion="ficha-revisar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>'
-        : `<button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button class="no-proveedor btn ${falta.length ? 'btn-warning' : 'btn-primary'}" data-accion="ficha-editar"><i class="fa-solid fa-pen me-1"></i>${falta.length ? 'Completar datos' : 'Editar'}</button>`;
+      if (editando) $('ficha-pie').innerHTML = '<button class="btn btn-outline-secondary" data-accion="ficha-cancelar">Cancelar</button><button class="btn btn-success" data-accion="ficha-revisar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>';
+      else pieFicha();
       if (editando) {
         $('ed-estado').onchange = () => { $('ed-retiro-box').style.display = /desvinculado/i.test($('ed-estado').value) ? '' : 'none'; };
         const foco = campoFoco && $('ed-' + campoFoco);
         if (foco) setTimeout(() => foco.focus(), 350);
       }
     }
-    /** Botón de la ficha para marcar o quitar la asistencia de esa persona en esa sesión (guarda al instante). */
-    function botonMarcar(y) {
-      if (y.marcada) return `<button class="btn btn-sm btn-outline-secondary" data-accion="ficha-marcar" data-i="${y.s.i}" data-v="0" title="Quitar la asistencia">Quitar</button>`;
-      if (y.iso && y.iso > D.hoy) return `<button class="btn btn-sm btn-outline-secondary" disabled title="La sesión es el ${esc(y.f)}: se marca ese día o después">Aún no</button>`;
-      return `<button class="btn btn-sm btn-success" data-accion="ficha-marcar" data-i="${y.s.i}" data-v="1" title="Marcar que asistió"><i class="fa-solid fa-check me-1"></i>Asistió</button>`;
+    /** Casilla de asistencia de la ficha: se marcan varias y se guardan juntas (una sola llamada). */
+    let fichaPend = {}, fichaCambio = false;
+    function casillaFicha(y) {
+      const i = y.s.i, v = i in fichaPend ? fichaPend[i] : y.marcada;
+      if (!y.marcada && y.iso && y.iso > D.hoy) return `<span class="small text-muted" title="La sesión es el ${esc(y.f)}: se marca ese día o después">Aún no</span>`;
+      return `<label class="form-check m-0 d-inline-flex align-items-center gap-1 casilla-ficha"><input type="checkbox" class="form-check-input mt-0" data-ficha-i="${i}" ${v ? 'checked' : ''}>
+        <span>${i in fichaPend ? '<b class="text-primary">' + (v ? 'Asistió' : 'Quitar') + '</b>' : 'Asistió'}</span></label>`;
     }
-    let fichaCambio = false;
-    async function marcarEnFicha(i, valor) {
-      const f = ficha, s = D.sesiones[i];
-      if (!f || !s) return;
+    function pieFicha() {
+      const n = Object.keys(fichaPend).length;
+      $('ficha-pie').innerHTML = n
+        ? `<span class="me-auto small fw-semibold text-primary">${n} cambio(s) de asistencia sin guardar</span><button class="btn btn-outline-secondary" data-accion="ficha-descartar">Descartar</button><button class="btn btn-success" data-accion="ficha-guardar-asis"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar asistencia (${n})</button>`
+        : `<button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button class="no-proveedor btn ${faltantes(ficha).length ? 'btn-warning' : 'btn-primary'}" data-accion="ficha-editar"><i class="fa-solid fa-pen me-1"></i>${faltantes(ficha).length ? 'Completar datos' : 'Editar'}</button>`;
+    }
+    function cambiarCasillaFicha(i, v) {
+      if (v === (ficha.m.charAt(i) === '1')) delete fichaPend[i]; else fichaPend[i] = v;
+      const tr = $('ficha-ses-' + i);
+      if (tr) { tr.classList.toggle('fila-pendiente', i in fichaPend); tr.querySelector('.casilla-ficha span').innerHTML = i in fichaPend ? '<b class="text-primary">' + (v ? 'Asistió' : 'Quitar') + '</b>' : 'Asistió'; }
+      pieFicha();
+    }
+    function marcarTodasFicha() {
+      document.querySelectorAll('#ficha-cuerpo [data-ficha-i]').forEach(c => { if (!c.checked) { c.checked = true; cambiarCasillaFicha(+c.dataset.fichaI, true); } });
+    }
+    /** Aplica en la memoria lo guardado en varias sesiones. */
+    function aplicarVarias(aplicados) {
+      D.sesiones.forEach(s => { const a = aplicados.filter(x => x.key === s.key); if (a.length) aplicarLocal(s, a); });
+    }
+    async function guardarAsistenciaFicha() {
+      const f = ficha, idx = Object.keys(fichaPend).map(Number);
+      if (!f || !idx.length) return;
+      const cambios = idx.map(i => ({ key: D.sesiones[i].key, cedula: f.c, nombre: f.n, valor: fichaPend[i], anterior: f.m.charAt(i) === '1' }));
       ocupado(true);
       try {
-        const r = await api('guardarAsistenciaLote', E.token, s.key, [{ cedula: f.c, nombre: f.n, valor: valor, anterior: f.m.charAt(i) === '1' }]);
+        const r = await api('guardarAsistenciaVarias', E.token, cambios);
         ocupado(false);
         if (revisarSesion(r)) return;
         if (!r.exito) return avisar(esc(r.mensaje), 'danger', 10000);
-        aplicarLocal(s, r.aplicados || []);
+        aplicarVarias(r.aplicados || []);
+        fichaPend = {}; fichaCambio = true;
+        if (ficha === f) pintarFicha(false);
+        if (r.conflictos.length) avisar('No se guardó: ' + esc(r.conflictos.join('; ')), 'warning', 12000);
+        if (!r.guardados) return;
+        const si = r.aplicados.filter(a => a.valor).length, no = r.aplicados.length - si;
+        avisar(`<b>${esc(f.n)}</b>: ${si ? si + ' asistencia(s) guardada(s)' : ''}${si && no ? ', ' : ''}${no ? no + ' quitada(s)' : ''}.`, 'success', 10000,
+          { texto: 'Deshacer', fn: () => deshacerVarias(f, r.aplicados) });
+      } catch (e) { error(e); }
+    }
+    async function deshacerVarias(f, aplicados) {
+      ocupado(true);
+      try {
+        const r = await api('guardarAsistenciaVarias', E.token, aplicados.map(a => ({ key: a.key, cedula: a.cedula, nombre: a.nombre, valor: a.anterior, anterior: a.valor })));
+        ocupado(false);
+        if (revisarSesion(r)) return;
+        if (r.exito) aplicarVarias(r.aplicados || []);
+        avisar(r.exito ? 'Cambios deshechos.' : esc(r.mensaje), r.exito ? 'info' : 'danger');
         fichaCambio = true;
-        pintarFicha(false);
-        if (r.conflictos.length) return avisar('No se guardó: ' + esc(r.conflictos.join('; ')), 'warning', 12000);
-        avisar(`<b>${esc(f.n)}</b> · ${esc(nombreSesion(s))}: ${valor ? 'asistió' : 'asistencia quitada'}.`, 'success', 8000,
-          { texto: 'Deshacer', fn: async () => { await deshacer(s, r.aplicados); if (ficha === f) pintarFicha(false); fichaCambio = true; } });
+        if (ficha === f && $('modal-ficha').classList.contains('show')) pintarFicha(false);
       } catch (e) { error(e); }
     }
     async function cargarCatalogos() {

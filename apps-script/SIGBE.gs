@@ -30,7 +30,8 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.6.2';
+const SIGBE_VERSION = '4.7.0';
+const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -293,50 +294,73 @@ function probarApp() {
  * cambios: [{ cedula, nombre, valor, anterior }] — "anterior" es lo que mostraba la pantalla.
  */
 function guardarAsistenciaLote(token, key, cambios) {
+  return sigbeGuardarAsistencia_(token, (cambios || []).map(c => Object.assign({}, c, { key: key })));
+}
+
+/** Varias sesiones a la vez (la ficha del brigadista): cada cambio trae su key. Una sola lectura y un solo guardado. */
+function guardarAsistenciaVarias(token, cambios) {
+  return sigbeGuardarAsistencia_(token, cambios || []);
+}
+
+function sigbeGuardarAsistencia_(token, cambios) {
   const lock = LockService.getScriptLock();
   try {
     const usuario = sigbeExigirSesion_(token);
-    if (!cambios || !cambios.length) return { exito: true, guardados: 0, conflictos: [], mensaje: 'No había cambios.' };
+    if (!cambios.length) return { exito: true, guardados: 0, conflictos: [], aplicados: [], mensaje: 'No había cambios.' };
     if (!lock.tryLock(20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
     const F = sigbeFuentes_();
     sigbeExigirEscritura_(F, 'asistencia');
     const sh = sigbeHoja_(F.asistencia, SIGBE_HOJA_HOLCIM);
     const h = sigbeLeerHolcim_(sh);
-    const s = h.sesiones.find(x => x.key === key);
-    if (!s) return { exito: false, mensaje: 'No se encontró la columna de asistencia (' + key + '). ¿Cambió el encabezado?' };
+    const claves = [];
+    cambios.forEach(c => { if (claves.indexOf(c.key) === -1) claves.push(c.key); });
+    const sesiones = claves.map(k => h.sesiones.find(x => x.key === k));
+    const perdidas = claves.filter((k, i) => !sesiones[i]);
+    if (perdidas.length) return { exito: false, mensaje: 'No se encontró la columna de asistencia (' + perdidas.join(', ') + '). ¿Cambió el encabezado?' };
+    // El cronograma solo se lee si se va a marcar (quitar siempre se puede)
     let crono = null;
-    try { crono = sigbeLeerCronograma_(sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA)); } catch (e) { crono = null; }
+    if (cambios.some(c => c.valor === true)) { try { crono = sigbeLeerCronograma_(sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA)); } catch (e) { crono = null; } }
     const info = {};
-    const aplica = p => {
+    const aplica = (p, s) => {
       if (!crono) return true;
-      if (!info[p.planta]) info[p.planta] = sigbeInfoPlanta_(crono, p.planta, [s], h.personas.filter(x => x.planta === p.planta));
-      return info[p.planta].s[0].a === 1;
+      if (!info[p.planta]) info[p.planta] = sigbeInfoPlanta_(crono, p.planta, sesiones, h.personas.filter(x => x.planta === p.planta));
+      return info[p.planta].s[sesiones.indexOf(s)].a === 1;
     };
 
-    try { respaldoDelDia_(F.asistencia); } catch (e) { /* sin espacio en Drive: se sigue, queda el historial de versiones */ }
+    sigbeRespaldoHoy_(F.asistencia);
     const conflictos = [], bitacora = [], aplicados = [], porSede = {};
     let guardados = 0;
     cambios.forEach(c => {
+      const s = sesiones[claves.indexOf(c.key)];
+      const quien = c.nombre + (claves.length > 1 ? ' · ' + s.clave + ' S' + s.n : '');
       const p = sigbeBuscarPersona_(h.personas, c.cedula, c.nombre);
-      if (!p) { conflictos.push(c.nombre + ' (ya no está en la lista)'); return; }
+      if (!p) { conflictos.push(quien + ' (ya no está en la lista)'); return; }
       const actual = p.valores[s.colAsis - 1];
-      if (actual !== true && actual !== false && actual !== '') { conflictos.push(c.nombre + ' (la celda no es una casilla)'); return; }
-      if ((actual === true) !== (c.anterior === true)) { conflictos.push(c.nombre + ' (alguien la cambió mientras tanto)'); return; }
-      if (c.valor === true && !aplica(p)) { conflictos.push(c.nombre + ' (según el cronograma esa sesión no aplica en ' + p.planta + ')'); return; }
+      if (actual !== true && actual !== false && actual !== '') { conflictos.push(quien + ' (la celda no es una casilla)'); return; }
+      if ((actual === true) !== (c.anterior === true)) { conflictos.push(quien + ' (alguien la cambió mientras tanto)'); return; }
+      if (c.valor === true && !aplica(p, s)) { conflictos.push(quien + ' (según el cronograma esa sesión no aplica en ' + p.planta + ')'); return; }
       if (c.valor === true && /NO HACIA PARTE|NO APLICA/.test(sigbeNorm_(p.valores[s.colFecha - 1]))) {
-        conflictos.push(c.nombre + ' (en la hoja dice "' + String(p.valores[s.colFecha - 1]).trim() + '")'); return;
+        conflictos.push(quien + ' (en la hoja dice "' + String(p.valores[s.colFecha - 1]).trim() + '")'); return;
       }
       sh.getRange(p.fila, s.colAsis).setValue(c.valor === true);
+      p.valores[s.colAsis - 1] = c.valor === true;
       guardados++;
-      const sd = sigbeSede_(p.planta); porSede[sd] = porSede[sd] || { si: 0, no: 0 }; porSede[sd][c.valor === true ? 'si' : 'no']++;
-      aplicados.push({ cedula: c.cedula, nombre: c.nombre, valor: c.valor === true, anterior: actual === true });
+      const sd = sigbeSede_(p.planta), k = s.clave + ' Sesión ' + s.n + (s.titulo ? ' (' + s.titulo + ')' : '');
+      porSede[sd] = porSede[sd] || {}; porSede[sd][k] = porSede[sd][k] || { si: 0, no: 0, n: [] };
+      porSede[sd][k][c.valor === true ? 'si' : 'no']++; porSede[sd][k].n.push(p.nombre);
+      aplicados.push({ key: c.key, cedula: c.cedula, nombre: c.nombre, valor: c.valor === true, anterior: actual === true });
       bitacora.push(['Asistencia', sh.getName(), p.fila, p.cedula, p.nombre, s.clave + ' Sesión ' + s.n,
         actual === true ? 'Asistió' : 'No', c.valor === true ? 'Asistió' : 'No']);
     });
     if (guardados) {
       sigbeTrasGuardar_(F, usuario, bitacora);
-      sigbeNotificar_(usuario, 'Asistencia ' + s.clave + ' Sesión ' + s.n, Object.keys(porSede).map(sd => ({ sede: sd,
-        texto: s.clave + ' Sesión ' + s.n + (s.titulo ? ' (' + s.titulo + ')' : '') + ': ' + porSede[sd].si + ' asistencia(s) registrada(s)' + (porSede[sd].no ? ', ' + porSede[sd].no + ' quitada(s)' : '') })));
+      const eventos = [];
+      Object.keys(porSede).forEach(sd => Object.keys(porSede[sd]).forEach(k => {
+        const x = porSede[sd][k];
+        eventos.push({ sede: sd, texto: k + ': ' + (x.si ? x.si + ' asistencia(s) registrada(s)' : '') + (x.si && x.no ? ', ' : '') + (x.no ? x.no + ' quitada(s)' : '') +
+          (x.n.length <= 3 ? ' — ' + x.n.join(', ') : '') });
+      }));
+      sigbeNotificar_(usuario, claves.length === 1 ? 'Asistencia ' + sesiones[0].clave + ' Sesión ' + sesiones[0].n : 'Asistencia (' + claves.length + ' sesiones)', eventos);
     }
     return {
       exito: true, guardados: guardados, conflictos: conflictos, aplicados: aplicados,
@@ -373,7 +397,7 @@ function registrarBrigadistaNuevo(token, data) {
       .find(p => String(p.c).replace(/\D/g, '') === cedula);
     if (existe) return { exito: false, mensaje: 'La cédula ' + cedula + ' ya está registrada: ' + existe.n + ' (' + existe.p + ').' };
 
-    try { respaldoDelDia_(ss); } catch (e) { /* sigue */ }
+    try { sigbeRespaldoHoy_(ss); } catch (e) { /* sigue */ }
     // Última fila de esa planta (sin contar los TOTAL); si la planta no existe, al final de los datos
     let pos = 0;
     t.filas.forEach(f => { if (sigbeNorm_(f.valores[colPlanta - 1]) === sigbeNorm_(planta)) pos = f.fila; });
@@ -493,7 +517,7 @@ function actualizarBrigadistasLote(token, lista) {
         bitacora.push(['Edición de brigadista', H.sh.getName(), p.fila, p.cedula || nuevo, p.nombre, def.etiqueta, actual, nuevoTexto]);
       });
       if (escrituras.length) {
-        if (!H.respaldo) { try { respaldoDelDia_(H.ss); } catch (e) { /* sigue */ } H.respaldo = true; }
+        if (!H.respaldo) { try { sigbeRespaldoHoy_(H.ss); } catch (e) { /* sigue */ } H.respaldo = true; }
         escrituras.forEach(e => { H.sh.getRange(p.fila, e.c).setValue(e.valor); p.valores[e.c - 1] = e.valor; });
         total += escrituras.length;
       }
@@ -653,7 +677,7 @@ function guardarCronograma(token, lista) {
         if (campo === 'fecha' && nuevo !== '-' && actual === '-') escrituras.push({ blanco: true });
       });
       if (escrituras.length) {
-        if (!respaldo) { try { respaldoDelDia_(F.datos); } catch (e) { /* sigue */ } respaldo = true; }
+        if (!respaldo) { try { sigbeRespaldoHoy_(F.datos); } catch (e) { /* sigue */ } respaldo = true; }
         escrituras.forEach(e => {
           if (e.blanco) {
             const c0 = Math.min.apply(null, cols), c1 = Math.max.apply(null, cols);
@@ -724,8 +748,8 @@ function crearModulo(token, d) {
     const avisos = [];
     const ultima = Math.max.apply(null, h.sesiones.map(s => s.colAsis));
     const fe = h.filaEncabezado, c0 = ultima + 1;
-    try { respaldoDelDia_(F.asistencia); } catch (e) { /* sigue */ }
-    if (F.datos.getId() !== F.asistencia.getId()) { try { respaldoDelDia_(F.datos); } catch (e) { /* sigue */ } }
+    try { sigbeRespaldoHoy_(F.asistencia); } catch (e) { /* sigue */ }
+    if (F.datos.getId() !== F.asistencia.getId()) { try { sigbeRespaldoHoy_(F.datos); } catch (e) { /* sigue */ } }
     const err = sigbeColumnasSesion_(shL, h, ultima, clave, [1, 2], clave + ': ' + nombre, avisos);
     if (err) return { exito: false, mensaje: err };
 
@@ -843,7 +867,7 @@ function agregarSesion(token, d) {
     const cols = Object.keys(ultimo.col).map(k => ultimo.col[k]);
     const c0 = Math.min.apply(null, cols), c1 = Math.max.apply(null, cols), ancho = c1 - c0 + 1; // 0-based
     const avisos = [];
-    try { respaldoDelDia_(F.datos); } catch (e) { /* sigue */ }
+    try { sigbeRespaldoHoy_(F.datos); } catch (e) { /* sigue */ }
 
     // 1) Lista de asistencia: columnas de la sesión N del módulo, si no existen
     let columnas = false;
@@ -855,7 +879,7 @@ function agregarSesion(token, d) {
     for (let k = 1; k <= n; k++) if (!delModulo.some(s => s.n === k)) faltan.push(k);
     if (faltan.length) {
       sigbeExigirEscritura_(F, 'asistencia');
-      if (F.asistencia.getId() !== F.datos.getId()) { try { respaldoDelDia_(F.asistencia); } catch (e) { /* sigue */ } }
+      if (F.asistencia.getId() !== F.datos.getId()) { try { sigbeRespaldoHoy_(F.asistencia); } catch (e) { /* sigue */ } }
       const err = sigbeColumnasSesion_(shL, h, Math.max.apply(null, delModulo.map(s => s.colAsis)), f.clave, faltan, '', avisos);
       if (err) return { exito: false, mensaje: err };
       columnas = true;
@@ -1023,38 +1047,93 @@ function sigbeCorreoDisponible_() {
 /** eventos: [{ sede: 'Teleport' (o '' = todas las sedes), texto }] */
 function sigbeNotificar_(autor, asunto, eventos) {
   if (!eventos || !eventos.length) return 0;
-  let enviados = 0;
+  // No se envía en el momento (tarda y gasta el cupo): se junta y sale un solo resumen por persona unos minutos después
   try {
-    const destinos = [sigbePerfil_(prop_('SIGBE_USUARIO'))].concat(Object.keys(sigbeUsuarios_()).map(sigbePerfil_)).filter(d => d && d.correo && d.avisos && d.usuario !== autor);
+    const props = props_();
+    const cola = sigbeJson_(props.getProperty('SIGBE_AVISOS_COLA'), []);
+    cola.push({ a: autor, s: asunto, t: Date.now(), e: eventos.slice(0, 60) });
+    const txt = JSON.stringify(cola);
+    if (txt.length > 8000) { props.deleteProperty('SIGBE_AVISOS_COLA'); return sigbeEnviarAvisos_(cola); } // muy grande para guardarla: sale ya
+    props.setProperty('SIGBE_AVISOS_COLA', txt);
+    const prog = Number(props.getProperty('SIGBE_AVISOS_PROG')) || 0;
+    if (Date.now() - prog > SIGBE_MINUTOS_AVISOS * 60 * 1000 + 120000) {
+      ScriptApp.newTrigger('sigbeAvisosPendientes').timeBased().after(SIGBE_MINUTOS_AVISOS * 60 * 1000).create();
+      props.setProperty('SIGBE_AVISOS_PROG', String(Date.now()));
+    }
+    return 0;
+  } catch (e) {
+    console.log('Cola de avisos: ' + e.message + ' (se envía ya)');
+    return sigbeEnviarAvisos_([{ a: autor, s: asunto, t: Date.now(), e: eventos }]);
+  }
+}
+
+/** Tarea programada: envía lo que haya en la cola de avisos (también la llama la tarea de cada hora). */
+function sigbeAvisosPendientes() {
+  try {
+    ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'sigbeAvisosPendientes').forEach(t => ScriptApp.deleteTrigger(t));
+  } catch (e) { /* sin permiso de tareas */ }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return 0;
+  let cola;
+  try {
+    const props = props_();
+    cola = sigbeJson_(props.getProperty('SIGBE_AVISOS_COLA'), []);
+    props.deleteProperty('SIGBE_AVISOS_COLA');
+    props.deleteProperty('SIGBE_AVISOS_PROG');
+  } finally { lock.releaseLock(); }
+  return cola.length ? sigbeEnviarAvisos_(cola) : 0;
+}
+
+/** Un correo por persona con todos los cambios de la cola que le tocan (por sus sedes), sin los que hizo ella misma. */
+function sigbeEnviarAvisos_(cola) {
+  let enviados = 0;
+  const autores = [];
+  cola.forEach(x => { if (autores.indexOf(x.a) === -1) autores.push(x.a); });
+  try {
+    const destinos = [sigbePerfil_(prop_('SIGBE_USUARIO'))].concat(Object.keys(sigbeUsuarios_()).map(sigbePerfil_)).filter(d => d && d.correo && d.avisos);
     if (!destinos.length) return 0;
     let url = '';
     try { url = ScriptApp.getService().getUrl() || ''; } catch (e) { /* sin URL */ }
-    const quien = sigbeEtiquetaUsuario_(autor), hora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    const zona = Session.getScriptTimeZone(), hora = t => Utilities.formatDate(new Date(t), zona, 'dd/MM HH:mm');
     const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     destinos.forEach(d => {
-      const mios = eventos.filter(ev => !ev.sede || !d.sedes.length || d.sedes.indexOf(ev.sede) !== -1);
-      if (!mios.length) return;
+      const grupos = cola.filter(x => x.a !== d.usuario).map(x => ({ x: x, ev: x.e.filter(ev => !ev.sede || !d.sedes.length || d.sedes.indexOf(ev.sede) !== -1) }))
+        .filter(g => g.ev.length);
+      if (!grupos.length) return;
       if (MailApp.getRemainingDailyQuota() < 1) throw new Error('se acabó el cupo diario de correos de Google');
-      const lineas = mios.slice(0, 40).map(ev => (ev.sede ? ev.sede + ' · ' : '') + ev.texto);
-      if (mios.length > 40) lineas.push('… y ' + (mios.length - 40) + ' cambio(s) más.');
+      const total = grupos.reduce((n, g) => n + g.ev.length, 0);
+      const asunto = grupos.length === 1 ? grupos[0].x.s : 'Resumen de ' + total + ' cambio(s)';
+      const bloques = grupos.map(g => ({
+        tit: sigbeEtiquetaUsuario_(g.x.a) + ' · ' + hora(g.x.t) + ' · ' + g.x.s,
+        lineas: g.ev.slice(0, 40).map(ev => (ev.sede ? ev.sede + ' · ' : '') + ev.texto).concat(g.ev.length > 40 ? ['… y ' + (g.ev.length - 40) + ' cambio(s) más.'] : []),
+      }));
       MailApp.sendEmail({
         to: d.correo, name: 'SIGBE', subject: 'SIGBE · ' + asunto,
-        body: quien + ' (' + hora + '):\n\n- ' + lineas.join('\n- ') + (url ? '\n\nAbrir SIGBE: ' + url : '') + '\n\nRecibes este aviso por tus sedes en SIGBE.',
-        htmlBody: '<p><b>' + esc(quien) + '</b> · ' + hora + '</p><ul>' + lineas.map(l => '<li>' + esc(l) + '</li>').join('') + '</ul>' +
+        body: bloques.map(b => b.tit + '\n- ' + b.lineas.join('\n- ')).join('\n\n') + (url ? '\n\nAbrir SIGBE: ' + url : '') + '\n\nRecibes este aviso por tus sedes en SIGBE.',
+        htmlBody: bloques.map(b => '<p style="margin-bottom:4px"><b>' + esc(b.tit) + '</b></p><ul style="margin-top:0">' + b.lineas.map(l => '<li>' + esc(l) + '</li>').join('') + '</ul>').join('') +
           (url ? '<p><a href="' + esc(url) + '">Abrir SIGBE</a></p>' : '') + '<p style="color:#777;font-size:12px">Recibes este aviso por tus sedes en SIGBE. El gestor puede cambiarlas o quitar los avisos en Configuración → Usuarios.</p>',
       });
       enviados++;
     });
   } catch (e) {
     console.log('Avisos por correo: ' + e.message);
-    sigbeBitacora_(autor, [['Aviso por correo', '', '', '', '', asunto, '', 'No se pudo enviar: ' + e.message]]);
+    sigbeBitacora_(autores[0] || 'SIGBE', [['Aviso por correo', '', '', '', '', cola.length + ' aviso(s)', '', 'No se pudo enviar: ' + e.message]]);
     return enviados;
   }
-  if (enviados) sigbeBitacora_(autor, [['Aviso por correo', '', '', '', '', asunto, '', enviados + ' correo(s)']]);
+  if (enviados) sigbeBitacora_(autores.length === 1 ? autores[0] : 'SIGBE', [['Aviso por correo', '', '', '', '', cola.map(x => x.s).filter((v, i, a) => a.indexOf(v) === i).slice(0, 5).join('; '), '', enviados + ' correo(s)']]);
   return enviados;
 }
 
-/** PARA EL EDITOR: autoriza el envío de correos y manda uno de prueba al correo del gestor (o a la cuenta dueña). */
+/** Copia de respaldo del día: se mira en Drive una sola vez por día y archivo (mirar tarda). */
+function sigbeRespaldoHoy_(ss) {
+  try {
+    const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'), clave = 'SIGBE_RESP_' + ss.getId();
+    if (prop_(clave) === hoy) return;
+    respaldoDelDia_(ss);
+    props_().setProperty(clave, hoy);
+  } catch (e) { /* sin espacio en Drive: se sigue, queda el historial de versiones */ }
+}
+
 function probarCorreo() {
   const para = prop_('SIGBE_CORREO') || Session.getEffectiveUser().getEmail();
   MailApp.sendEmail({ to: para, name: 'SIGBE', subject: 'SIGBE · prueba de avisos por correo', body: 'Si te llegó este correo, los avisos de SIGBE están funcionando.' });

@@ -119,6 +119,7 @@ function libroNuevoCrear() {
  * directamente en el Excel (los que no se hicieron desde la app). Si algo falla, Google avisa por correo.
  */
 function libroNuevoActualizar() {
+  try { sigbeAvisosPendientes(); } catch (e) { console.log('Avisos pendientes: ' + e.message); } // por si la tarea de 5 minutos no corrió
   const r = lnActualizar_(false);
   let vig = '';
   if (props_().getProperty('LIBRO_NUEVO_CORTE')) {
