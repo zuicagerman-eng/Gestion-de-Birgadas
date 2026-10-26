@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.4.0';
+const SIGBE_VERSION = '4.5.0';
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
 const SIGBE_HOJA_INHOUSE = '2026 Brigadistas INHOUSE';
@@ -312,7 +312,7 @@ function guardarAsistenciaLote(token, key, cambios) {
     };
 
     try { respaldoDelDia_(F.asistencia); } catch (e) { /* sin espacio en Drive: se sigue, queda el historial de versiones */ }
-    const conflictos = [], bitacora = [], aplicados = [];
+    const conflictos = [], bitacora = [], aplicados = [], porSede = {};
     let guardados = 0;
     cambios.forEach(c => {
       const p = sigbeBuscarPersona_(h.personas, c.cedula, c.nombre);
@@ -326,11 +326,16 @@ function guardarAsistenciaLote(token, key, cambios) {
       }
       sh.getRange(p.fila, s.colAsis).setValue(c.valor === true);
       guardados++;
+      const sd = sigbeSede_(p.planta); porSede[sd] = porSede[sd] || { si: 0, no: 0 }; porSede[sd][c.valor === true ? 'si' : 'no']++;
       aplicados.push({ cedula: c.cedula, nombre: c.nombre, valor: c.valor === true, anterior: actual === true });
       bitacora.push(['Asistencia', sh.getName(), p.fila, p.cedula, p.nombre, s.clave + ' Sesión ' + s.n,
         actual === true ? 'Asistió' : 'No', c.valor === true ? 'Asistió' : 'No']);
     });
-    if (guardados) sigbeTrasGuardar_(F, usuario, bitacora);
+    if (guardados) {
+      sigbeTrasGuardar_(F, usuario, bitacora);
+      sigbeNotificar_(usuario, 'Asistencia ' + s.clave + ' Sesión ' + s.n, Object.keys(porSede).map(sd => ({ sede: sd,
+        texto: s.clave + ' Sesión ' + s.n + (s.titulo ? ' (' + s.titulo + ')' : '') + ': ' + porSede[sd].si + ' asistencia(s) registrada(s)' + (porSede[sd].no ? ', ' + porSede[sd].no + ' quitada(s)' : '') })));
+    }
     return {
       exito: true, guardados: guardados, conflictos: conflictos, aplicados: aplicados,
       mensaje: guardados + ' asistencia(s) guardada(s)' + (conflictos.length ? '; ' + conflictos.length + ' no se aplicaron.' : '.'),
@@ -594,7 +599,7 @@ function guardarCronograma(token, lista) {
     sigbeExigirEscritura_(F, 'datos');
     const sh = sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA);
     const crono = sigbeLeerCronograma_(sh);
-    const bitacora = [], resultados = [];
+    const bitacora = [], resultados = [], avisos = [];
     let total = 0, respaldo = false;
     lista.forEach(x => {
       const f = crono.filas.find(r => r.fila === Number(x.fila)), b = crono.bloques[Number(x.b)];
@@ -633,6 +638,9 @@ function guardarCronograma(token, lista) {
           if (opciones && opciones.indexOf(nuevo) === -1) { rechazos.push('Estado: "' + nuevo + '" no está en las opciones de la hoja (' + opciones.join(', ') + ')'); return; }
         }
         escrituras.push({ c: c, valor: def.fecha && nuevoTexto && nuevoTexto !== '-' ? sigbeFecha_(nuevo) : nuevo, fecha: def.fecha && nuevoTexto && nuevoTexto !== '-' });
+        if (campo === 'fecha' || campo === 'ambipar' || campo === 'estado') avisos.push({ sede: sigbeSede_(b.nombre),
+          texto: (f.clave ? f.clave + ' · ' : '') + f.nombre + ' · ' + b.nombre + ' ' + b.sesion + ': ' + (campo === 'fecha' ? 'Fecha Holcim' : def.etiqueta) + ' ' +
+            (actual === '-' ? 'No aplica' : actual || '(vacío)') + ' → ' + (nuevoTexto === '-' ? 'No aplica' : nuevoTexto || '(vacío)') });
         // Mismos textos que usa la revisión de cambios del Excel, para que no los anote como hechos en el Excel
         if (campo === 'fecha') {
           if (nuevo === '-') bitacora.push(['Cronograma', sh.getName(), f.fila, '', '', 'No aplica · ' + donde, actual || '(sin fecha)', 'No aplica']);
@@ -661,6 +669,7 @@ function guardarCronograma(token, lista) {
         mensaje: escrituras.length ? donde + ': guardado' + (rechazos.length ? '. No se aplicó: ' + rechazos.join('; ') : '.') : (rechazos.length ? donde + ': ' + rechazos.join('; ') : donde + ': no había cambios.') });
     });
     if (bitacora.length) sigbeTrasGuardar_(F, usuario, bitacora, true);
+    if (avisos.length) sigbeNotificar_(usuario, 'Cambios en el cronograma', avisos);
     const conRechazos = resultados.filter(r => !r.exito || (r.rechazos && r.rechazos.length));
     return { exito: true, guardados: total, resultados: resultados,
       mensaje: total + ' dato(s) del cronograma guardado(s)' + (conRechazos.length ? '; ' + conRechazos.length + ' sesión(es) con algo que no se aplicó.' : '.') };
@@ -753,6 +762,7 @@ function crearModulo(token, d) {
       return { exito: false, mensaje: 'Se crearon las columnas de ' + clave + ' en la lista, pero no la fila del cronograma (' + e.message + '). Agrégala a mano con el texto "' + nombre + ' (' + clave + ')".' };
     }
     sigbeTrasGuardar_(F, usuario, [['Nuevo módulo', shL.getName() + ' / ' + shC.getName(), fila, '', '', clave + ': ' + nombre + ' (' + (lineas.length ? lineas.join(', ') : existente ? existente.prefijo : 'todas las líneas') + ')', '', 'Creado']], true);
+    sigbeNotificar_(usuario, 'Nuevo módulo ' + clave, [{ sede: '', texto: 'Nuevo módulo ' + clave + ': ' + nombre + ' (' + (lineas.length ? 'líneas ' + lineas.join(', ') : existente ? existente.prefijo : 'todas las líneas') + '). Falta ponerle las fechas por planta en el Cronograma.' }]);
     return { exito: true, clave: clave, nombre: nombre, avisos: avisos,
       mensaje: 'Módulo ' + clave + ' creado: "' + nombre + '". Ahora ponle las fechas por planta en el Cronograma.' + (avisos.length ? ' ' + avisos.join(' ') : '') };
   } catch (e) {
@@ -877,6 +887,8 @@ function agregarSesion(token, d) {
     const bit = [['Nueva sesión', shC.getName(), f.fila, '', '', f.clave + ' · ' + donde + (columnas ? ' (con columnas nuevas en la lista)' : ''), '', 'Creada']];
     if (d.fecha) bit.push(['Cronograma', shC.getName(), f.fila, '', '', 'Fecha · ' + donde, '(sin fecha)', d.fecha.split('-').reverse().join('/')]);
     sigbeTrasGuardar_(F, usuario, bit, true);
+    sigbeNotificar_(usuario, 'Nueva sesión ' + f.clave + ' en ' + d.pl, [{ sede: sigbeSede_(d.pl),
+      texto: 'Nueva ' + ses + ' de ' + f.clave + ' · ' + f.nombre + ' en ' + d.pl + (d.fecha ? ': Fecha Holcim ' + d.fecha.split('-').reverse().join('/') : ': sin fecha todavía') + (d.estado ? ' · ' + d.estado : '') }]);
     return { exito: true, sesion: n, columnas: columnas, avisos: avisos,
       mensaje: 'Se creó la ' + ses + ' de ' + f.clave + ' en ' + d.pl + '.' + (columnas ? ' La lista de asistencia ya tiene sus columnas.' : '') + (avisos.length ? ' ' + avisos.join(' ') : '') };
   } catch (e) {
@@ -1058,6 +1070,56 @@ function guardarIndicador(token, cambios) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ═════════════════════════════ AVISOS POR CORREO ═════════════════════════════
+// Cuando alguien crea un módulo o una sesión, pone o cambia una fecha o un estado, o toma asistencia, les llega un correo
+// a los usuarios con correo y avisos activos de esa sede (Holcim, Ambipar y el gestor), menos a quien hizo el cambio.
+// Usuarios sin sedes = todas. Se envía con la cuenta que ejecuta la app (MailApp): un correo por persona y cambio.
+
+function sigbeCorreoDisponible_() {
+  try { return MailApp.getRemainingDailyQuota() > 0; } catch (e) { return false; }
+}
+
+/** eventos: [{ sede: 'Teleport' (o '' = todas las sedes), texto }] */
+function sigbeNotificar_(autor, asunto, eventos) {
+  if (!eventos || !eventos.length) return 0;
+  let enviados = 0;
+  try {
+    const destinos = [sigbePerfil_(prop_('SIGBE_USUARIO'))].concat(Object.keys(sigbeUsuarios_()).map(sigbePerfil_)).filter(d => d && d.correo && d.avisos && d.usuario !== autor);
+    if (!destinos.length) return 0;
+    let url = '';
+    try { url = ScriptApp.getService().getUrl() || ''; } catch (e) { /* sin URL */ }
+    const quien = sigbeEtiquetaUsuario_(autor), hora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+    const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    destinos.forEach(d => {
+      const mios = eventos.filter(ev => !ev.sede || !d.sedes.length || d.sedes.indexOf(ev.sede) !== -1);
+      if (!mios.length) return;
+      if (MailApp.getRemainingDailyQuota() < 1) throw new Error('se acabó el cupo diario de correos de Google');
+      const lineas = mios.slice(0, 40).map(ev => (ev.sede ? ev.sede + ' · ' : '') + ev.texto);
+      if (mios.length > 40) lineas.push('… y ' + (mios.length - 40) + ' cambio(s) más.');
+      MailApp.sendEmail({
+        to: d.correo, name: 'SIGBE', subject: 'SIGBE · ' + asunto,
+        body: quien + ' (' + hora + '):\n\n- ' + lineas.join('\n- ') + (url ? '\n\nAbrir SIGBE: ' + url : '') + '\n\nRecibes este aviso por tus sedes en SIGBE.',
+        htmlBody: '<p><b>' + esc(quien) + '</b> · ' + hora + '</p><ul>' + lineas.map(l => '<li>' + esc(l) + '</li>').join('') + '</ul>' +
+          (url ? '<p><a href="' + esc(url) + '">Abrir SIGBE</a></p>' : '') + '<p style="color:#777;font-size:12px">Recibes este aviso por tus sedes en SIGBE. El gestor puede cambiarlas o quitar los avisos en Configuración → Usuarios.</p>',
+      });
+      enviados++;
+    });
+  } catch (e) {
+    console.log('Avisos por correo: ' + e.message);
+    sigbeBitacora_(autor, [['Aviso por correo', '', '', '', '', asunto, '', 'No se pudo enviar: ' + e.message]]);
+    return enviados;
+  }
+  if (enviados) sigbeBitacora_(autor, [['Aviso por correo', '', '', '', '', asunto, '', enviados + ' correo(s)']]);
+  return enviados;
+}
+
+/** PARA EL EDITOR: autoriza el envío de correos y manda uno de prueba al correo del gestor (o a la cuenta dueña). */
+function probarCorreo() {
+  const para = prop_('SIGBE_CORREO') || Session.getEffectiveUser().getEmail();
+  MailApp.sendEmail({ to: para, name: 'SIGBE', subject: 'SIGBE · prueba de avisos por correo', body: 'Si te llegó este correo, los avisos de SIGBE están funcionando.' });
+  return lnMostrar_('Correo de prueba enviado a ' + para + '. Cupo restante hoy: ' + MailApp.getRemainingDailyQuota() + '.');
 }
 
 /** Después de guardar: historial, caché nueva y actualización rápida del libro nuevo. */
@@ -1442,10 +1504,13 @@ function validarLoginAdmin(usuario, clave) {
   if (!u || !hash) return { exito: false, mensaje: 'Falta configurar el usuario y la clave (Propiedades del script SIGBE_USUARIO y SIGBE_CLAVE_INICIAL).' };
   const escrito = String(usuario || '').trim();
   let quien = null;
-  if (escrito === u && sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash) quien = u;
-  else {
-    const x = sigbeUsuarios_()[escrito.toLowerCase()];
-    if (x && x.activo !== false && sigbeHash_(clave, x.sal) === x.hash) quien = escrito.toLowerCase();
+  const e = escrito.toLowerCase(), lista = sigbeUsuarios_();
+  const principal = escrito === u || (e.indexOf('@') !== -1 && e === String(props.getProperty('SIGBE_CORREO') || '').toLowerCase());
+  if (principal && sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash) quien = u;
+  else if (!principal) {
+    const k = lista[e] ? e : Object.keys(lista).find(x => e.indexOf('@') !== -1 && (lista[x].c || '') === e); // usuario o correo
+    const x = k && lista[k];
+    if (x && x.activo !== false && sigbeHash_(clave, x.sal) === x.hash) quien = k;
   }
   sigbeAnotarIngreso_(quien ? ['Ingreso · ' + SIGBE_ROLES[sigbeRol_(quien)], '', quien, '', '', '', '', ''] : ['Intento fallido', '', escrito.slice(0, 40), '', '', '', '', '']);
   if (quien) {
@@ -1505,10 +1570,16 @@ function sigbeUsuarios_() {
 function sigbePerfil_(usuario) {
   if (!usuario) return null;
   const principal = prop_('SIGBE_USUARIO');
-  if (usuario === principal) return { usuario: principal, nombre: prop_('SIGBE_NOMBRE') || principal, org: prop_('SIGBE_ORG') || 'Holcim', principal: true, rol: 'gestor' };
+  if (usuario === principal) return { usuario: principal, nombre: prop_('SIGBE_NOMBRE') || principal, org: prop_('SIGBE_ORG') || 'Holcim', principal: true, rol: 'gestor',
+    correo: prop_('SIGBE_CORREO') || '', sedes: sigbeJson_(prop_('SIGBE_SEDES_GESTOR'), []), avisos: prop_('SIGBE_AVISOS_GESTOR') !== 'no' };
   const x = sigbeUsuarios_()[usuario];
   if (!x || x.activo === false) return null;
-  return { usuario: usuario, nombre: x.n || usuario, org: x.org || '', principal: false, rol: x.org === 'Holcim' ? 'holcim' : 'proveedor' };
+  return { usuario: usuario, nombre: x.n || usuario, org: x.org || '', principal: false, rol: x.org === 'Holcim' ? 'holcim' : 'proveedor',
+    correo: x.c || '', sedes: x.s || [], avisos: x.av !== false };
+}
+
+function sigbeJson_(t, defecto) {
+  try { const v = JSON.parse(t || 'null'); return v === null ? defecto : v; } catch (e) { return defecto; }
 }
 
 /** Cómo aparece quien hizo el cambio en el historial: "usuario (Organización)". */
@@ -1522,8 +1593,10 @@ function getUsuarios(token) {
   const lista = sigbeUsuarios_();
   return {
     yo: yo, orgs: SIGBE_ORGS, roles: SIGBE_ROLES,
-    usuarios: [{ usuario: prop_('SIGBE_USUARIO'), nombre: prop_('SIGBE_NOMBRE') || '', org: prop_('SIGBE_ORG') || 'Holcim', activo: true, principal: true, rol: 'gestor' }]
-      .concat(Object.keys(lista).sort().map(k => ({ usuario: k, nombre: lista[k].n || '', org: lista[k].org || '', activo: lista[k].activo !== false, principal: false, rol: lista[k].org === 'Holcim' ? 'holcim' : 'proveedor' }))),
+    usuarios: [Object.assign(sigbePerfil_(prop_('SIGBE_USUARIO')), { nombre: prop_('SIGBE_NOMBRE') || '', activo: true })]
+      .concat(Object.keys(lista).sort().map(k => ({ usuario: k, nombre: lista[k].n || '', org: lista[k].org || '', activo: lista[k].activo !== false, principal: false,
+        rol: lista[k].org === 'Holcim' ? 'holcim' : 'proveedor', correo: lista[k].c || '', sedes: lista[k].s || [], avisos: lista[k].av !== false }))),
+    correoActivo: sigbeCorreoDisponible_(),
   };
 }
 
@@ -1536,9 +1609,17 @@ function guardarUsuario(token, d) {
     if (!lock.tryLock(10000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
     const org = SIGBE_ORGS.indexOf(d.org) !== -1 ? d.org : 'Ambipar';
     const nombre = String(d.nombre || '').trim().slice(0, 60);
-    if (d.usuario === yo.usuario) { // el principal solo cambia su nombre y organización aquí
-      props_().setProperties({ SIGBE_NOMBRE: nombre, SIGBE_ORG: org });
-      sigbeBitacora_(yo.usuario, [['Usuarios', 'Propiedades del script', '', '', '', 'Datos de ' + yo.usuario, '', nombre + ' · ' + org]]);
+    const correo = String(d.correo || '').trim().toLowerCase();
+    if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { exito: false, mensaje: 'El correo no es válido.' };
+    const lista0 = sigbeUsuarios_();
+    const otroConCorreo = correo && ((correo === String(prop_('SIGBE_CORREO') || '').toLowerCase() && d.usuario !== yo.usuario) ||
+      Object.keys(lista0).some(k => k !== String(d.usuario || '').toLowerCase() && (lista0[k].c || '') === correo));
+    if (otroConCorreo) return { exito: false, mensaje: 'Ese correo ya lo tiene otro usuario.' };
+    const sedes = (d.sedes || []).map(String).filter(String).slice(0, 30);
+    const avisos = d.avisos !== false;
+    if (d.usuario === yo.usuario) { // el principal cambia aquí su nombre, correo, sedes y avisos
+      props_().setProperties({ SIGBE_NOMBRE: nombre, SIGBE_ORG: 'Holcim', SIGBE_CORREO: correo, SIGBE_SEDES_GESTOR: JSON.stringify(sedes), SIGBE_AVISOS_GESTOR: avisos ? 'si' : 'no' });
+      sigbeBitacora_(yo.usuario, [['Usuarios', 'Propiedades del script', '', '', '', 'Datos de ' + yo.usuario, '', [nombre, correo, sedes.join(', ') || 'todas las sedes', avisos ? 'recibe avisos' : 'sin avisos'].filter(String).join(' · ')]]);
       return { exito: true, mensaje: 'Datos actualizados.' };
     }
     const u = String(d.usuario || '').trim().toLowerCase();
@@ -1555,7 +1636,10 @@ function guardarUsuario(token, d) {
       cambios.push(d.nuevo ? 'Usuario creado' : 'Clave restablecida');
     } else if (d.nuevo) return { exito: false, mensaje: 'Ponle una clave inicial (mínimo 8 caracteres).' };
     if ((x.n || '') !== nombre) { cambios.push('Nombre: ' + nombre); x.n = nombre; }
-    if ((x.org || '') !== org) { cambios.push('Organización: ' + org); x.org = org; }
+    if ((x.org || '') !== org) { cambios.push('Tipo: ' + org); x.org = org; }
+    if ((x.c || '') !== correo) { cambios.push('Correo: ' + (correo || '(sin correo)')); x.c = correo; }
+    if (JSON.stringify(x.s || []) !== JSON.stringify(sedes)) { cambios.push('Sedes: ' + (sedes.join(', ') || 'todas')); x.s = sedes; }
+    if ((x.av !== false) !== avisos) { cambios.push(avisos ? 'Recibe avisos' : 'Sin avisos'); x.av = avisos; }
     const activo = d.activo !== false;
     if ((x.activo !== false) !== activo || d.nuevo) { if (!d.nuevo) cambios.push(activo ? 'Activado' : 'Desactivado'); x.activo = activo; }
     lista[u] = x;

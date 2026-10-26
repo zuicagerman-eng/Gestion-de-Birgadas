@@ -90,6 +90,19 @@ generada), les pone una clave nueva, los desactiva o los elimina. Las claves se 
 al instante. El historial muestra quién hizo cada cambio, p. ej. `ambipar (Ambipar)`. Los permisos se revisan en el
 servidor, no solo en la pantalla.
 
+## Correos y avisos
+
+Cada usuario tiene **correo** (sirve también para entrar: usuario o correo, con la misma clave) y **sedes** (las de la app,
+que ya unifican los nombres de las hojas: p. ej. Valle = RMX - Valle, Palmira y Calisur; ninguna = todas). Al entrar, la app
+muestra sus sedes. Cuando alguien **crea un módulo o una sesión, pone o cambia la Fecha Holcim, la Fecha Ambipar o el estado
+de una sesión, o toma asistencia**, les llega un correo a los usuarios con correo y "Recibe avisos" de esa sede (Holcim,
+Ambipar y el gestor), menos a quien hizo el cambio. Un módulo nuevo avisa a todas las sedes. Cada envío queda en el
+historial ("Aviso por correo").
+
+Los correos salen de la cuenta que ejecuta la app (MailApp). Para autorizarlos, el dueño ejecuta una vez **probarCorreo**
+en el editor (manda un correo de prueba). Google limita los envíos por día (unos 100 en cuentas Gmail personales, 1.500 en
+Google Workspace): se manda un correo por persona y por guardado, no uno por dato.
+
 ## Dónde queda lo que se programa
 
 En las mismas pestañas de siempre: el cronograma y la lista "2026 Brigadistas HOLCIM". Hasta el corte se escribe en

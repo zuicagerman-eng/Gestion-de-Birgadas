@@ -427,7 +427,7 @@
                 <div><h1 class="h4 fw-bold mb-0" id="t-ingreso">SIGBE</h1><div class="small text-muted">Sistema de Gestión de Brigadas</div></div>
               </div>
               <form id="form-ingreso">
-                <div class="mb-3"><label class="form-label" for="ing-usuario">Usuario</label><input id="ing-usuario" class="form-control" autocomplete="username" required></div>
+                <div class="mb-3"><label class="form-label" for="ing-usuario">Usuario o correo</label><input id="ing-usuario" class="form-control" autocomplete="username" required></div>
                 <div class="mb-3"><label class="form-label" for="ing-clave">Clave</label><input type="password" id="ing-clave" class="form-control" autocomplete="current-password" required></div>
                 <div class="text-danger small mb-2" id="ing-error" role="alert"></div>
                 <div class="d-grid"><button class="btn btn-primary btn-lg" type="submit"><i class="fa-solid fa-right-to-bracket me-2"></i>Entrar</button></div>
@@ -593,13 +593,20 @@
               <div class="tarjeta p-3 mb-3">
                 <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-users-gear me-2 text-primary"></i>Usuarios</h2>
                 <p class="small text-muted mb-2">Tres tipos de usuario: <b>Gestor</b> (todo, y crea o elimina usuarios) · <b>Holcim</b> (ve y cambia todo, menos usuarios y configuración) · <b>Ambipar – proveedor</b> (toma asistencia y diligencia en el cronograma la Fecha Ambipar, el estado y las observaciones; ve todo, pero no cambia la Fecha Holcim, ni crea módulos o sesiones, ni edita brigadistas o el Indicador). En el historial queda quién hizo cada cambio.</p>
-                <div class="table-responsive"><table class="table table-sm small align-middle mb-2"><thead><tr><th>Usuario</th><th>Nombre</th><th>Tipo</th><th>Estado</th><th></th></tr></thead><tbody id="usr-tabla"></tbody></table></div>
-                <form id="form-usuario" class="row g-2 align-items-end" style="display:none;"><div class="col-12 small fw-semibold">Agregar usuario</div>
-                  <div class="col-sm-6 col-lg-2"><label class="form-label small mb-0" for="usr-usuario">Usuario *</label><input id="usr-usuario" class="form-control form-control-sm" required pattern="[A-Za-z0-9._\-]{3,30}" title="3 a 30 letras o números, sin espacios" placeholder="ambipar" autocomplete="off"></div>
-                  <div class="col-sm-6 col-lg-3"><label class="form-label small mb-0" for="usr-nombre">Nombre</label><input id="usr-nombre" class="form-control form-control-sm" maxlength="60" placeholder="Coordinador Ambipar"></div>
-                  <div class="col-sm-4 col-lg-2"><label class="form-label small mb-0" for="usr-org">Tipo de usuario</label><select id="usr-org" class="form-select form-select-sm"></select></div>
-                  <div class="col-sm-8 col-lg-3"><label class="form-label small mb-0" for="usr-clave">Clave inicial *</label><div class="input-group input-group-sm"><input id="usr-clave" class="form-control" required minlength="8" autocomplete="new-password"><button type="button" class="btn btn-outline-secondary" data-accion="usr-generar" title="Generar otra">↻</button></div></div>
-                  <div class="col-lg-2"><button class="btn btn-sm btn-success w-100" type="submit"><i class="fa-solid fa-user-plus me-1"></i>Agregar</button></div>
+                <div class="table-responsive"><table class="table table-sm small align-middle mb-2"><thead><tr><th>Usuario</th><th>Nombre y correo</th><th>Tipo</th><th>Sedes</th><th>Avisos</th><th>Estado</th><th></th></tr></thead><tbody id="usr-tabla"></tbody></table></div>
+                <div id="usr-sin-correo" class="alert alert-warning small py-2" style="display:none;"><i class="fa-solid fa-envelope-circle-check me-1"></i>Los avisos por correo aún no están autorizados: en el editor de Apps Script ejecuta <b>probarCorreo</b> una vez (te llega un correo de prueba).</div>
+                <form id="form-usuario" class="border rounded p-2 bg-light" style="display:none;">
+                  <div class="small fw-semibold mb-2" id="usr-form-titulo">Agregar usuario</div>
+                  <div class="row g-2 align-items-end">
+                    <div class="col-sm-6 col-lg-2"><label class="form-label small mb-0" for="usr-usuario">Usuario *</label><input id="usr-usuario" class="form-control form-control-sm" required pattern="[A-Za-z0-9._\-]{3,30}" title="3 a 30 letras o números, sin espacios" placeholder="ambipar" autocomplete="off"></div>
+                    <div class="col-sm-6 col-lg-3"><label class="form-label small mb-0" for="usr-nombre">Nombre</label><input id="usr-nombre" class="form-control form-control-sm" maxlength="60" placeholder="Coordinador Ambipar"></div>
+                    <div class="col-sm-6 col-lg-3"><label class="form-label small mb-0" for="usr-correo">Correo (para avisos y para entrar)</label><input type="email" id="usr-correo" class="form-control form-control-sm" maxlength="120" placeholder="nombre@empresa.com"></div>
+                    <div class="col-sm-6 col-lg-4"><label class="form-label small mb-0" for="usr-org">Tipo de usuario</label><select id="usr-org" class="form-select form-select-sm"></select></div>
+                    <div class="col-lg-8"><div class="form-label small mb-1">Sedes <span class="text-muted">(de cuáles recibe avisos; también se muestran al entrar · ninguna marcada = todas)</span></div><div id="usr-sedes" class="d-flex flex-wrap gap-2 small"></div></div>
+                    <div class="col-lg-4"><div class="form-check"><input class="form-check-input" type="checkbox" id="usr-avisos" checked><label class="form-check-label small" for="usr-avisos">Recibe avisos por correo</label></div></div>
+                    <div class="col-sm-8 col-lg-4" id="usr-clave-box"><label class="form-label small mb-0" for="usr-clave">Clave inicial *</label><div class="input-group input-group-sm"><input id="usr-clave" class="form-control" minlength="8" autocomplete="new-password"><button type="button" class="btn btn-outline-secondary" data-accion="usr-generar" title="Generar otra">↻</button></div></div>
+                    <div class="col-lg-4 d-flex gap-2"><button class="btn btn-sm btn-success flex-grow-1" type="submit" id="usr-ok"><i class="fa-solid fa-user-plus me-1"></i>Agregar</button><button class="btn btn-sm btn-outline-secondary" type="button" data-accion="usr-cancelar" id="usr-cancelar" style="display:none;">Cancelar</button></div>
+                  </div>
                 </form>
               </div>
               <div class="row g-3">
@@ -691,7 +698,7 @@
     <div class="modal-dialog modal-dialog-centered modal-sm"><form class="modal-content" id="form-login">
       <div class="modal-header"><h2 class="modal-title h5" id="login-titulo"><i class="fa-solid fa-lock text-primary me-2"></i>Iniciar sesión</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body">
-        <label class="form-label small" for="login-usuario">Usuario</label><input type="text" id="login-usuario" class="form-control mb-2" autocomplete="username" required>
+        <label class="form-label small" for="login-usuario">Usuario o correo</label><input type="text" id="login-usuario" class="form-control mb-2" autocomplete="username" required>
         <label class="form-label small" for="login-clave">Clave</label><input type="password" id="login-clave" class="form-control" autocomplete="current-password" required>
         <div class="text-danger small mt-2" id="login-error" role="alert"></div>
       </div>

@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.4.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.5.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, lecturaPublica: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -14,6 +14,11 @@
     function sufijoSede() { return E.sedes.length ? '_' + E.sedes.join('_') : ''; }
     function textoSedes() { return !E.sedes.length ? 'Todas las sedes' : E.sedes.length <= 2 ? E.sedes.join(', ') : E.sedes.length + ' sedes'; }
     /** Ambipar (proveedor): toma asistencia y diligencia la Fecha Ambipar; no hace cambios de estructura ni de brigadistas. */
+    /** Al entrar, la app muestra las sedes del usuario (si tiene); luego se puede cambiar el filtro. */
+    function sedesDelUsuario() {
+      const s = E.perfil && E.perfil.sedes;
+      if (s && s.length) { E.sedes = s.slice(); guardar('localStorage', 'sigbe_sede', JSON.stringify(E.sedes)); }
+    }
     function esProveedor() { return !!(E.perfil && E.perfil.rol === 'proveedor'); }
     /** true (y avisa) si el usuario es Ambipar y la acción es solo de Holcim. */
     function soloHolcim() { if (!esProveedor()) return false; avisar('Esto lo hace un usuario de Holcim. Con tu usuario de Ambipar puedes tomar asistencia y diligenciar la Fecha Ambipar en el Cronograma.', 'info', 8000); return true; }
@@ -306,6 +311,8 @@
         'usr-activo': () => activarUsuario(d.u, d.v === '1'),
         'usr-quitar': () => eliminarUsuario(d.u),
         'usr-generar': () => { $('usr-clave').value = claveAleatoria(); },
+        'usr-editar': () => formUsuario(d.u),
+        'usr-cancelar': () => formUsuario(null),
         'brig-modo': modoEdicionTabla,
         'brig-guardar': confirmarTabla,
         'brig-descartar': () => { brig.cambios = {}; pintarBrigadistas(); },
@@ -364,6 +371,7 @@
         ocupado(false);
         if (!r.exito) { $('login-error').textContent = r.mensaje; return; }
         E.token = r.token; E.usuario = r.usuario; E.perfil = r.perfil || null; guardar('sessionStorage', 'sigbe_token', r.token);
+        sedesDelUsuario(); if (D) pintarSelectorSede();
         modal('modal-login').hide(); pintarSesion();
         avisar('Sesión iniciada.', 'success', 3000);
         document.body.classList.remove('modo-ingreso');
@@ -1786,13 +1794,41 @@
         const yo = USUARIOS.yo || {};
         const desc = { Holcim: 'Holcim: ve y cambia todo, menos usuarios', Ambipar: 'Ambipar (proveedor): asistencia y Fecha Ambipar' };
         $('usr-org').innerHTML = USUARIOS.orgs.map(o => `<option value="${esc(o)}">${esc(desc[o] || o)}</option>`).join('');
-        $('usr-tabla').innerHTML = USUARIOS.usuarios.map(u => `<tr class="${u.activo ? '' : 'text-muted'}"><td class="fw-semibold">${esc(u.usuario)}${u.usuario === yo.usuario ? ' <span class="small text-muted">(tú)</span>' : ''}</td><td>${esc(u.nombre || '—')}</td>
+        $('usr-sin-correo').style.display = yo.principal && !USUARIOS.correoActivo ? '' : 'none';
+        const sedes = D ? D.sedes : [];
+        $('usr-sedes').innerHTML = sedes.map((sd, k) => `<div class="form-check form-check-inline me-0"><input class="form-check-input" type="checkbox" id="usr-s-${k}" value="${esc(sd)}"><label class="form-check-label" for="usr-s-${k}">${esc(sd)}</label></div>`).join('');
+        $('usr-tabla').innerHTML = USUARIOS.usuarios.map(u => `<tr class="${u.activo ? '' : 'text-muted'}"><td class="fw-semibold">${esc(u.usuario)}${u.usuario === yo.usuario ? ' <span class="small text-muted">(tú)</span>' : ''}</td>
+          <td>${esc(u.nombre || '—')}<div class="small ${u.correo ? 'text-muted' : 'text-danger'}">${u.correo ? esc(u.correo) : 'sin correo: no recibe avisos'}</div></td>
           <td><span class="badge ${u.rol === 'proveedor' ? 'bg-warning-subtle text-warning-emphasis' : u.rol === 'gestor' ? 'text-bg-dark' : 'bg-primary-subtle text-primary-emphasis'}">${esc((USUARIOS.roles || {})[u.rol] || u.org || '—')}</span></td>
-          <td>${u.principal ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}</td>
-          <td class="text-end text-nowrap">${yo.principal && !u.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button><button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
+          <td class="small">${(u.sedes || []).length ? u.sedes.map(esc).join(', ') : '<span class="text-muted">Todas</span>'}</td>
+          <td>${u.avisos && u.correo ? '<i class="fa-solid fa-envelope text-success" title="Recibe avisos"></i>' : '<i class="fa-solid fa-envelope text-muted opacity-50" title="No recibe avisos"></i>'}</td>
+          <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}</td>
+          <td class="text-end text-nowrap">${yo.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-editar" data-u="${esc(u.usuario)}">Editar</button>` : ''}${yo.principal && !u.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button><button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
         $('form-usuario').style.display = yo.principal ? '' : 'none';
-        if (!$('usr-clave').value) $('usr-clave').value = claveAleatoria();
+        formUsuario(null);
       } catch (e) { error(e); }
+    }
+    /** El formulario sirve para agregar (u = null) o editar un usuario. */
+    let usrEditando = null;
+    function formUsuario(u) {
+      usrEditando = u;
+      const x = u ? buscarUsuario(u) : {};
+      $('form-usuario').reset();
+      $('usr-form-titulo').textContent = u ? 'Editar ' + u + (x.principal ? ' (gestor)' : '') : 'Agregar usuario';
+      $('usr-usuario').value = u || ''; $('usr-usuario').readOnly = !!u;
+      $('usr-nombre').value = x.nombre || ''; $('usr-correo').value = x.correo || '';
+      if (x.org) $('usr-org').value = x.org;
+      $('usr-org').disabled = !!x.principal;
+      document.querySelectorAll('#usr-sedes input').forEach(el => { el.checked = (x.sedes || []).indexOf(el.value) !== -1; });
+      $('usr-avisos').checked = u ? x.avisos !== false : true;
+      $('usr-clave-box').style.display = u ? 'none' : ''; $('usr-clave').required = !u; $('usr-clave').value = u ? '' : claveAleatoria();
+      $('usr-ok').innerHTML = u ? '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar cambios' : '<i class="fa-solid fa-user-plus me-1"></i>Agregar';
+      $('usr-cancelar').style.display = u ? '' : 'none';
+      if (u) $('form-usuario').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    function datosFormUsuario() {
+      return { usuario: $('usr-usuario').value.trim().toLowerCase(), nombre: $('usr-nombre').value.trim(), org: $('usr-org').value, correo: $('usr-correo').value.trim(),
+        sedes: [...document.querySelectorAll('#usr-sedes input:checked')].map(el => el.value), avisos: $('usr-avisos').checked };
     }
     function claveAleatoria() {
       const a = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789', r = new Uint32Array(12);
@@ -1811,19 +1847,22 @@
     }
     async function nuevoUsuario(ev) {
       if (ev && ev.preventDefault) ev.preventDefault();
-      const d = { nuevo: true, usuario: $('usr-usuario').value.trim().toLowerCase(), nombre: $('usr-nombre').value.trim(), org: $('usr-org').value, clave: $('usr-clave').value };
-      if (await usuarioApi(d, true)) { $('form-usuario').reset(); $('usr-clave').value = claveAleatoria(); }
+      const d = datosFormUsuario();
+      if (d.avisos && !d.correo) return avisar('Ponle correo para que reciba los avisos (o desmarca "Recibe avisos por correo").', 'warning', 8000);
+      if (usrEditando) { const x = buscarUsuario(usrEditando); d.usuario = usrEditando; d.activo = x.activo; if (x.principal) d.org = 'Holcim'; await usuarioApi(d); return; }
+      d.nuevo = true; d.clave = $('usr-clave').value;
+      await usuarioApi(d, true);
     }
     function buscarUsuario(u) { return (USUARIOS && USUARIOS.usuarios.find(x => x.usuario === u)) || {}; }
     function restablecerClave(u) {
       if (!confirm('¿Generar una clave nueva para "' + u + '"? La anterior deja de servir.')) return;
       const x = buscarUsuario(u);
-      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, activo: x.activo, clave: claveAleatoria() }, true);
+      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, correo: x.correo, sedes: x.sedes, avisos: x.avisos, activo: x.activo, clave: claveAleatoria() }, true);
     }
     function activarUsuario(u, activo) {
       if (!activo && !confirm('¿Desactivar a "' + u + '"? No podrá entrar hasta que lo actives de nuevo.')) return;
       const x = buscarUsuario(u);
-      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, activo: activo });
+      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, correo: x.correo, sedes: x.sedes, avisos: x.avisos, activo: activo });
     }
     async function eliminarUsuario(u) {
       if (!confirm('¿Eliminar al usuario "' + u + '"? Lo que hizo sigue en el historial.')) return;
@@ -1848,6 +1887,7 @@
         ocupado(false);
         if (!r.exito) { $('ing-error').textContent = r.mensaje; return; }
         E.token = r.token; E.usuario = r.usuario; E.perfil = r.perfil || null; guardar('sessionStorage', 'sigbe_token', r.token);
+        sedesDelUsuario();
         document.body.classList.remove('modo-ingreso');
         pintarSesion();
         E.vista = 'inicio';
