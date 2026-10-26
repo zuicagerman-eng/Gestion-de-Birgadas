@@ -618,7 +618,7 @@
                     <div class="col-sm-6 col-lg-4"><label class="form-label small mb-0" for="usr-org">Tipo de usuario</label><select id="usr-org" class="form-select form-select-sm"></select></div>
                     <div class="col-lg-8"><div class="form-label small mb-1">Sedes <span class="text-muted">(de cuáles recibe avisos; también se muestran al entrar · ninguna marcada = todas)</span></div><div id="usr-sedes" class="d-flex flex-wrap gap-2 small"></div></div>
                     <div class="col-lg-4"><div class="form-check"><input class="form-check-input" type="checkbox" id="usr-avisos" checked><label class="form-check-label small" for="usr-avisos">Recibe avisos por correo</label></div></div>
-                    <div class="col-sm-8 col-lg-4" id="usr-clave-box"><label class="form-label small mb-0" for="usr-clave">Clave inicial *</label><div class="input-group input-group-sm"><input id="usr-clave" class="form-control" minlength="8" autocomplete="new-password"><button type="button" class="btn btn-outline-secondary" data-accion="usr-generar" title="Generar otra">↻</button></div></div>
+                    <div class="col-sm-8 col-lg-4" id="usr-clave-box"><label class="form-label small mb-0" for="usr-clave">Clave temporal * <span class="text-muted">(le llega por correo)</span></label><div class="input-group input-group-sm"><input id="usr-clave" class="form-control" minlength="8" autocomplete="new-password"><button type="button" class="btn btn-outline-secondary" data-accion="usr-generar" title="Generar otra">↻</button></div></div>
                     <div class="col-lg-4 d-flex gap-2"><button class="btn btn-sm btn-success flex-grow-1" type="submit" id="usr-ok"><i class="fa-solid fa-user-plus me-1"></i>Agregar</button><button class="btn btn-sm btn-outline-secondary" type="button" data-accion="usr-cancelar" id="usr-cancelar" style="display:none;">Cancelar</button></div>
                   </div>
                 </form>
@@ -646,6 +646,7 @@
                 </div>
                 <div class="col-lg-6"><div class="tarjeta p-3 h-100">
                   <h2 class="h6 fw-bold mb-3"><i class="fa-solid fa-key me-2 text-primary"></i>Mi usuario y clave</h2>
+                  <div id="clave-temporal" class="alert alert-warning small py-2" style="display:none"><i class="fa-solid fa-triangle-exclamation me-1"></i>Entraste con una <b>clave temporal</b>. Escríbela en "Clave actual" y elige una clave nueva para seguir usando SIGBE.</div>
                   <form id="form-clave">
                     <div class="row g-2">
                       <div class="col-sm-6"><label class="form-label small mb-0" for="clave-usuario">Usuario</label><input id="clave-usuario" class="form-control form-control-sm" autocomplete="username"></div>
@@ -658,7 +659,7 @@
                 </div></div>
                 <div class="col-lg-6"><div class="tarjeta p-3 h-100">
                   <h2 class="h6 fw-bold mb-2"><i class="fa-solid fa-box-archive me-2 text-primary"></i>Respaldos</h2>
-                  <p class="small text-muted mb-2">Antes del primer cambio de cada día desde la app se guarda una copia completa del archivo en la carpeta <i id="conf-carpeta"></i> (30 días). Para recuperar algo, abre la copia y copia lo que necesites. También está el historial de versiones de Google.</p>
+                  <p class="small text-muted mb-2">Cada día la tarea automática guarda una copia completa de los archivos en la carpeta <i id="conf-carpeta"></i> (30 días; si un día no corrió, la hace el primer guardado). Para recuperar algo, abre la copia y copia lo que necesites. También está el historial de versiones de Google.</p>
                   <div class="table-responsive" style="max-height: 230px;"><table class="table table-sm small mb-0"><thead><tr><th>Fecha</th><th>Archivo</th><th></th></tr></thead><tbody id="conf-respaldos"></tbody></table></div>
                 </div></div>
               </div>

@@ -89,9 +89,12 @@ cada intento fallido quedan en la pestaña **"Ingresos SIGBE"** y se ven en **Re
 | **Holcim** | Ve y cambia todo: asistencia, cronograma (fecha Holcim y Ambipar), módulos, sesiones, brigadistas, Indicador, traer faltantes. No administra usuarios ni la configuración. |
 | **Ambipar (proveedor)** | Ve todo (también datos personales). Toma asistencia y diligencia en el cronograma la **Fecha Ambipar**, el estado, las observaciones y el # de brigadistas. No cambia la Fecha Holcim ni crea módulos o sesiones, ni edita brigadistas o el Indicador. |
 
-El gestor crea los usuarios en **Configuración → Usuarios administradores** (usuario, nombre, tipo y clave inicial
-generada), les pone una clave nueva, los desactiva o los elimina. Las claves se guardan cifradas con sal en
-`SIGBE_USUARIOS`. Cada uno cambia su clave en **Mi usuario y clave**. Un usuario desactivado o eliminado pierde la sesión
+El gestor crea los usuarios en **Configuración → Usuarios** (usuario, nombre, correo, tipo, sedes y una clave temporal
+generada), les pone una clave nueva, los desactiva o los elimina. **La clave temporal le llega al usuario por correo**
+(al crearlo y con *Nueva clave*); no queda guardada en ningún lado ni en el historial. Si no tiene correo o el envío
+falla, la app se la muestra al gestor una sola vez para que se la pase en privado. Quien entra con una clave temporal va
+directo a **Mi usuario y clave** y no puede usar otra pantalla hasta cambiarla (la tabla de usuarios muestra *clave
+temporal* mientras tanto). Las claves se guardan cifradas con sal en `SIGBE_USUARIOS`. Un usuario desactivado o eliminado pierde la sesión
 al instante. El historial muestra quién hizo cada cambio, p. ej. `ambipar (Ambipar)`. Los permisos se revisan en el
 servidor, no solo en la pantalla.
 

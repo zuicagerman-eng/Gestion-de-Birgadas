@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.8.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.8.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -282,6 +282,11 @@
     }
     function ir(vista) {
       if (!E.listo && vista !== 'setup' && vista !== 'ayuda') vista = 'setup';
+      // Con la clave temporal que envió el gestor, primero hay que cambiarla
+      if (E.listo && E.perfil && E.perfil.claveTemporal && vista !== 'configuracion' && vista !== 'ayuda') {
+        vista = 'configuracion';
+        avisar('Entraste con una clave temporal: cámbiala para seguir.', 'warning', 9000);
+      }
       if (E.vista === 'asistencia' && vista !== 'asistencia' && hayCambios() && !confirm('Tienes cambios de asistencia sin guardar. ¿Salir y descartarlos?')) return;
       if (vista !== 'asistencia') asis.cambios = {};
       if (E.vista === 'brigadistas' && vista !== 'brigadistas' && Object.keys(brig.cambios).length && !confirm('Tienes cambios sin guardar en la tabla de brigadistas. ¿Salir y descartarlos?')) return;
@@ -1777,6 +1782,9 @@
       try {
         conf = await api('getConfiguracion', E.token);
         $('conf-sin-sesion').style.display = 'none'; $('conf-contenido').style.display = 'block';
+        const temporal = !!(E.perfil && E.perfil.claveTemporal);
+        $('clave-temporal').style.display = temporal ? '' : 'none';
+        if (temporal) setTimeout(() => { $('form-clave').scrollIntoView({ block: 'center' }); $('clave-actual').focus(); }, 300);
         const url = id => id ? 'https://docs.google.com/spreadsheets/d/' + id + '/edit' : '';
         const nombre = a => a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nombre)}</a>` : `<span class="text-danger">${esc(a.error || 'Sin configurar')}</span>`;
         $('conf-origen').value = conf.origen.modo === 'ninguno' ? 'NINGUNO' : url(conf.origen.id); $('conf-origen-nombre').innerHTML = conf.origen.modo === 'ninguno' ? 'Sin 1.0' : nombre(conf.origen);
@@ -1833,7 +1841,7 @@
           <td><span class="badge ${u.rol === 'proveedor' ? 'bg-warning-subtle text-warning-emphasis' : u.rol === 'gestor' ? 'text-bg-dark' : 'bg-primary-subtle text-primary-emphasis'}">${esc((USUARIOS.roles || {})[u.rol] || u.org || '—')}</span></td>
           <td class="small">${(u.sedes || []).length ? u.sedes.map(esc).join(', ') : '<span class="text-muted">Todas</span>'}</td>
           <td>${u.avisos && u.correo ? '<i class="fa-solid fa-envelope text-success" title="Recibe avisos"></i>' : '<i class="fa-solid fa-envelope text-muted opacity-50" title="No recibe avisos"></i>'}</td>
-          <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}</td>
+          <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}${u.claveTemporal ? '<div class="small text-warning-emphasis" title="Aún no ha cambiado la clave que se le envió">clave temporal</div>' : ''}</td>
           <td class="text-end text-nowrap">${yo.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-editar" data-u="${esc(u.usuario)}">Editar</button>` : ''}${yo.principal && !u.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button><button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
         $('form-usuario').style.display = yo.principal ? '' : 'none';
         formUsuario(null);
@@ -1871,7 +1879,9 @@
       try {
         const r = await api('guardarUsuario', E.token, d);
         ocupado(false); if (revisarSesion(r)) return false;
-        avisar(esc(r.mensaje) + (r.exito && mostrarClave ? `<div class="mt-2">Clave de <b>${esc(d.usuario)}</b>: <code class="fs-6 user-select-all">${esc(d.clave)}</code><div class="small">Cópiala ahora: no se vuelve a mostrar.</div></div>` : ''), r.exito ? 'success' : 'danger', r.exito && mostrarClave ? 60000 : 9000);
+        // Si la clave le llegó por correo no se muestra aquí; si no se pudo enviar, se muestra para pasársela en privado
+        const verClave = r.exito && mostrarClave && !r.claveEnviada;
+        avisar(esc(r.mensaje) + (verClave ? `<div class="mt-2">Clave de <b>${esc(d.usuario)}</b>: <code class="fs-6 user-select-all">${esc(d.clave)}</code><div class="small">Cópiala ahora: no se vuelve a mostrar.</div></div>` : ''), r.exito ? (mostrarClave && !r.claveEnviada ? 'warning' : 'success') : 'danger', verClave ? 60000 : 12000);
         if (r.exito) cargarUsuarios();
         return r.exito;
       } catch (e) { error(e); return false; }
@@ -1886,8 +1896,8 @@
     }
     function buscarUsuario(u) { return (USUARIOS && USUARIOS.usuarios.find(x => x.usuario === u)) || {}; }
     function restablecerClave(u) {
-      if (!confirm('¿Generar una clave nueva para "' + u + '"? La anterior deja de servir.')) return;
       const x = buscarUsuario(u);
+      if (!confirm('¿Generar una clave nueva para "' + u + '"? La anterior deja de servir.' + (x.correo ? ' Le llegará por correo a ' + x.correo + '.' : ' No tiene correo: tendrás que pasársela tú.'))) return;
       usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, correo: x.correo, sedes: x.sedes, avisos: x.avisos, activo: x.activo, clave: claveAleatoria() }, true);
     }
     function activarUsuario(u, activo) {

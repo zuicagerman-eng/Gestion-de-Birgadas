@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.8.0';
+const SIGBE_VERSION = '4.8.1';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -1675,7 +1675,7 @@ function sigbePerfil_(usuario) {
   const x = sigbeUsuarios_()[usuario];
   if (!x || x.activo === false) return null;
   return { usuario: usuario, nombre: x.n || usuario, org: x.org || '', principal: false, rol: x.org === 'Holcim' ? 'holcim' : 'proveedor',
-    correo: x.c || '', sedes: x.s || [], avisos: x.av !== false };
+    correo: x.c || '', sedes: x.s || [], avisos: x.av !== false, claveTemporal: !!x.tmp };
 }
 
 function sigbeJson_(t, defecto) {
@@ -1695,7 +1695,7 @@ function getUsuarios(token) {
     yo: yo, orgs: SIGBE_ORGS, roles: SIGBE_ROLES,
     usuarios: [Object.assign(sigbePerfil_(prop_('SIGBE_USUARIO')), { nombre: prop_('SIGBE_NOMBRE') || '', activo: true })]
       .concat(Object.keys(lista).sort().map(k => ({ usuario: k, nombre: lista[k].n || '', org: lista[k].org || '', activo: lista[k].activo !== false, principal: false,
-        rol: lista[k].org === 'Holcim' ? 'holcim' : 'proveedor', correo: lista[k].c || '', sedes: lista[k].s || [], avisos: lista[k].av !== false }))),
+        rol: lista[k].org === 'Holcim' ? 'holcim' : 'proveedor', correo: lista[k].c || '', sedes: lista[k].s || [], avisos: lista[k].av !== false, claveTemporal: !!lista[k].tmp }))),
     correoActivo: sigbeCorreoDisponible_(),
   };
 }
@@ -1733,6 +1733,7 @@ function guardarUsuario(token, d) {
     if (d.clave) {
       if (String(d.clave).length < 8) return { exito: false, mensaje: 'La clave debe tener al menos 8 caracteres.' };
       x.sal = Utilities.getUuid(); x.hash = sigbeHash_(d.clave, x.sal);
+      x.tmp = true; // clave puesta por el gestor: al entrar se le pide cambiarla
       cambios.push(d.nuevo ? 'Usuario creado' : 'Clave restablecida');
     } else if (d.nuevo) return { exito: false, mensaje: 'Ponle una clave inicial (mínimo 8 caracteres).' };
     if ((x.n || '') !== nombre) { cambios.push('Nombre: ' + nombre); x.n = nombre; }
@@ -1744,12 +1745,45 @@ function guardarUsuario(token, d) {
     if ((x.activo !== false) !== activo || d.nuevo) { if (!d.nuevo) cambios.push(activo ? 'Activado' : 'Desactivado'); x.activo = activo; }
     lista[u] = x;
     props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
+    // La clave temporal le llega al usuario por correo (no se guarda en ningún lado ni queda en el historial)
+    let envio = null;
+    if (d.clave) envio = x.c ? sigbeEnviarClave_(u, x, d.clave, !!d.nuevo) : { ok: false, motivo: 'no tiene correo' };
+    if (envio) cambios.push(envio.ok ? 'Clave enviada a ' + x.c : 'Clave NO enviada por correo (' + envio.motivo + ')');
     if (cambios.length) sigbeBitacora_(yo.usuario, [['Usuarios', 'Propiedades del script', '', '', '', 'Usuario ' + u + ' (' + org + ')', '', cambios.join(' · ')]]);
-    return { exito: true, mensaje: d.nuevo ? 'Usuario "' + u + '" creado. Pásale la clave por un medio privado y pídele que la cambie al entrar.' : (cambios.length ? 'Guardado: ' + cambios.join(' · ') : 'No había cambios.') };
+    const como = envio && envio.ok ? ' Le llegó un correo a ' + x.c + ' con la clave temporal; al entrar, la app le pide cambiarla.'
+      : envio ? ' No se pudo enviar la clave por correo (' + envio.motivo + '): pásasela por un medio privado; al entrar, la app le pide cambiarla.' : '';
+    return { exito: true, claveEnviada: !!(envio && envio.ok),
+      mensaje: (d.nuevo ? 'Usuario "' + u + '" creado.' : d.clave ? 'Clave nueva para "' + u + '".' : cambios.length ? 'Guardado: ' + cambios.join(' · ') : 'No había cambios.') + como };
   } catch (e) {
     return { exito: false, mensaje: e.message };
   } finally {
     lock.releaseLock();
+  }
+}
+
+/** Correo con el usuario y la clave temporal. → { ok, motivo } */
+function sigbeEnviarClave_(usuario, x, clave, nuevo) {
+  try {
+    if (MailApp.getRemainingDailyQuota() < 1) return { ok: false, motivo: 'se acabó el cupo diario de correos de Google' };
+    let url = '';
+    try { url = ScriptApp.getService().getUrl() || ''; } catch (e) { /* sin URL */ }
+    const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const hola = 'Hola' + (x.n ? ' ' + x.n : '') + ',';
+    const intro = nuevo ? 'te crearon un usuario en SIGBE (gestión de brigadas).' : 'te asignaron una clave nueva en SIGBE (gestión de brigadas).';
+    MailApp.sendEmail({
+      to: x.c, name: 'SIGBE', subject: 'SIGBE · ' + (nuevo ? 'Tu usuario y clave temporal' : 'Tu clave temporal'),
+      body: hola + '\n\n' + intro + '\n\nUsuario: ' + usuario + ' (también puedes entrar con este correo)\nClave temporal: ' + clave +
+        (url ? '\n\nEntrar: ' + url : '') + '\n\nAl entrar, la app te pide cambiar la clave. Si no esperabas este correo, avísale al gestor de SIGBE.',
+      htmlBody: '<p>' + esc(hola) + '</p><p>' + esc(intro) + '</p>' +
+        '<table style="border-collapse:collapse"><tr><td style="padding:2px 12px 2px 0;color:#555">Usuario</td><td><b>' + esc(usuario) + '</b> <span style="color:#777">(también puedes entrar con este correo)</span></td></tr>' +
+        '<tr><td style="padding:2px 12px 2px 0;color:#555">Clave temporal</td><td><code style="font-size:16px;background:#f1f3f5;padding:2px 6px;border-radius:4px">' + esc(clave) + '</code></td></tr></table>' +
+        (url ? '<p><a href="' + esc(url) + '" style="display:inline-block;background:#1971c2;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none">Entrar a SIGBE</a></p>' : '') +
+        '<p style="color:#555">Al entrar, la app te pide cambiar la clave.</p><p style="color:#777;font-size:12px">Si no esperabas este correo, avísale al gestor de SIGBE.</p>',
+    });
+    return { ok: true };
+  } catch (e) {
+    console.log('Clave por correo: ' + e.message);
+    return { ok: false, motivo: e.message };
   }
 }
 
@@ -1986,7 +2020,9 @@ function sigbeCambiarClave_(token, yo, claveActual, usuarioNuevo, claveNueva) {
     const lista = sigbeUsuarios_(), x = lista[yo];
     if (!x || sigbeHash_(claveActual, x.sal) !== x.hash) return { exito: false, mensaje: 'La clave actual no es correcta.' };
     if (String(claveNueva || '').length < 8) return { exito: false, mensaje: 'La clave debe tener al menos 8 caracteres.' };
+    if (claveNueva === claveActual) return { exito: false, mensaje: 'La clave nueva debe ser distinta de la actual.' };
     x.sal = Utilities.getUuid(); x.hash = sigbeHash_(claveNueva, x.sal);
+    delete x.tmp; // ya no es la temporal que puso el gestor
     props.setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
     sigbeBitacora_(yo, [['Usuarios', 'Propiedades del script', '', '', '', 'Usuario ' + yo, '', 'Cambió su clave']]);
     CacheService.getScriptCache().remove('sigbe_sesion_' + token);
