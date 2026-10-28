@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.9.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.10.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -1852,9 +1852,9 @@
         $('conf-corte').innerHTML = conf.corte ? '<i class="fa-solid fa-scissors me-1"></i>Corte hecho el ' + esc(conf.corte) + '. El 1.0 y el 2.0 ya no se usan.' : '<i class="fa-solid fa-scissors me-1"></i>Sin corte todavía. El corte se hace desde el editor con libroNuevoCorte.';
         $('conf-horas').value = String(conf.automatica.cadaHoras || 1);
         $('conf-auto-estado').innerHTML = conf.automatica.activa ? `<span class="punto punto-ok"></span>Activa cada ${conf.automatica.cadaHoras} hora(s).` : '<span class="punto punto-aviso"></span>Apagada.';
-        const principal = !!(E.perfil && E.perfil.principal), deGestor = !!(E.perfil && E.perfil.claveGestor);
+        const principal = !!(E.perfil && E.perfil.principal), deGestor = !!(E.perfil && E.perfil.claveGestor), deGstor = !!(E.perfil && E.perfil.claveGstor);
         $('clave-usuario').value = principal ? conf.usuario : E.usuario; $('clave-usuario').disabled = !principal;
-        $('form-clave').style.display = deGestor ? 'none' : ''; $('clave-de-gestor').style.display = deGestor ? '' : 'none';
+        $('form-clave').style.display = deGestor || deGstor ? 'none' : ''; $('clave-de-gestor').style.display = deGestor ? '' : 'none'; $('clave-de-gstor').style.display = deGstor ? '' : 'none';
         $('clave-holcim-nota').style.display = principal ? '' : 'none';
         document.querySelectorAll('#v-configuracion .conf-principal input, #v-configuracion .conf-principal select, #v-configuracion .conf-principal button').forEach(el => { el.disabled = !principal; });
         $('conf-no-principal').style.display = principal ? 'none' : '';
@@ -1902,8 +1902,9 @@
           <td><span class="badge ${u.rol === 'proveedor' ? 'bg-warning-subtle text-warning-emphasis' : u.rol === 'gestor' ? 'text-bg-dark' : 'bg-primary-subtle text-primary-emphasis'}">${esc((USUARIOS.roles || {})[u.rol] || u.org || '—')}</span></td>
           <td class="small">${(u.sedes || []).length ? u.sedes.map(esc).join(', ') : '<span class="text-muted">Todas</span>'}</td>
           <td>${u.avisos && u.correo ? '<i class="fa-solid fa-envelope text-success" title="Recibe avisos"></i>' : '<i class="fa-solid fa-envelope text-muted opacity-50" title="No recibe avisos"></i>'}</td>
-          <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}${u.claveTemporal ? '<div class="small text-warning-emphasis" title="Aún no ha cambiado la clave que se le envió">clave temporal</div>' : ''}${u.claveGestor ? '<div class="small text-muted" title="Entra con la misma clave del gestor">clave del gestor</div>' : ''}${u.pendiente ? '<div class="small text-primary fw-semibold" title="Cargado; todavía no puede entrar ni recibe avisos">acceso por enviar</div>' : ''}</td>
+          <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}${u.claveTemporal ? '<div class="small text-warning-emphasis" title="Aún no ha cambiado la clave que se le envió">clave temporal</div>' : ''}${u.claveGestor ? '<div class="small text-muted" title="Entra con la misma clave del gestor">clave del gestor</div>' : ''}${u.claveGstor ? '<div class="small text-success-emphasis" title="Entra con su usuario y clave de GSTOR' + (u.planta ? ' · planta ' + esc(u.planta) : '') + '">clave de GSTOR</div>' : ''}${u.pendiente ? '<div class="small text-primary fw-semibold" title="Cargado; todavía no puede entrar ni recibe avisos">acceso por enviar</div>' : ''}</td>
           <td class="text-end text-nowrap">${yo.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-editar" data-u="${esc(u.usuario)}">Editar</button>` : ''}${yo.principal && !u.principal ? `${u.pendiente ? `<button class="btn btn-sm btn-link p-0 me-2 fw-semibold" data-accion="usr-enviar" data-u="${esc(u.usuario)}">Enviar acceso</button>` : u.claveGestor ? '' : `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button>`}<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
+        document.querySelectorAll('.usr-con-gstor').forEach(el => { el.style.display = USUARIOS.gstor ? '' : 'none'; });
         const pend = USUARIOS.usuarios.filter(u => u.pendiente);
         $('usr-pendientes').innerHTML = yo.principal && pend.length ? `<div class="alert alert-primary small py-2 d-flex flex-wrap align-items-center gap-2 mb-0"><i class="fa-solid fa-paper-plane"></i>
           <span class="flex-grow-1"><b>${pend.length}</b> usuario(s) cargados con el acceso por enviar (${pend.map(u => esc(u.usuario)).join(', ')}): todavía no pueden entrar ni reciben avisos.</span>

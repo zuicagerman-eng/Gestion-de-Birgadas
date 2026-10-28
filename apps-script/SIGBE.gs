@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.9.2';
+const SIGBE_VERSION = '4.10.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -1514,6 +1514,10 @@ function diagnosticoSistema(token) {
   const props = props_();
   const corte = props.getProperty('LIBRO_NUEVO_CORTE');
 
+  if (sigbeGstorConectado_()) {
+    try { const j = sigbeGstor_({ accion: 'estado' }); add(j.ok ? 'ok' : 'error', 'Conexión con GSTOR', j.ok ? 'El personal de Holcim entra con su usuario y clave de GSTOR.' : j.error, j.ok ? '' : 'Revisa GSTOR_PUENTE (la llave de prepararPuenteSigbe en GSTOR).'); }
+    catch (e) { add('error', 'Conexión con GSTOR', e.message, 'Revisa GSTOR_URL y que GSTOR esté publicado; corre probarGstor en el editor.'); }
+  } else add('info', 'Conexión con GSTOR', 'No está conectada: los de Holcim entran con la clave del gestor.', 'Para conectarla: GSTOR_URL y GSTOR_PUENTE (ver README).');
   [['SIGBE_ID_ORIGEN', '1.0 (original)', !corte], ['SIGBE_ID_DESTINO', '2.0 (lista de asistencia)', !corte], ['LIBRO_NUEVO_ID', 'Libro nuevo', true]].forEach(([p, nombre, necesario]) => {
     const id = idDesdeTexto_(prop_(p));
     if (!id || /^NINGUNO$/i.test(id)) { add(necesario ? 'aviso' : 'info', 'Archivo ' + nombre, 'No está configurado (' + p + ').', 'Configúralo en Configuración → Archivos.'); return; }
@@ -1615,10 +1619,23 @@ function validarLoginAdmin(usuario, clave) {
   const e = escrito.toLowerCase(), lista = sigbeUsuarios_();
   const principal = escrito === u || (e.indexOf('@') !== -1 && e === String(props.getProperty('SIGBE_CORREO') || '').toLowerCase());
   if (principal && sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash) quien = u;
-  else if (!principal) {
+  let motivo = '';
+  if (!principal) {
     const k = lista[e] ? e : Object.keys(lista).find(x => e.indexOf('@') !== -1 && (lista[x].c || '') === e); // usuario o correo
     const x = k && lista[k];
-    const ok = x && (sigbeUsaClaveGestor_(x) ? sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash : sigbeHash_(clave, x.sal) === x.hash);
+    let ok = false;
+    if (x && sigbeUsaClaveGestor_(x)) {
+      // Holcim: si tiene usuario en GSTOR, entra con su clave de GSTOR; si no (o GSTOR no responde), con la del gestor
+      const g = x.activo !== false && !x.pend ? sigbeGstorEntrar_(escrito, clave) : null;
+      if (g && g.existe) { ok = g.ok; motivo = g.mensaje || ''; if (ok) sigbeDatosDeGstor_(k, g, false); }
+      else ok = sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash;
+    } else if (x) ok = sigbeHash_(clave, x.sal) === x.hash;
+    else {
+      // No es usuario de SIGBE: si es de GSTOR (personal de Holcim), entra como Holcim con la sede de su planta
+      const g = sigbeGstorEntrar_(escrito, clave);
+      if (g && g.existe && g.ok) quien = sigbeDatosDeGstor_(String(g.usuario || '').toLowerCase(), g, true);
+      else if (g && g.existe) motivo = g.mensaje || '';
+    }
     if (x && x.activo !== false && !x.pend && ok) quien = k;
   }
   // Los intentos fallidos se anotan hasta 30 cada 10 minutos (si alguien prueba muchos usuarios, el registro no crece sin fin)
@@ -1632,7 +1649,85 @@ function validarLoginAdmin(usuario, clave) {
     return { exito: true, token: token, usuario: quien, perfil: sigbePerfil_(quien), mensaje: 'Acceso autorizado' };
   }
   cache.put(claveIntentos, String(intentos + 1), 600);
-  return { exito: false, mensaje: 'Usuario o clave incorrectos' };
+  return { exito: false, mensaje: /temporal|bloqueado/i.test(motivo) ? motivo : 'Usuario o clave incorrectos' };
+}
+
+// ═════════════════════════════ GSTOR ═════════════════════════════
+// El personal de Holcim entra con su usuario (la cédula) y su clave de GSTOR: SIGBE no guarda esas claves, le
+// pregunta a GSTOR (doPost) con una llave de puente que solo conocen los dos (GSTOR_PUENTE aquí, PUENTE_SIGBE allá;
+// en GSTOR se crea con prepararPuenteSigbe). GSTOR_URL es la URL /exec de GSTOR.
+
+function sigbeGstorConectado_() { return !!(prop_('GSTOR_URL') && prop_('GSTOR_PUENTE')); }
+
+function sigbeGstor_(datos) {
+  const r = UrlFetchApp.fetch(prop_('GSTOR_URL'), {
+    method: 'post', contentType: 'application/json', payload: JSON.stringify(Object.assign({ puente: prop_('GSTOR_PUENTE') }, datos)),
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true, followRedirects: true,
+  });
+  let j = null;
+  try { j = JSON.parse(r.getContentText()); } catch (e) { j = null; }
+  if (!j) throw new Error('GSTOR no respondió como se esperaba (código ' + r.getResponseCode() + '). Revisa GSTOR_URL (la URL /exec) y que GSTOR esté publicado en su versión nueva.');
+  return j;
+}
+
+/** { ok, existe, mensaje, usuario, nombre, correo, planta } o null si GSTOR no está conectado o no responde. */
+function sigbeGstorEntrar_(usuario, clave) {
+  if (!sigbeGstorConectado_()) return null;
+  try {
+    const j = sigbeGstor_({ accion: 'entrar', usuario: usuario, clave: clave });
+    if (j.ok) return Object.assign({}, j, { ok: !!j.existe, existe: !!j.existe });
+    if (/puente|autorizad/i.test(j.error || '')) { console.log('GSTOR: ' + j.error); return null; } // la llave no coincide: como si no estuviera
+    return { ok: false, existe: true, mensaje: j.error || '' };   // existe en GSTOR y la clave no sirvió (o está bloqueado o con clave temporal)
+  } catch (e) {
+    console.log('GSTOR no responde: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * Tras entrar con la clave de GSTOR: marca al usuario como de GSTOR y completa su nombre y correo. Si no estaba en SIGBE
+ * (nuevo = true) lo crea como Holcim con la sede de su planta (HC-CALI y HC-PALMIRA → Valle…). Devuelve el usuario o null.
+ */
+function sigbeDatosDeGstor_(u, g, nuevo) {
+  if (!/^[a-z0-9._-]{3,30}$/.test(u) || u === String(prop_('SIGBE_USUARIO') || '').toLowerCase()) return null;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return nuevo ? null : u;
+  try {
+    const lista = sigbeUsuarios_(), x = lista[u] || {};
+    if (lista[u] && !sigbeUsaClaveGestor_(x)) return null; // ese usuario es de Ambipar en SIGBE: no entra con GSTOR
+    if (lista[u] && (x.activo === false || x.pend)) return null;
+    const correo = String(g.correo || '').trim().toLowerCase();
+    const libre = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo) && correo !== String(prop_('SIGBE_CORREO') || '').toLowerCase() &&
+      !Object.keys(lista).some(k => k !== u && (lista[k].c || '') === correo);
+    const antes = JSON.stringify(x);
+    x.gstor = true;
+    if (!x.n && g.nombre) x.n = String(g.nombre).trim().slice(0, 60);
+    if (!x.c && libre) x.c = correo;
+    if (g.planta) x.pl = String(g.planta).trim().slice(0, 60);
+    if (!lista[u]) {
+      const sede = g.planta ? sigbeSede_(g.planta) : '', conocida = SIGBE_SEDES.some(s => s[0] === sede);
+      Object.assign(x, { org: 'Holcim', s: conocida ? [sede] : [], av: conocida && !!x.c, activo: true });
+      lista[u] = x;
+      props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
+      sigbeBitacora_(u, [['Usuarios', 'Propiedades del script', '', '', '', 'Usuario ' + u + ' (Holcim)', '', 'Entró con GSTOR por primera vez · planta ' +
+        (g.planta || 'sin planta') + ' → sede ' + (conocida ? sede : 'ninguna (revisa sus sedes)')]]);
+    } else if (JSON.stringify(x) !== antes) {
+      lista[u] = x;
+      props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
+    }
+    return u;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Desde el editor: comprueba la conexión con GSTOR (y autoriza llamar a otra URL la primera vez). */
+function probarGstor() {
+  lnSoloDueno_();
+  if (!sigbeGstorConectado_()) return lnMostrar_('Falta conectar GSTOR: pon las propiedades GSTOR_URL (la URL /exec de GSTOR) y GSTOR_PUENTE (la llave que da prepararPuenteSigbe en GSTOR).');
+  const j = sigbeGstor_({ accion: 'estado' });
+  return lnMostrar_(j.ok ? 'GSTOR conectado' + (j.activo ? ': el personal de Holcim puede entrar a SIGBE con su usuario y clave de GSTOR.' : ', pero GSTOR todavía no tiene usuarios.')
+    : 'GSTOR respondió con un error: ' + j.error);
 }
 
 function cerrarSesionApp(token) {
@@ -1687,7 +1782,7 @@ function sigbePerfil_(usuario) {
   const x = sigbeUsuarios_()[usuario];
   if (!x || x.activo === false || x.pend) return null; // con el acceso por enviar todavía no entra ni recibe avisos
   return { usuario: usuario, nombre: x.n || usuario, org: x.org || '', principal: false, rol: x.org === 'Holcim' ? 'holcim' : 'proveedor',
-    correo: x.c || '', sedes: x.s || [], avisos: x.av !== false, claveTemporal: !!x.tmp && !sigbeUsaClaveGestor_(x), claveGestor: sigbeUsaClaveGestor_(x) };
+    correo: x.c || '', sedes: x.s || [], avisos: x.av !== false, claveTemporal: !!x.tmp && !sigbeUsaClaveGestor_(x), claveGestor: sigbeUsaClaveGestor_(x) && !x.gstor, claveGstor: !!x.gstor };
 }
 
 function sigbeJson_(t, defecto) {
@@ -1708,7 +1803,8 @@ function getUsuarios(token) {
     yo: yo, orgs: SIGBE_ORGS, roles: SIGBE_ROLES,
     usuarios: [Object.assign(sigbePerfil_(prop_('SIGBE_USUARIO')), { nombre: prop_('SIGBE_NOMBRE') || '', activo: true })]
       .concat(Object.keys(lista).sort().map(k => ({ usuario: k, nombre: lista[k].n || '', org: lista[k].org || '', activo: lista[k].activo !== false, principal: false,
-        rol: lista[k].org === 'Holcim' ? 'holcim' : 'proveedor', correo: lista[k].c || '', sedes: lista[k].s || [], avisos: lista[k].av !== false, claveTemporal: !!lista[k].tmp && !sigbeUsaClaveGestor_(lista[k]), claveGestor: sigbeUsaClaveGestor_(lista[k]), pendiente: !!lista[k].pend }))),
+        rol: lista[k].org === 'Holcim' ? 'holcim' : 'proveedor', correo: lista[k].c || '', sedes: lista[k].s || [], avisos: lista[k].av !== false, claveTemporal: !!lista[k].tmp && !sigbeUsaClaveGestor_(lista[k]), claveGestor: sigbeUsaClaveGestor_(lista[k]) && !lista[k].gstor, claveGstor: !!lista[k].gstor, planta: lista[k].pl || '', pendiente: !!lista[k].pend }))),
+    gstor: sigbeGstorConectado_(),
     correoActivo: sigbeCorreoDisponible_(),
   };
 }
@@ -1843,8 +1939,10 @@ function sigbeEnviarClave_(usuario, x, clave, nuevo) {
     const hola = 'Hola' + (x.n ? ' ' + x.n : '') + ',';
     const intro = nuevo || !clave ? 'te crearon un usuario en SIGBE (gestión de brigadas).' : 'te asignaron una clave nueva en SIGBE (gestión de brigadas).';
     const gestor = prop_('SIGBE_NOMBRE') || prop_('SIGBE_USUARIO') || 'el gestor';
-    const claveTxt = clave ? 'Clave temporal: ' + clave : 'Clave: la misma del gestor de SIGBE (' + gestor + '). Pídesela a él.';
-    const despues = clave ? 'Al entrar, la app te pide cambiar la clave.' : 'Los usuarios de Holcim entran con la clave del gestor; si él la cambia, te llega un aviso.';
+    const conGstor = !clave && sigbeGstorConectado_();
+    const claveGstor = 'la misma de GSTOR. Si no tienes usuario en GSTOR, la del gestor de SIGBE (' + gestor + '): pídesela a él.';
+    const claveTxt = clave ? 'Clave temporal: ' + clave : conGstor ? 'Clave: ' + claveGstor : 'Clave: la misma del gestor de SIGBE (' + gestor + '). Pídesela a él.';
+    const despues = clave ? 'Al entrar, la app te pide cambiar la clave.' : conGstor ? 'Si cambias tu clave en GSTOR, también cambia para SIGBE.' : 'Los usuarios de Holcim entran con la clave del gestor; si él la cambia, te llega un aviso.';
     MailApp.sendEmail({
       to: x.c, name: 'SIGBE', subject: 'SIGBE · ' + (clave ? (nuevo ? 'Tu usuario y clave temporal' : 'Tu clave temporal') : 'Tu usuario'),
       body: hola + '\n\n' + intro + '\n\nUsuario: ' + usuario + ' (también puedes entrar con este correo)\n' + claveTxt +
@@ -1852,6 +1950,7 @@ function sigbeEnviarClave_(usuario, x, clave, nuevo) {
       htmlBody: '<p>' + esc(hola) + '</p><p>' + esc(intro) + '</p>' +
         '<table style="border-collapse:collapse"><tr><td style="padding:2px 12px 2px 0;color:#555">Usuario</td><td><b>' + esc(usuario) + '</b> <span style="color:#777">(también puedes entrar con este correo)</span></td></tr>' +
         '<tr><td style="padding:2px 12px 2px 0;color:#555">' + (clave ? 'Clave temporal' : 'Clave') + '</td><td>' + (clave ? '<code style="font-size:16px;background:#f1f3f5;padding:2px 6px;border-radius:4px">' + esc(clave) + '</code>'
+          : conGstor ? '<b>la misma de GSTOR</b>. Si no tienes usuario en GSTOR, la del gestor de SIGBE (' + esc(gestor) + '): pídesela a él.'
           : '<b>la misma del gestor de SIGBE</b> (' + esc(gestor) + '). Pídesela a él.') + '</td></tr></table>' +
         (url ? '<p><a href="' + esc(url) + '" style="display:inline-block;background:#1971c2;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none">Entrar a SIGBE</a></p>' : '') +
         '<p style="color:#555">' + esc(despues) + '</p><p style="color:#777;font-size:12px">Si no esperabas este correo, avísale al gestor de SIGBE.</p>',
@@ -2095,6 +2194,7 @@ function sigbeCambiarClave_(token, yo, claveActual, usuarioNuevo, claveNueva) {
   const props = props_();
   if (yo !== props.getProperty('SIGBE_USUARIO')) { // otro usuario: solo su clave (el nombre de usuario no cambia)
     const lista = sigbeUsuarios_(), x = lista[yo];
+    if (x && x.gstor) return { exito: false, mensaje: 'Entras con tu clave de GSTOR: cámbiala en GSTOR.' };
     if (sigbeUsaClaveGestor_(x)) return { exito: false, mensaje: 'Entras con la clave del gestor: solo él la cambia.' };
     if (!x || sigbeHash_(claveActual, x.sal) !== x.hash) return { exito: false, mensaje: 'La clave actual no es correcta.' };
     if (String(claveNueva || '').length < 8) return { exito: false, mensaje: 'La clave debe tener al menos 8 caracteres.' };
@@ -2131,7 +2231,7 @@ function sigbeAvisarClaveGestor_(autor) {
   let n = 0;
   try {
     const lista = sigbeUsuarios_(), gestor = prop_('SIGBE_NOMBRE') || prop_('SIGBE_USUARIO') || 'el gestor';
-    Object.keys(lista).filter(k => sigbeUsaClaveGestor_(lista[k]) && lista[k].activo !== false && lista[k].c).forEach(k => {
+    Object.keys(lista).filter(k => sigbeUsaClaveGestor_(lista[k]) && !lista[k].gstor && !lista[k].pend && lista[k].activo !== false && lista[k].c).forEach(k => {
       if (MailApp.getRemainingDailyQuota() < 1) return;
       MailApp.sendEmail({ to: lista[k].c, name: 'SIGBE', subject: 'SIGBE · Cambió la clave',
         body: 'Hola' + (lista[k].n ? ' ' + lista[k].n : '') + ',\n\nEl gestor de SIGBE (' + gestor + ') cambió la clave con la que entran los usuarios de Holcim. ' +

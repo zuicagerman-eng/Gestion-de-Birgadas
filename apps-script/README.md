@@ -107,6 +107,26 @@ clave temporal generada en ese momento; a los de Holcim, su usuario (entran con 
 al instante. El historial muestra quién hizo cada cambio, p. ej. `ambipar (Ambipar)`. Los permisos se revisan en el
 servidor, no solo en la pantalla.
 
+## Conexión con GSTOR (personal de Holcim)
+
+Con GSTOR conectado, **el personal de Holcim entra a SIGBE con su usuario (la cédula) o su correo y su clave de GSTOR**.
+SIGBE no guarda esas claves: le pregunta a GSTOR cada vez, con una llave de puente que solo conocen los dos. Si en GSTOR
+le cambian la clave, lo desactivan o lo bloquean, también aplica en SIGBE; los intentos fallidos cuentan junto con los
+de GSTOR. Con la clave temporal de GSTOR no entra: primero la cambia en GSTOR.
+
+- **Quien está en GSTOR y no en SIGBE** entra solo: SIGBE lo crea como **Holcim** con la sede de su planta del maestro
+  de Personal (HC-CALI y HC-PALMIRA → Valle, HC-TUNJA → Boyacá, HC-NOBSA CEMENTO → Nobsa…) y con avisos por correo. Si su
+  planta no corresponde a ninguna sede, queda sin sede y sin avisos (el gestor se las pone). Queda en el historial.
+- **Holcim creado en SIGBE**: si tiene usuario en GSTOR, entra con esa clave (la del gestor ya no le sirve); si no lo
+  tiene, o GSTOR no responde, con la clave del gestor.
+- **Ambipar** sigue con su propia clave de SIGBE.
+- En la tabla de usuarios salen como *clave de GSTOR*; la cambian en GSTOR.
+
+**Para conectarlo:** en GSTOR, publicar la versión con el puente para SIGBE y correr `prepararPuenteSigbe` en el editor;
+en SIGBE, poner las propiedades del script `GSTOR_URL` (URL /exec de GSTOR) y `GSTOR_PUENTE` (la llave que dio
+`prepararPuenteSigbe`), correr `probarGstor` en el editor (pide permiso para llamar a otra URL) y publicar versión nueva.
+*Estado del sistema* muestra si la conexión funciona.
+
 ## Correos y avisos
 
 Cada usuario tiene **correo** (sirve también para entrar: usuario o correo, con la misma clave) y **sedes** (las de la app,
