@@ -94,7 +94,11 @@ generada), les pone una clave nueva, los desactiva o los elimina. **La clave tem
 (al crearlo y con *Nueva clave*); no queda guardada en ningún lado ni en el historial. Si no tiene correo o el envío
 falla, la app se la muestra al gestor una sola vez para que se la pase en privado. Quien entra con una clave temporal va
 directo a **Mi usuario y clave** y no puede usar otra pantalla hasta cambiarla (la tabla de usuarios muestra *clave
-temporal* mientras tanto). Las claves se guardan cifradas con sal en `SIGBE_USUARIOS`. Un usuario desactivado o eliminado pierde la sesión
+temporal* mientras tanto).
+
+**Los usuarios de Holcim entran con la clave del gestor** (no tienen clave propia ni "Nueva clave"): al crearlos les llega
+un correo con su usuario, sin la clave, y el gestor se la pasa. No pueden cambiarla; si el gestor cambia la suya, les
+llega un aviso por correo (sin la clave). Si un usuario pasa de Holcim a Ambipar, necesita su propia clave (*Nueva clave*). Las claves se guardan cifradas con sal en `SIGBE_USUARIOS`. Un usuario desactivado o eliminado pierde la sesión
 al instante. El historial muestra quién hizo cada cambio, p. ej. `ambipar (Ambipar)`. Los permisos se revisan en el
 servidor, no solo en la pantalla.
 

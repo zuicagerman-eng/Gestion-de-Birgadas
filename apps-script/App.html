@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.9.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.9.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -132,6 +132,7 @@
       $('ses-fila').onchange = ajustarSesion; $('ses-pl').onchange = ajustarSesion;
       $('form-modulo').addEventListener('input', ajustarModulo); // los select y casillas también disparan "input"
       $('form-usuario').onsubmit = nuevoUsuario;
+      $('usr-org').addEventListener('change', ajustarClaveUsuario);
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
       $('brig-buscar').oninput = conEspera(pintarBrigadistas);
@@ -1848,8 +1849,10 @@
         $('conf-corte').innerHTML = conf.corte ? '<i class="fa-solid fa-scissors me-1"></i>Corte hecho el ' + esc(conf.corte) + '. El 1.0 y el 2.0 ya no se usan.' : '<i class="fa-solid fa-scissors me-1"></i>Sin corte todavía. El corte se hace desde el editor con libroNuevoCorte.';
         $('conf-horas').value = String(conf.automatica.cadaHoras || 1);
         $('conf-auto-estado').innerHTML = conf.automatica.activa ? `<span class="punto punto-ok"></span>Activa cada ${conf.automatica.cadaHoras} hora(s).` : '<span class="punto punto-aviso"></span>Apagada.';
-        const principal = !!(E.perfil && E.perfil.principal);
+        const principal = !!(E.perfil && E.perfil.principal), deGestor = !!(E.perfil && E.perfil.claveGestor);
         $('clave-usuario').value = principal ? conf.usuario : E.usuario; $('clave-usuario').disabled = !principal;
+        $('form-clave').style.display = deGestor ? 'none' : ''; $('clave-de-gestor').style.display = deGestor ? '' : 'none';
+        $('clave-holcim-nota').style.display = principal ? '' : 'none';
         document.querySelectorAll('#v-configuracion .conf-principal input, #v-configuracion .conf-principal select, #v-configuracion .conf-principal button').forEach(el => { el.disabled = !principal; });
         $('conf-no-principal').style.display = principal ? 'none' : '';
         cargarUsuarios();
@@ -1896,8 +1899,8 @@
           <td><span class="badge ${u.rol === 'proveedor' ? 'bg-warning-subtle text-warning-emphasis' : u.rol === 'gestor' ? 'text-bg-dark' : 'bg-primary-subtle text-primary-emphasis'}">${esc((USUARIOS.roles || {})[u.rol] || u.org || '—')}</span></td>
           <td class="small">${(u.sedes || []).length ? u.sedes.map(esc).join(', ') : '<span class="text-muted">Todas</span>'}</td>
           <td>${u.avisos && u.correo ? '<i class="fa-solid fa-envelope text-success" title="Recibe avisos"></i>' : '<i class="fa-solid fa-envelope text-muted opacity-50" title="No recibe avisos"></i>'}</td>
-          <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}${u.claveTemporal ? '<div class="small text-warning-emphasis" title="Aún no ha cambiado la clave que se le envió">clave temporal</div>' : ''}</td>
-          <td class="text-end text-nowrap">${yo.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-editar" data-u="${esc(u.usuario)}">Editar</button>` : ''}${yo.principal && !u.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button><button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
+          <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}${u.claveTemporal ? '<div class="small text-warning-emphasis" title="Aún no ha cambiado la clave que se le envió">clave temporal</div>' : ''}${u.claveGestor ? '<div class="small text-muted" title="Entra con la misma clave del gestor">clave del gestor</div>' : ''}</td>
+          <td class="text-end text-nowrap">${yo.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-editar" data-u="${esc(u.usuario)}">Editar</button>` : ''}${yo.principal && !u.principal ? `${u.claveGestor ? '' : `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button>`}<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
         $('form-usuario').style.display = yo.principal ? '' : 'none';
         formUsuario(null);
       } catch (e) { error(e); }
@@ -1915,10 +1918,17 @@
       $('usr-org').disabled = !!x.principal;
       document.querySelectorAll('#usr-sedes input').forEach(el => { el.checked = (x.sedes || []).indexOf(el.value) !== -1; });
       $('usr-avisos').checked = u ? x.avisos !== false : true;
-      $('usr-clave-box').style.display = u ? 'none' : ''; $('usr-clave').required = !u; $('usr-clave').value = u ? '' : claveAleatoria();
+      $('usr-clave').value = u ? '' : claveAleatoria();
+      ajustarClaveUsuario();
       $('usr-ok').innerHTML = u ? '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar cambios' : '<i class="fa-solid fa-user-plus me-1"></i>Agregar';
       $('usr-cancelar').style.display = u ? '' : 'none';
       if (u) $('form-usuario').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    /** Clave temporal solo al crear un usuario de Ambipar; los de Holcim entran con la clave del gestor. */
+    function ajustarClaveUsuario() {
+      const holcim = $('usr-org').value === 'Holcim', x = usrEditando ? buscarUsuario(usrEditando) : {};
+      $('usr-clave-box').style.display = usrEditando || holcim ? 'none' : ''; $('usr-clave').required = !usrEditando && !holcim;
+      $('usr-clave-gestor').style.display = holcim && !x.principal ? '' : 'none';
     }
     function datosFormUsuario() {
       return { usuario: $('usr-usuario').value.trim().toLowerCase(), nombre: $('usr-nombre').value.trim(), org: $('usr-org').value, correo: $('usr-correo').value.trim(),
@@ -1946,8 +1956,9 @@
       const d = datosFormUsuario();
       if (d.avisos && !d.correo) return avisar('Ponle correo para que reciba los avisos (o desmarca "Recibe avisos por correo").', 'warning', 8000);
       if (usrEditando) { const x = buscarUsuario(usrEditando); d.usuario = usrEditando; d.activo = x.activo; if (x.principal) d.org = 'Holcim'; await usuarioApi(d); return; }
-      d.nuevo = true; d.clave = $('usr-clave').value;
-      await usuarioApi(d, true);
+      d.nuevo = true;
+      if (d.org !== 'Holcim') d.clave = $('usr-clave').value; // los de Holcim entran con la clave del gestor
+      await usuarioApi(d, !!d.clave);
     }
     function buscarUsuario(u) { return (USUARIOS && USUARIOS.usuarios.find(x => x.usuario === u)) || {}; }
     function restablecerClave(u) {
