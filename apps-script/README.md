@@ -121,9 +121,13 @@ de GSTOR. Con la clave temporal de GSTOR no entra: primero la cambia en GSTOR.
   tiene, o GSTOR no responde, con la clave del gestor.
 - **Ambipar** sigue con su propia clave de SIGBE.
 - En la tabla de usuarios salen como *clave de GSTOR*; la cambian en GSTOR.
-- **Personal de GSTOR** (Configuración, solo el gestor): trae a todos los usuarios de GSTOR con su planta y deja asignarles
-  la **sede** antes de que entren (*Usar la sede sugerida* pone la de su planta a todos los que faltan). Al guardar quedan en
-  SIGBE como Holcim, con su nombre y correo de GSTOR. Varias sedes para uno: con *Editar* en la tabla de usuarios.
+- **Personal de GSTOR** (Configuración, solo los gestores): trae a todos los usuarios de GSTOR con su planta y deja
+  asignarles **una o varias sedes** antes de que entren (*Usar la sede sugerida* pone la de su planta a todos los que
+  faltan). Al guardar quedan en SIGBE como Holcim, con su nombre y correo de GSTOR.
+- **Gestores nombrados:** el usuario principal (`SIGBE_USUARIO`, p. ej. Holcim2026) puede darle a un usuario de Holcim el
+  tipo **Gestor**: administra usuarios, configuración y el personal de GSTOR, entrando con su clave de GSTOR. Solo el
+  principal nombra o quita gestores, y a un gestor solo lo elimina el principal. El principal queda como cuenta de
+  respaldo: no depende de GSTOR.
 
 **Para conectarlo:** en GSTOR, publicar la versión con el puente para SIGBE y correr `prepararPuenteSigbe` en el editor;
 en SIGBE, poner las propiedades del script `GSTOR_URL` (URL /exec de GSTOR) y `GSTOR_PUENTE` (la llave que dio

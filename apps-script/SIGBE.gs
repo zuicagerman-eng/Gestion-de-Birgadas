@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.10.1';
+const SIGBE_VERSION = '4.10.2';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -1727,7 +1727,7 @@ function sigbeDatosDeGstor_(u, g, nuevo) {
  */
 function getUsuariosGstor(token) {
   const yo = sigbePerfil_(sigbeExigirSesion_(token));
-  if (!yo.principal) throw new Error('Solo el gestor (' + prop_('SIGBE_USUARIO') + ') ve el personal de GSTOR.');
+  if (!yo.admin) throw new Error('Solo un gestor ve el personal de GSTOR.');
   if (!sigbeGstorConectado_()) return { conectado: false, lista: [] };
   const j = sigbeGstor_({ accion: 'usuarios' });
   if (!j.ok) throw new Error('GSTOR: ' + (j.error || 'no entregó la lista.'));
@@ -1751,7 +1751,7 @@ function guardarUsuariosGstor(token, cambios) {
   const lock = LockService.getScriptLock();
   try {
     const yo = sigbePerfil_(sigbeExigirSesion_(token));
-    if (!yo.principal) return { exito: false, mensaje: 'Solo el gestor asigna sedes al personal de GSTOR.' };
+    if (!yo.admin) return { exito: false, mensaje: 'Solo un gestor asigna sedes al personal de GSTOR.' };
     if (!sigbeGstorConectado_()) return { exito: false, mensaje: 'GSTOR no está conectado.' };
     const j = sigbeGstor_({ accion: 'usuarios' }); // los datos vienen de GSTOR, no de la pantalla
     if (!j.ok) return { exito: false, mensaje: 'GSTOR: ' + (j.error || 'no entregó la lista.') };
@@ -1849,11 +1849,12 @@ function sigbeUsuarios_() {
 function sigbePerfil_(usuario) {
   if (!usuario) return null;
   const principal = prop_('SIGBE_USUARIO');
-  if (usuario === principal) return { usuario: principal, nombre: prop_('SIGBE_NOMBRE') || principal, org: prop_('SIGBE_ORG') || 'Holcim', principal: true, rol: 'gestor',
+  if (usuario === principal) return { usuario: principal, nombre: prop_('SIGBE_NOMBRE') || principal, org: prop_('SIGBE_ORG') || 'Holcim', principal: true, admin: true, rol: 'gestor',
     correo: prop_('SIGBE_CORREO') || '', sedes: sigbeJson_(prop_('SIGBE_SEDES_GESTOR'), []), avisos: prop_('SIGBE_AVISOS_GESTOR') !== 'no' };
   const x = sigbeUsuarios_()[usuario];
   if (!x || x.activo === false || x.pend) return null; // con el acceso por enviar todavía no entra ni recibe avisos
-  return { usuario: usuario, nombre: x.n || usuario, org: x.org || '', principal: false, rol: x.org === 'Holcim' ? 'holcim' : 'proveedor',
+  const gestor = sigbeEsGestorNombrado_(x); // Holcim con permisos de gestor (lo nombra el usuario principal)
+  return { usuario: usuario, nombre: x.n || usuario, org: x.org || '', principal: false, admin: gestor, gestorNombrado: gestor, rol: gestor ? 'gestor' : x.org === 'Holcim' ? 'holcim' : 'proveedor',
     correo: x.c || '', sedes: x.s || [], avisos: x.av !== false, claveTemporal: !!x.tmp && !sigbeUsaClaveGestor_(x), claveGestor: sigbeUsaClaveGestor_(x) && !x.gstor, claveGstor: !!x.gstor };
 }
 
@@ -1875,7 +1876,7 @@ function getUsuarios(token) {
     yo: yo, orgs: SIGBE_ORGS, roles: SIGBE_ROLES,
     usuarios: [Object.assign(sigbePerfil_(prop_('SIGBE_USUARIO')), { nombre: prop_('SIGBE_NOMBRE') || '', activo: true })]
       .concat(Object.keys(lista).sort().map(k => ({ usuario: k, nombre: lista[k].n || '', org: lista[k].org || '', activo: lista[k].activo !== false, principal: false,
-        rol: lista[k].org === 'Holcim' ? 'holcim' : 'proveedor', correo: lista[k].c || '', sedes: lista[k].s || [], avisos: lista[k].av !== false, claveTemporal: !!lista[k].tmp && !sigbeUsaClaveGestor_(lista[k]), claveGestor: sigbeUsaClaveGestor_(lista[k]) && !lista[k].gstor, claveGstor: !!lista[k].gstor, planta: lista[k].pl || '', pendiente: !!lista[k].pend }))),
+        rol: sigbeEsGestorNombrado_(lista[k]) ? 'gestor' : lista[k].org === 'Holcim' ? 'holcim' : 'proveedor', gestor: sigbeEsGestorNombrado_(lista[k]), correo: lista[k].c || '', sedes: lista[k].s || [], avisos: lista[k].av !== false, claveTemporal: !!lista[k].tmp && !sigbeUsaClaveGestor_(lista[k]), claveGestor: sigbeUsaClaveGestor_(lista[k]) && !lista[k].gstor, claveGstor: !!lista[k].gstor, planta: lista[k].pl || '', pendiente: !!lista[k].pend }))),
     gstor: sigbeGstorConectado_(),
     correoActivo: sigbeCorreoDisponible_(),
   };
@@ -1886,7 +1887,7 @@ function guardarUsuario(token, d) {
   const lock = LockService.getScriptLock();
   try {
     const yo = sigbePerfil_(sigbeExigirSesion_(token));
-    if (!yo.principal) return { exito: false, mensaje: 'Solo el usuario principal (' + prop_('SIGBE_USUARIO') + ') administra los usuarios.' };
+    if (!yo.admin) return { exito: false, mensaje: 'Solo un gestor administra los usuarios.' };
     if (!sigbeBloquear_(lock, 10000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
     const org = SIGBE_ORGS.indexOf(d.org) !== -1 ? d.org : 'Ambipar';
     const nombre = String(d.nombre || '').trim().slice(0, 60);
@@ -1898,7 +1899,7 @@ function guardarUsuario(token, d) {
     if (otroConCorreo) return { exito: false, mensaje: 'Ese correo ya lo tiene otro usuario.' };
     const sedes = (d.sedes || []).map(String).filter(String).slice(0, 30);
     const avisos = d.avisos !== false;
-    if (d.usuario === yo.usuario) { // el principal cambia aquí su nombre, correo, sedes y avisos
+    if (yo.principal && d.usuario === yo.usuario) { // el principal cambia aquí su nombre, correo, sedes y avisos
       props_().setProperties({ SIGBE_NOMBRE: nombre, SIGBE_ORG: 'Holcim', SIGBE_CORREO: correo, SIGBE_SEDES_GESTOR: JSON.stringify(sedes), SIGBE_AVISOS_GESTOR: avisos ? 'si' : 'no' });
       sigbeBitacora_(yo.usuario, [['Usuarios', 'Propiedades del script', '', '', '', 'Datos de ' + yo.usuario, '', [nombre, correo, sedes.join(', ') || 'todas las sedes', avisos ? 'recibe avisos' : 'sin avisos'].filter(String).join(' · ')]]);
       return { exito: true, mensaje: 'Datos actualizados.' };
@@ -1911,6 +1912,13 @@ function guardarUsuario(token, d) {
     if (!d.nuevo && !lista[u]) return { exito: false, mensaje: 'El usuario "' + u + '" no existe.' };
     const x = lista[u] || {};
     const cambios = [], orgAntes = x.org || '';
+    // Gestor nombrado: un Holcim con permisos de gestor. Solo el usuario principal los nombra o los quita.
+    const gestorNuevo = org === 'Holcim' && d.gestor === true;
+    if (gestorNuevo !== sigbeEsGestorNombrado_(x)) {
+      if (!yo.principal) return { exito: false, mensaje: 'Solo ' + prop_('SIGBE_USUARIO') + ' nombra o quita gestores.' };
+      if (gestorNuevo) x.gestor = true; else delete x.gestor;
+      cambios.push(gestorNuevo ? 'Ahora es gestor' : 'Ya no es gestor');
+    }
     const clavePropia = org !== 'Holcim'; // los de Holcim entran con la clave del gestor
     const diferir = !!d.nuevo && d.enviarAcceso === false; // se carga ya; el acceso se envía después con "Enviar acceso"
     if (diferir) { x.pend = true; cambios.push('Usuario creado · acceso por enviar'); }
@@ -1963,7 +1971,7 @@ function enviarAcceso(token, usuarios) {
   const lock = LockService.getScriptLock();
   try {
     const yo = sigbePerfil_(sigbeExigirSesion_(token));
-    if (!yo.principal) return { exito: false, mensaje: 'Solo el usuario principal (' + prop_('SIGBE_USUARIO') + ') administra los usuarios.' };
+    if (!yo.admin) return { exito: false, mensaje: 'Solo un gestor administra los usuarios.' };
     if (!sigbeBloquear_(lock, 10000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
     const lista = sigbeUsuarios_(), resultados = [], bit = [];
     (usuarios || []).slice(0, 50).forEach(u => {
@@ -1997,6 +2005,9 @@ function sigbeClaveAleatoria_() {
   const b = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + Utilities.getUuid() + Date.now());
   return b.slice(0, 12).map(x => a[(x + 256) % a.length]).join('');
 }
+
+/** Un usuario de Holcim al que el principal le dio permisos de gestor (usuarios, configuración, personal de GSTOR). */
+function sigbeEsGestorNombrado_(x) { return !!x && x.org === 'Holcim' && x.gestor === true; }
 
 /** Los usuarios de Holcim entran con la clave del gestor (no tienen clave propia). */
 function sigbeUsaClaveGestor_(x) { return !!x && x.org === 'Holcim'; }
@@ -2038,10 +2049,12 @@ function quitarUsuario(token, usuario) {
   const lock = LockService.getScriptLock();
   try {
     const yo = sigbePerfil_(sigbeExigirSesion_(token));
-    if (!yo.principal) return { exito: false, mensaje: 'Solo el usuario principal administra los usuarios.' };
+    if (!yo.admin) return { exito: false, mensaje: 'Solo un gestor administra los usuarios.' };
     if (!sigbeBloquear_(lock, 10000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
     const lista = sigbeUsuarios_();
     if (!lista[usuario]) return { exito: false, mensaje: 'Ese usuario no existe.' };
+    if (usuario === yo.usuario) return { exito: false, mensaje: 'No puedes eliminar tu propio usuario.' };
+    if (sigbeEsGestorNombrado_(lista[usuario]) && !yo.principal) return { exito: false, mensaje: 'A un gestor solo lo quita ' + prop_('SIGBE_USUARIO') + '.' };
     const org = lista[usuario].org || '';
     delete lista[usuario];
     props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
@@ -2069,7 +2082,7 @@ const SIGBE_ROLES = { gestor: 'Gestor', holcim: 'Holcim', proveedor: 'Ambipar (p
 function sigbeRol_(usuario) {
   const p = sigbePerfil_(usuario);
   if (!p) return '';
-  if (p.principal) return 'gestor';
+  if (p.principal || p.gestorNombrado) return 'gestor';
   return p.org === 'Holcim' ? 'holcim' : 'proveedor'; // cualquier otra organización queda con los permisos más limitados
 }
 
@@ -2198,7 +2211,7 @@ function getConfiguracion(token) {
 /** Guarda los archivos. Comprueba que abran antes de guardarlos. */
 function guardarConfiguracion(token, cfg) {
   const usuario = sigbeExigirSesion_(token);
-  if (!sigbePerfil_(usuario).principal) return { exito: false, mensaje: 'Solo el usuario principal cambia los archivos y el acceso.' };
+  if (!sigbePerfil_(usuario).admin) return { exito: false, mensaje: 'Solo un gestor cambia los archivos y el acceso.' };
   const props = props_();
   const cambios = [];
   let reiniciarEspejo = false;
@@ -2235,7 +2248,7 @@ function guardarConfiguracion(token, cfg) {
 /** Activa o desactiva la tarea automática (actualizar el libro nuevo + anotar cambios del Excel). */
 function configurarAutomatico(token, activar, cadaHoras) {
   const usuario = sigbeExigirSesion_(token);
-  if (!sigbePerfil_(usuario).principal) return { exito: false, mensaje: 'Solo el usuario principal cambia la tarea automática.' };
+  if (!sigbePerfil_(usuario).admin) return { exito: false, mensaje: 'Solo un gestor cambia la tarea automática.' };
   try {
     if (activar) {
       if (!lnIdLibro_()) return { exito: false, mensaje: 'Primero crea el libro nuevo (libroNuevoCrear desde el editor) o pon su URL en Archivos.' };

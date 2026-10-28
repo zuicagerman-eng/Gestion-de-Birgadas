@@ -166,6 +166,7 @@
   </style>
 </head>
 <body>
+  <span id="version-index" hidden>4.10.2</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -609,7 +610,7 @@
               <div class="alert alert-secondary small" id="conf-no-principal" style="display:none;"><i class="fa-solid fa-circle-info me-1"></i>Los archivos, la tarea automática y los usuarios los cambia solo el gestor. Aquí puedes cambiar tu clave.</div>
               <div class="tarjeta p-3 mb-3 no-proveedor">
                 <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-users-gear me-2 text-primary"></i>Usuarios</h2>
-                <p class="small text-muted mb-2">Tres tipos de usuario: <b>Gestor</b> (todo, y crea o elimina usuarios) · <b>Holcim</b> (ve y cambia todo, menos usuarios y configuración; entra con la <b>clave del gestor</b>) · <b>Ambipar – proveedor</b> (toma asistencia y en el cronograma pone la Fecha Ambipar, el estado y las observaciones, programa sesiones y crea módulos; no cambia la Fecha Holcim. Solo ve Dashboard, Tomar asistencia, Avance por planta, Cronograma, Temarios y su clave). En el historial queda quién hizo cada cambio.</p>
+                <p class="small text-muted mb-2">Tres tipos de usuario: <b>Gestor</b> (todo, y crea o elimina usuarios; el principal puede nombrar otros gestores con el tipo «Gestor») · <b>Holcim</b> (ve y cambia todo, menos usuarios y configuración; entra con la <b>clave del gestor</b>) · <b>Ambipar – proveedor</b> (toma asistencia y en el cronograma pone la Fecha Ambipar, el estado y las observaciones, programa sesiones y crea módulos; no cambia la Fecha Holcim. Solo ve Dashboard, Tomar asistencia, Avance por planta, Cronograma, Temarios y su clave). En el historial queda quién hizo cada cambio.</p>
                 <div id="usr-pendientes" class="mb-2"></div>
                 <div class="table-responsive"><table class="table table-sm small align-middle mb-2"><thead><tr><th>Usuario</th><th>Nombre y correo</th><th>Tipo</th><th>Sedes</th><th>Avisos</th><th>Estado</th><th></th></tr></thead><tbody id="usr-tabla"></tbody></table></div>
                 <div id="usr-sin-correo" class="alert alert-warning small py-2" style="display:none;"><i class="fa-solid fa-envelope-circle-check me-1"></i>Los avisos por correo aún no están autorizados: en el editor de Apps Script ejecuta <b>probarCorreo</b> una vez (te llega un correo de prueba).</div>

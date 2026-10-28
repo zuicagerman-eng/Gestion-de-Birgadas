@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.10.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.10.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -135,6 +135,7 @@
       $('usr-org').addEventListener('change', ajustarClaveUsuario);
       $('usr-enviar').addEventListener('change', ajustarClaveUsuario);
       $('gstor-tabla').addEventListener('change', cambioGstor);
+      $('gstor-tabla').addEventListener('click', ev => { const b = ev.target.closest('[data-gnada]'); if (b) ponerSedesGstor(b.dataset.gnada, null); });
       $('gstor-buscar').oninput = conEspera(pintarGstor); $('gstor-sin').onchange = pintarGstor;
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
@@ -208,7 +209,9 @@
         E.usuario = ctx.usuario; E.perfil = ctx.perfil || null; E.listo = !!(ctx.setup && ctx.setup.listo); E.setup = ctx.setup;
         $('txt-version').textContent = 'SIGBE v' + (ctx.version || '?');
         $('ayuda-version').textContent = 'v' + (ctx.version || '?');
-        if (ctx.version && ctx.version !== VERSION_HTML) banner('Los archivos de la app tienen versiones distintas (pantallas ' + esc(VERSION_HTML) + ', servidor ' + esc(ctx.version) + '). Vuelve a pegar <b>SIGBE.gs</b>, <b>Index.html</b> y <b>App.html</b> y publica una nueva versión.');
+        const vIndex = $('version-index') ? $('version-index').textContent.trim() : '(anterior a 4.10.2)';
+        if (vIndex !== VERSION_HTML) banner('Los archivos de la app tienen versiones distintas: <b>Index.html</b> es de otra versión (' + esc(vIndex) + ') que <b>App.html</b> (' + esc(VERSION_HTML) + '): vuelve a pegar <b>Index.html</b> y publica una nueva versión. Mientras tanto algunas pantallas pueden no aparecer.');
+        else if (ctx.version && ctx.version !== VERSION_HTML) banner('Los archivos de la app tienen versiones distintas (pantallas ' + esc(VERSION_HTML) + ', servidor ' + esc(ctx.version) + '). Vuelve a pegar <b>SIGBE.gs</b>, <b>Index.html</b> y <b>App.html</b> y publica una nueva versión.');
         if (!E.usuario) olvidarSesion(true);
         pintarSesion();
         if (!E.listo) { finArranque(); pintarSetup(ctx.setup); mostrar('setup'); return; }
@@ -1858,12 +1861,12 @@
         $('conf-corte').innerHTML = conf.corte ? '<i class="fa-solid fa-scissors me-1"></i>Corte hecho el ' + esc(conf.corte) + '. El 1.0 y el 2.0 ya no se usan.' : '<i class="fa-solid fa-scissors me-1"></i>Sin corte todavía. El corte se hace desde el editor con libroNuevoCorte.';
         $('conf-horas').value = String(conf.automatica.cadaHoras || 1);
         $('conf-auto-estado').innerHTML = conf.automatica.activa ? `<span class="punto punto-ok"></span>Activa cada ${conf.automatica.cadaHoras} hora(s).` : '<span class="punto punto-aviso"></span>Apagada.';
-        const principal = !!(E.perfil && E.perfil.principal), deGestor = !!(E.perfil && E.perfil.claveGestor), deGstor = !!(E.perfil && E.perfil.claveGstor);
+        const principal = !!(E.perfil && E.perfil.principal), admin = !!(E.perfil && E.perfil.admin), deGestor = !!(E.perfil && E.perfil.claveGestor), deGstor = !!(E.perfil && E.perfil.claveGstor);
         $('clave-usuario').value = principal ? conf.usuario : E.usuario; $('clave-usuario').disabled = !principal;
         $('form-clave').style.display = deGestor || deGstor ? 'none' : ''; $('clave-de-gestor').style.display = deGestor ? '' : 'none'; $('clave-de-gstor').style.display = deGstor ? '' : 'none';
         $('clave-holcim-nota').style.display = principal ? '' : 'none';
-        document.querySelectorAll('#v-configuracion .conf-principal input, #v-configuracion .conf-principal select, #v-configuracion .conf-principal button').forEach(el => { el.disabled = !principal; });
-        $('conf-no-principal').style.display = principal ? 'none' : '';
+        document.querySelectorAll('#v-configuracion .conf-principal input, #v-configuracion .conf-principal select, #v-configuracion .conf-principal button').forEach(el => { el.disabled = !admin; });
+        $('conf-no-principal').style.display = admin ? 'none' : '';
         cargarUsuarios();
         $('conf-carpeta').textContent = conf.carpetaRespaldos;
         $('conf-respaldos').innerHTML = conf.respaldos.length ? conf.respaldos.map(r => `<tr><td>${esc(r.fecha)}</td><td>${esc(r.archivo)}</td><td class="text-end"><a href="${esc(r.url)}" target="_blank" rel="noopener">Abrir</a></td></tr>`).join('') : '<tr><td colspan="3" class="text-muted">Todavía no hay respaldos.</td></tr>';
@@ -1898,9 +1901,10 @@
       try {
         USUARIOS = await api('getUsuarios', E.token);
         const yo = USUARIOS.yo || {};
-        const desc = { Holcim: 'Holcim: ve y cambia todo, menos usuarios', Ambipar: 'Ambipar (proveedor): asistencia y Fecha Ambipar' };
-        $('usr-org').innerHTML = USUARIOS.orgs.map(o => `<option value="${esc(o)}">${esc(desc[o] || o)}</option>`).join('');
-        $('usr-sin-correo').style.display = yo.principal && !USUARIOS.correoActivo ? '' : 'none';
+        const desc = { Holcim: 'Holcim: ve y cambia todo, menos usuarios', Ambipar: 'Ambipar (proveedor): asistencia y Fecha Ambipar', Gestor: 'Gestor: todo, también usuarios y configuración' };
+        // "Gestor" es un Holcim con permisos de gestor: solo el usuario principal lo da o lo quita
+        $('usr-org').innerHTML = USUARIOS.orgs.concat(yo.principal ? ['Gestor'] : []).map(o => `<option value="${esc(o)}">${esc(desc[o] || o)}</option>`).join('');
+        $('usr-sin-correo').style.display = yo.admin && !USUARIOS.correoActivo ? '' : 'none';
         const sedes = D ? D.sedes : [];
         $('usr-sedes').innerHTML = sedes.map((sd, k) => `<div class="form-check form-check-inline me-0"><input class="form-check-input" type="checkbox" id="usr-s-${k}" value="${esc(sd)}"><label class="form-check-label" for="usr-s-${k}">${esc(sd)}</label></div>`).join('');
         $('usr-tabla').innerHTML = USUARIOS.usuarios.map(u => `<tr class="${u.activo ? '' : 'text-muted'}"><td class="fw-semibold">${esc(u.usuario)}${u.usuario === yo.usuario ? ' <span class="small text-muted">(tú)</span>' : ''}</td>
@@ -1909,16 +1913,16 @@
           <td class="small">${(u.sedes || []).length ? u.sedes.map(esc).join(', ') : '<span class="text-muted">Todas</span>'}</td>
           <td>${u.avisos && u.correo ? '<i class="fa-solid fa-envelope text-success" title="Recibe avisos"></i>' : '<i class="fa-solid fa-envelope text-muted opacity-50" title="No recibe avisos"></i>'}</td>
           <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}${u.claveTemporal ? '<div class="small text-warning-emphasis" title="Aún no ha cambiado la clave que se le envió">clave temporal</div>' : ''}${u.claveGestor ? '<div class="small text-muted" title="Entra con la misma clave del gestor">clave del gestor</div>' : ''}${u.claveGstor ? '<div class="small text-success-emphasis" title="Entra con su usuario y clave de GSTOR' + (u.planta ? ' · planta ' + esc(u.planta) : '') + '">clave de GSTOR</div>' : ''}${u.pendiente ? '<div class="small text-primary fw-semibold" title="Cargado; todavía no puede entrar ni recibe avisos">acceso por enviar</div>' : ''}</td>
-          <td class="text-end text-nowrap">${yo.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-editar" data-u="${esc(u.usuario)}">Editar</button>` : ''}${yo.principal && !u.principal ? `${u.pendiente ? `<button class="btn btn-sm btn-link p-0 me-2 fw-semibold" data-accion="usr-enviar" data-u="${esc(u.usuario)}">Enviar acceso</button>` : u.claveGestor ? '' : `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button>`}<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
+          <td class="text-end text-nowrap">${yo.admin && (!u.principal || yo.principal) ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-editar" data-u="${esc(u.usuario)}">Editar</button>` : ''}${yo.admin && !u.principal && u.usuario !== yo.usuario && (!u.gestor || yo.principal) ? `${u.pendiente ? `<button class="btn btn-sm btn-link p-0 me-2 fw-semibold" data-accion="usr-enviar" data-u="${esc(u.usuario)}">Enviar acceso</button>` : u.claveGestor || u.claveGstor ? '' : `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button>`}<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
         document.querySelectorAll('.usr-con-gstor').forEach(el => { el.style.display = USUARIOS.gstor ? '' : 'none'; });
-        const verGstor = !!(yo.principal && USUARIOS.gstor);
+        const verGstor = !!(yo.admin && USUARIOS.gstor);
         $('gstor-tarjeta').style.display = verGstor ? '' : 'none';
         if (verGstor && !GSTOR) cargarGstor();
         const pend = USUARIOS.usuarios.filter(u => u.pendiente);
-        $('usr-pendientes').innerHTML = yo.principal && pend.length ? `<div class="alert alert-primary small py-2 d-flex flex-wrap align-items-center gap-2 mb-0"><i class="fa-solid fa-paper-plane"></i>
+        $('usr-pendientes').innerHTML = yo.admin && pend.length ? `<div class="alert alert-primary small py-2 d-flex flex-wrap align-items-center gap-2 mb-0"><i class="fa-solid fa-paper-plane"></i>
           <span class="flex-grow-1"><b>${pend.length}</b> usuario(s) cargados con el acceso por enviar (${pend.map(u => esc(u.usuario)).join(', ')}): todavía no pueden entrar ni reciben avisos.</span>
           <button class="btn btn-sm btn-primary" data-accion="usr-enviar-todos"><i class="fa-solid fa-paper-plane me-1"></i>Enviar acceso a los ${pend.length}</button></div>` : '';
-        $('form-usuario').style.display = yo.principal ? '' : 'none';
+        $('form-usuario').style.display = yo.admin ? '' : 'none';
         formUsuario(null);
       } catch (e) { error(e); }
     }
@@ -1931,7 +1935,7 @@
       $('usr-form-titulo').textContent = u ? 'Editar ' + u + (x.principal ? ' (gestor)' : '') : 'Agregar usuario';
       $('usr-usuario').value = u || ''; $('usr-usuario').readOnly = !!u;
       $('usr-nombre').value = x.nombre || ''; $('usr-correo').value = x.correo || '';
-      if (x.org) $('usr-org').value = x.org;
+      if (x.org) $('usr-org').value = x.gestor && [...$('usr-org').options].some(o => o.value === 'Gestor') ? 'Gestor' : x.org;
       $('usr-org').disabled = !!x.principal;
       document.querySelectorAll('#usr-sedes input').forEach(el => { el.checked = (x.sedes || []).indexOf(el.value) !== -1; });
       $('usr-avisos').checked = u ? x.avisos !== false : true;
@@ -1943,13 +1947,15 @@
     }
     /** Clave temporal solo al crear un usuario de Ambipar; los de Holcim entran con la clave del gestor. */
     function ajustarClaveUsuario() {
-      const holcim = $('usr-org').value === 'Holcim', x = usrEditando ? buscarUsuario(usrEditando) : {}, ahora = $('usr-enviar').checked;
+      const holcim = $('usr-org').value === 'Holcim' || $('usr-org').value === 'Gestor', x = usrEditando ? buscarUsuario(usrEditando) : {}, ahora = $('usr-enviar').checked;
       $('usr-enviar-box').style.display = usrEditando ? 'none' : '';
       $('usr-clave-box').style.display = usrEditando || holcim || !ahora ? 'none' : ''; $('usr-clave').required = !usrEditando && !holcim && ahora;
       $('usr-clave-gestor').style.display = holcim && !x.principal ? '' : 'none';
     }
     function datosFormUsuario() {
-      return { usuario: $('usr-usuario').value.trim().toLowerCase(), nombre: $('usr-nombre').value.trim(), org: $('usr-org').value, correo: $('usr-correo').value.trim(),
+      const tipo = $('usr-org').value, x = usrEditando ? buscarUsuario(usrEditando) : {};
+      return { usuario: $('usr-usuario').value.trim().toLowerCase(), nombre: $('usr-nombre').value.trim(), org: tipo === 'Gestor' ? 'Holcim' : tipo, correo: $('usr-correo').value.trim(),
+        gestor: tipo === 'Gestor' || (tipo === 'Holcim' && !!x.gestor && !(USUARIOS.yo || {}).principal), // quien no es el principal no lo cambia
         sedes: [...document.querySelectorAll('#usr-sedes input:checked')].map(el => el.value), avisos: $('usr-avisos').checked };
     }
     function claveAleatoria() {
@@ -1982,12 +1988,12 @@
     function restablecerClave(u) {
       const x = buscarUsuario(u);
       if (!confirm('¿Generar una clave nueva para "' + u + '"? La anterior deja de servir.' + (x.correo ? ' Le llegará por correo a ' + x.correo + '.' : ' No tiene correo: tendrás que pasársela tú.'))) return;
-      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, correo: x.correo, sedes: x.sedes, avisos: x.avisos, activo: x.activo, clave: claveAleatoria() }, true);
+      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, gestor: !!x.gestor, correo: x.correo, sedes: x.sedes, avisos: x.avisos, activo: x.activo, clave: claveAleatoria() }, true);
     }
     function activarUsuario(u, activo) {
       if (!activo && !confirm('¿Desactivar a "' + u + '"? No podrá entrar hasta que lo actives de nuevo.')) return;
       const x = buscarUsuario(u);
-      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, correo: x.correo, sedes: x.sedes, avisos: x.avisos, activo: activo });
+      usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, gestor: !!x.gestor, correo: x.correo, sedes: x.sedes, avisos: x.avisos, activo: activo });
     }
     // ══════════ PERSONAL DE GSTOR (solo el gestor): asignar sedes antes de que entren ══════════
     let GSTOR = null;
@@ -1999,11 +2005,9 @@
       Object.keys(gstorCambios).forEach(k => { delete gstorCambios[k]; });
       pintarGstor();
     }
-    /** Sede que muestra la fila: '' sin asignar · '*' todas · '=' varias (se cambian en Editar) · o una sede. */
-    function sedeGstor(g) {
-      const c = gstorCambios[g.usuario], s = c ? c.sedes : g.enSigbe ? g.sedes : null;
-      return s === null ? '' : !s.length ? '*' : s.length === 1 ? s[0] : '=';
-    }
+    /** Sedes de la fila: null = sin asignar (aún no está en SIGBE) · [] = todas · [una o varias]. */
+    function sedesGstor(g) { const c = gstorCambios[g.usuario]; return c ? c.sedes : g.enSigbe ? g.sedes : null; }
+    function textoSedesGstor(s) { return s === null ? '— sin asignar —' : !s.length ? 'Todas las sedes' : s.length <= 2 ? s.join(', ') : s.length + ' sedes'; }
     function pintarGstor() {
       if (!GSTOR) return;
       if (!GSTOR.conectado) { $('gstor-tabla').innerHTML = '<div class="small text-muted">GSTOR no está conectado.</div>'; return; }
@@ -2011,40 +2015,60 @@
       const filas = GSTOR.lista.filter(g => (!q || norm([g.usuario, g.nombre, g.planta, g.correo].join(' ')).includes(q)) && (!solo || !g.enSigbe));
       const nuevos = GSTOR.lista.filter(g => !g.enSigbe).length;
       $('gstor-conteo').textContent = GSTOR.lista.length + ' en GSTOR · ' + (GSTOR.lista.length - nuevos) + ' ya en SIGBE · ' + nuevos + ' aún no';
-      $('gstor-tabla').innerHTML = `<table class="table table-sm small align-middle mb-0"><thead><tr><th>Usuario</th><th>Nombre y correo</th><th>Planta en GSTOR</th><th style="min-width:170px">Sede en SIGBE</th><th>Avisos</th><th>Estado</th></tr></thead><tbody>` +
+      $('gstor-tabla').innerHTML = `<table class="table table-sm small align-middle mb-0"><thead><tr><th>Usuario</th><th>Nombre y correo</th><th>Planta en GSTOR</th><th style="min-width:190px">Sedes en SIGBE <span class="fw-normal text-muted">(una o varias)</span></th><th>Avisos</th><th>Estado</th></tr></thead><tbody>` +
         filas.map(g => {
-          const bloqueada = g.esGestor || g.deAmbipar || !g.activoGstor, sd = sedeGstor(g), c = gstorCambios[g.usuario];
+          const bloqueada = g.esGestor || g.deAmbipar || !g.activoGstor, sd = sedesGstor(g), c = gstorCambios[g.usuario];
           const av = c ? c.avisos : g.enSigbe ? g.avisos : true;
           const estado = g.esGestor ? '<span class="text-muted">es el gestor</span>' : g.deAmbipar ? '<span class="text-warning-emphasis">en SIGBE es de Ambipar</span>'
             : !g.activoGstor ? '<span class="text-muted">inactivo en GSTOR</span>' : g.enSigbe ? (g.activo === false ? '<span class="text-muted">desactivado en SIGBE</span>' : '<span class="badge bg-success-subtle text-success-emphasis">en SIGBE</span>')
             : '<span class="badge bg-secondary-subtle text-secondary-emphasis">aún no entra</span>';
-          const opciones = (g.enSigbe ? '' : '<option value="">— sin asignar —</option>') + (sd === '=' ? `<option value="=" selected>Varias: ${esc(g.sedes.join(', '))}</option>` : '') +
-            '<option value="*"' + (sd === '*' ? ' selected' : '') + '>Todas las sedes</option>' +
-            GSTOR.sedes.map(x => `<option ${x === sd ? 'selected' : ''}>${esc(x)}</option>`).join('');
-          return `<tr class="${c ? 'fila-pendiente' : ''} ${bloqueada ? 'text-muted' : ''}"><td class="fw-semibold">${esc(g.usuario)}</td>
+          const id = 'gs-' + g.usuario.replace(/[^a-z0-9]/g, '_');
+          const menu = `<div class="d-flex gap-2 px-2 pb-2 mb-1 border-bottom small"><label class="d-flex align-items-center gap-2 mb-0"><input class="form-check-input mt-0" type="checkbox" data-gtodas="${esc(g.usuario)}" ${sd && !sd.length ? 'checked' : ''}>Todas las sedes</label>` +
+            (g.enSigbe ? '' : `<button type="button" class="btn btn-sm btn-link p-0 ms-auto" data-gnada="${esc(g.usuario)}">Sin asignar</button>`) + '</div>' +
+            GSTOR.sedes.map((x, k) => `<div class="sede-op d-flex align-items-center gap-2 px-2"><input class="form-check-input mt-0" type="checkbox" id="${id}-${k}" data-gs="${esc(g.usuario)}" value="${esc(x)}" ${sd && sd.indexOf(x) !== -1 ? 'checked' : ''}><label class="form-check-label flex-grow-1 py-1" for="${id}-${k}">${esc(x)}</label></div>`).join('');
+          return `<tr id="${id}" class="${c ? 'fila-pendiente' : ''} ${bloqueada ? 'text-muted' : ''}"><td class="fw-semibold">${esc(g.usuario)}</td>
             <td>${esc(g.nombre || '—')}<div class="small text-muted">${esc(g.correo || 'sin correo')}${g.mismoCorreoGestor ? ' · mismo correo del gestor (los avisos le llegan por él)' : ''}</div></td>
             <td>${esc(g.planta || '—')}${!g.enSigbe && g.sugerida ? `<div class="small text-muted">sugerida: ${esc(g.sugerida)}</div>` : ''}</td>
-            <td><select class="form-select form-select-sm" data-gu="${esc(g.usuario)}" ${bloqueada ? 'disabled' : ''} aria-label="Sede de ${esc(g.nombre || g.usuario)}">${opciones}</select></td>
-            <td><input class="form-check-input" type="checkbox" data-ga="${esc(g.usuario)}" ${av ? 'checked' : ''} ${bloqueada || (!g.enSigbe && !c) ? 'disabled' : ''} aria-label="Recibe avisos"></td>
+            <td><div class="dropdown"><button type="button" class="form-select form-select-sm text-start text-truncate multi-sel ${sd && sd.length ? 'sede-filtrada' : ''}" style="max-width:220px" data-bs-toggle="dropdown" data-bs-auto-close="outside" data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false" ${bloqueada ? 'disabled' : ''} aria-label="Sedes de ${esc(g.nombre || g.usuario)}" title="${esc(sd ? sd.join(', ') : '')}">${esc(textoSedesGstor(sd))}</button>
+              <div class="dropdown-menu shadow py-2 multi-menu">${menu}</div></div></td>
+            <td><input class="form-check-input" type="checkbox" data-ga="${esc(g.usuario)}" ${av ? 'checked' : ''} ${bloqueada || sd === null ? 'disabled' : ''} aria-label="Recibe avisos"></td>
             <td>${estado}</td></tr>`;
         }).join('') + (filas.length ? '' : '<tr><td colspan="6" class="text-muted">Nadie con ese filtro.</td></tr>') + '</tbody></table>';
+      pieGstor();
+    }
+    function pieGstor() {
       const n = Object.keys(gstorCambios).length, porSugerir = GSTOR.lista.filter(g => !g.enSigbe && g.sugerida && g.activoGstor && !gstorCambios[g.usuario]).length;
       $('gstor-pie').innerHTML = (porSugerir ? `<button type="button" class="btn btn-sm btn-outline-secondary" data-accion="gstor-sugeridas" title="A quienes aún no están en SIGBE, la sede de su planta">Usar la sede sugerida (${porSugerir})</button>` : '') +
         (n ? `<span class="small fw-semibold text-primary ms-auto">${n} cambio(s) sin guardar</span><button type="button" class="btn btn-sm btn-outline-secondary" data-accion="gstor-descartar">Descartar</button><button type="button" class="btn btn-sm btn-success" data-accion="gstor-guardar"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar sedes (${n})</button>` : '');
     }
-    function cambioGstor(ev) {
-      const sel = ev.target.closest('select[data-gu]'), chk = ev.target.closest('input[data-ga]');
-      const u = sel ? sel.dataset.gu : chk ? chk.dataset.ga : '';
+    /** Pone las sedes de una fila (null = sin asignar) y repinta solo esa fila: el menú sigue abierto mientras se marcan varias. */
+    function ponerSedesGstor(u, sedes, avisos) {
       const g = GSTOR && GSTOR.lista.find(x => x.usuario === u);
       if (!g) return;
-      const c = gstorCambios[u] || { sedes: g.enSigbe ? g.sedes.slice() : [], avisos: g.enSigbe ? g.avisos : true };
-      if (sel) {
-        if (sel.value === '' || sel.value === '=') { delete gstorCambios[u]; pintarGstor(); return; } // sin asignar o dejar las varias de antes
-        c.sedes = sel.value === '*' ? [] : [sel.value];
-      } else c.avisos = chk.checked;
-      const igual = g.enSigbe && JSON.stringify(c.sedes) === JSON.stringify(g.sedes) && c.avisos === g.avisos;
+      const antes = gstorCambios[u] || { sedes: g.enSigbe ? g.sedes.slice() : null, avisos: g.enSigbe ? g.avisos : true };
+      const c = { sedes: sedes === undefined ? antes.sedes : sedes, avisos: avisos === undefined ? antes.avisos : avisos };
+      if (c.sedes === null && g.enSigbe) c.sedes = []; // en SIGBE, ninguna marcada = todas
+      const igual = c.sedes === null || (g.enSigbe && JSON.stringify(c.sedes) === JSON.stringify(g.sedes) && c.avisos === g.avisos);
       if (igual) delete gstorCambios[u]; else gstorCambios[u] = c;
-      pintarGstor();
+      const tr = $('gs-' + u.replace(/[^a-z0-9]/g, '_')), sd = sedesGstor(g);
+      if (tr) {
+        tr.classList.toggle('fila-pendiente', !!gstorCambios[u]);
+        const b = tr.querySelector('.multi-sel'); b.textContent = textoSedesGstor(sd); b.title = sd ? sd.join(', ') : ''; b.classList.toggle('sede-filtrada', !!(sd && sd.length));
+        tr.querySelector('[data-gtodas]').checked = !!sd && !sd.length;
+        tr.querySelectorAll('[data-gs]').forEach(x => { x.checked = !!sd && sd.indexOf(x.value) !== -1; });
+        const a = tr.querySelector('[data-ga]'); a.disabled = sd === null; if (gstorCambios[u]) a.checked = gstorCambios[u].avisos;
+      }
+      pieGstor();
+    }
+    function cambioGstor(ev) {
+      const t = ev.target;
+      if (t.dataset.gtodas) return ponerSedesGstor(t.dataset.gtodas, t.checked ? [] : null);
+      if (t.dataset.gs) {
+        const u = t.dataset.gs, tr = t.closest('tr');
+        const marcadas = [...tr.querySelectorAll('[data-gs]:checked')].map(x => x.value);
+        return ponerSedesGstor(u, marcadas.length ? marcadas : null);
+      }
+      if (t.dataset.ga) return ponerSedesGstor(t.dataset.ga, undefined, t.checked);
     }
     function sugeridasGstor() {
       GSTOR.lista.filter(g => !g.enSigbe && g.sugerida && g.activoGstor && !gstorCambios[g.usuario]).forEach(g => { gstorCambios[g.usuario] = { sedes: [g.sugerida], avisos: true }; });
