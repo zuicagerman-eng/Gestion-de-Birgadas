@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.0.2)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.11.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -134,6 +134,30 @@ de GSTOR. Con la clave temporal de GSTOR no entra: primero la cambia en GSTOR.
 en SIGBE, poner las propiedades del script `GSTOR_URL` (URL /exec de GSTOR) y `GSTOR_PUENTE` (la llave que dio
 `prepararPuenteSigbe`), correr `probarGstor` en el editor (pide permiso para llamar a otra URL) y publicar versión nueva.
 *Estado del sistema* muestra si la conexión funciona.
+
+## Hoja PANEL (para el Panel del Centro de formación)
+
+SIGBE deja la cobertura de brigadistas escrita en una hoja **`PANEL`**, igual que GSTOR deja la suya. El Panel la lee con su
+propiedad `ID_SIGBE`. Tiene el nombre en la columna A y el valor en la B, una fila por dato y sin encabezados:
+
+| A | B |
+|---|---|
+| `cobertura` | % de la meta, sin «%» (el mismo de la pestaña Cobertura del Dashboard con todas las sedes; vacío si no hay Indicador) |
+| `brigadistas` | brigadistas activos en las listas de la app (Holcim + contratistas) |
+| `meta` | brigadistas que pide la meta (20 % del personal del Indicador, por planta y hacia arriba) |
+| `plantas cumplen` | plantas que llegan a la meta |
+| `plantas` | plantas del Indicador |
+| `actualizado` | `aaaa-mm-dd hh:mm` (como texto) |
+
+- Los números salen de **la misma cuenta** que muestran Cobertura y el Dashboard: `sigbeCoberturaPlantas_` en `SIGBE.gs`.
+  La pantalla ya no hace su propia cuenta; solo filtra por sede.
+- Se escribe cada vez que se recalculan los datos y cambió algún número, y además cada hora con `actualizarPanel`.
+- Está en el **libro nuevo**, que es el que queda después del corte; si todavía no hay libro nuevo, está en el 2.0. Solo
+  se sobrescriben esas seis filas: lo que haya debajo no se toca, la hoja no se borra y no se le da formato. Si no
+  existe, se crea. No sale en *Otras hojas*.
+- **Instalar, una vez:** en el editor, correr `instalarPanel`. Crea el disparador de cada hora (si ya había uno, lo
+  reemplaza), escribe la hoja y dice en el registro qué `ID_SIGBE` poner en el Panel. Si después se crea el libro nuevo,
+  hay que correrlo otra vez y cambiar `ID_SIGBE`.
 
 ## Correos y avisos
 

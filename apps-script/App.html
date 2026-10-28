@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.10.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.11.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -494,25 +494,8 @@
       const color = pct >= 80 ? 'var(--s-ok)' : pct >= 40 ? '#f59f00' : 'var(--s-mal)';
       return `<div class="fila-sede d-flex align-items-center gap-2" ${accion ? `data-accion="${accion}" data-sede="${esc(sede)}" title="Ver solo ${esc(sede)}"` : ''}><div style="width:120px" class="fw-semibold text-truncate">${esc(sede)}</div><div class="flex-grow-1">${pctBarra(Math.min(pct, 100), color)}</div><div style="width:190px" class="text-end text-muted">${txt}</div></div>`;
     }
-    /** Plantas de la pestaña Indicador. con su cobertura (la misma cuenta en el Dashboard y en Cobertura). */
-    function plantasCobertura() {
-      const enteros = x => Math.ceil(Math.round(x * 10) / 10);
-      const plantas = [];
-      D.indicador.filter(enSede).forEach(f => { let pl = plantas.find(x => x.p === f.p); if (!pl) plantas.push(pl = { p: f.p, sede: f.sede, tot: null, emp: [] }); if (f.tot) pl.tot = f; else pl.emp.push(f); });
-      plantas.forEach(pl => {
-        const sum = k => pl.emp.reduce((n, f) => n + (f[k] || 0), 0);
-        pl.per = pl.tot ? pl.tot.per : sum('per'); pl.bri = sum('lis'); // brigadistas: los de las listas de la app
-        // Personal propio: las filas "Holcim…" o "Geocycle…" del Indicador (las mismas a las que van los brigadistas Holcim); el resto es inhouse
-        pl.perPropio = pl.emp.filter(f => /HOLCIM|GEOCYCLE/.test(norm(f.emp))).reduce((n, f) => n + (f.per || 0), 0);
-        pl.perInhouse = Math.max(0, pl.per - pl.perPropio);
-        pl.metaN = enteros(pl.tot ? pl.tot.meta : sum('meta')); // 20 % de la planta, hacia arriba
-        pl.faltan = Math.max(0, pl.metaN - pl.bri);
-        pl.pct = pl.metaN ? Math.round(pl.bri / pl.metaN * 100) : 100;
-        pl.pctPer = pl.per ? Math.round(pl.bri / pl.per * 1000) / 10 : 0;
-        pl.empresas = pl.emp.filter(f => f.per > 0 || f.lis > 0).map(f => { const m = enteros(f.meta); return Object.assign({}, f, { bri: f.lis || 0, metaN: m, faltan: Math.max(0, m - (f.lis || 0)), pct: m ? Math.round((f.lis || 0) / m * 100) : 100 }); });
-      });
-      return plantas;
-    }
+    /** Plantas del Indicador con su cobertura. La cuenta la hace el servidor (sigbeCoberturaPlantas_), la misma que va a la hoja PANEL; aquí solo se filtra por sede. */
+    function plantasCobertura() { return (D.cobertura || []).filter(enSede); }
     function pintarInicio() {
       $('inicio-sub').textContent = E.sedes.length ? (E.sedes.length === 1 ? 'Sede ' : 'Sedes ') + E.sedes.join(', ') : 'Todas las sedes · haz clic en una sede de las barras o elige una o varias arriba';
       // 1) Asistencia a las capacitaciones (personal Holcim; solo módulos que aplican y cuya fecha ya pasó)

@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.10.2';
+const SIGBE_VERSION = '4.11.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -39,6 +39,7 @@ const SIGBE_HOJA_INDICADOR = 'Indicador';
 const SIGBE_HOJA_CRONOGRAMA = '2026 Cronograma Nacional Brigadas';
 const SIGBE_HOJA_BITACORA = 'Bitácora SIGBE';
 const SIGBE_HOJA_SEGUIMIENTO = '2026 Seguimiento';
+const SIGBE_HOJA_PANEL = 'PANEL'; // la cobertura para el Panel del Centro de formación
 const SIGBE_HORAS_SESION = 6;
 const SIGBE_MINUTOS_CACHE = 10;
 const SIGBE_MAX_CAMBIOS = 300;       // máximo de cambios del Excel que se anotan uno por uno en cada pasada
@@ -116,13 +117,16 @@ function getContexto(token) {
 function getDatos(token, forzar) {
   sigbeExigirSesion_(token);
   if (!forzar) {
-    const m = sigbeCacheLeer_('sigbe_m_' + sigbeGen_());
+    const m = sigbeCacheLeer_(sigbeClaveModelo_());
     if (m) { m.desdeCache = true; return m; }
   }
   const m = sigbeConstruirModelo_();
-  sigbeCacheGuardar_('sigbe_m_' + sigbeGen_(), m);
+  sigbeCacheGuardar_(sigbeClaveModelo_(), m);
   return m;
 }
+
+/** Clave del modelo en la caché: cambia con cada guardado y con cada versión (una versión nueva no lee un modelo viejo). */
+function sigbeClaveModelo_() { return 'sigbe_m_' + SIGBE_VERSION + '_' + sigbeGen_(); }
 
 /**
  * Modelo compacto:
@@ -132,7 +136,7 @@ function getDatos(token, forzar) {
  *  holcim:   [{ r, p, e, n, c, ce, fi, em, m, x }]  m = '0101…' (asistencia por sesión); x = { índice: texto/fecha propia }
  *  inhouse:  [{ r, p, k, n, c, ce, e }]
  *  crono:    [{ sede, pl, n, ses, mes, ent, pre, cl, f, i, amb, e, obs, br }]
- *  indicador:[{ p, sede, emp, tot, per, bri, meta, bre }]
+ *  cobertura:[{ p, sede, per, perPropio, perInhouse, bri, metaN, faltan, pct, pctPer, empresas }]  (sigbeCoberturaPlantas_)
  *  seguimiento: [{ cap, pl, f, i, ah, ac, tot, ej, inf, cl }]  (pestaña "2026 Seguimiento": sesiones realizadas y asistentes)
  */
 function sigbeConstruirModelo_() {
@@ -181,7 +185,7 @@ function sigbeConstruirModelo_() {
 
   const indicadorSinFila = sigbeAsignarListas_(indicador.filter(f => !f.tot), h.personas, inhouse);
   const sedes = sigbeUnicos_(h.personas.map(p => sigbeSede_(p.planta)).concat(inhouse.map(p => sigbeSede_(p.p)), lista.map(x => x.sede)));
-  return {
+  const m = {
     v: SIGBE_VERSION,
     generado: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'),
     hoy: sigbeHoy_(),
@@ -198,11 +202,91 @@ function sigbeConstruirModelo_() {
     inhouse: inhouse.map(p => Object.assign(p, { sede: sigbeSede_(p.p) })),
     crono: lista,  // na = 1: "-" o gris (no aplica); las pantallas las muestran solo en el cronograma
     cronoFilas: crono.filas.map(f => ({ fila: f.fila, mes: f.mes, nombre: f.nombre, pre: f.prefijo, cl: f.clave })),
-    indicador: indicador,  // per = personal (del Indicador); lis = brigadistas activos en las listas de la app; nom = sus nombres
+    cobertura: sigbeCoberturaPlantas_(indicador),
     indicadorSinFila: indicadorSinFila,
     seguimiento: seguimiento,
     sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1).concat(sedes.filter(s => !SIGBE_SEDES.some(x => x[0] === s))),
   };
+  // Cada vez que se recalcula la cobertura, la hoja PANEL (solo si cambió algún número)
+  try { sigbeEscribirPanel_(m, false); } catch (e) { console.log('Hoja PANEL: ' + e.message); }
+  return m;
+}
+
+/**
+ * Cobertura de brigadistas por planta del Indicador. Es la única cuenta: la muestran Cobertura y el Dashboard (la
+ * pantalla solo filtra por sede) y de ella salen los números de la hoja PANEL. Metas en personas enteras (no 0,6 personas).
+ * indicador: filas de sigbeLeerIndicador_ con lis (brigadistas activos en las listas de la app) y nom (sus nombres).
+ */
+function sigbeCoberturaPlantas_(indicador) {
+  const enteros = x => Math.ceil(Math.round(x * 10) / 10);
+  const grupos = [];
+  indicador.forEach(f => { let g = grupos.find(x => x.p === f.p); if (!g) grupos.push(g = { p: f.p, sede: f.sede, tot: null, emp: [] }); if (f.tot) g.tot = f; else g.emp.push(f); });
+  return grupos.map(g => {
+    const sum = k => g.emp.reduce((n, f) => n + (f[k] || 0), 0);
+    const per = g.tot ? g.tot.per : sum('per'), bri = sum('lis'); // brigadistas: los de las listas de la app
+    // Personal propio: las filas "Holcim…" o "Geocycle…" del Indicador (las mismas a las que van los brigadistas Holcim); el resto es inhouse
+    const perPropio = g.emp.filter(f => /HOLCIM|GEOCYCLE/.test(sigbeNorm_(f.emp))).reduce((n, f) => n + (f.per || 0), 0);
+    const metaN = enteros(g.tot ? g.tot.meta : sum('meta')); // 20 % de la planta, hacia arriba
+    return {
+      p: g.p, sede: g.sede, per: per, perPropio: perPropio, perInhouse: Math.max(0, per - perPropio), bri: bri, metaN: metaN,
+      faltan: Math.max(0, metaN - bri), pct: metaN ? Math.round(bri / metaN * 100) : 100, pctPer: per ? Math.round(bri / per * 1000) / 10 : 0,
+      empresas: g.emp.filter(f => f.per > 0 || f.lis > 0).map(f => {
+        const mf = enteros(f.meta);
+        return Object.assign({}, f, { bri: f.lis || 0, metaN: mf, faltan: Math.max(0, mf - (f.lis || 0)), pct: mf ? Math.round((f.lis || 0) / mf * 100) : 100 });
+      }),
+    };
+  });
+}
+
+/** Lo que muestra la pestaña Cobertura del Dashboard con todas las sedes (los totales de sigbeCoberturaPlantas_). */
+function sigbeCoberturaTotal_(m) {
+  const pl = m.cobertura, bri = pl.reduce((n, x) => n + x.bri, 0), meta = pl.reduce((n, x) => n + x.metaN, 0);
+  const activos = l => l.filter(p => !/desvinculado/i.test(p.e)).length; // como la pantalla: activo = no desvinculado
+  return { cobertura: meta ? Math.round(bri / meta * 100) : '', brigadistas: activos(m.holcim) + activos(m.inhouse), meta: meta,
+    cumplen: pl.filter(x => !x.faltan).length, plantas: pl.length };
+}
+
+// ═════════════════════════════ HOJA PANEL (PANEL DEL CENTRO DE FORMACIÓN) ═════════════════════════════
+// Como la hoja PANEL de GSTOR: nombre en la columna A, valor en la B, una fila por dato, sin encabezados. El Panel la lee
+// con la propiedad ID_SIGBE. Vive en el libro nuevo (el que queda después del corte; si todavía no hay, en el 2.0), así el
+// Panel no tiene que cambiar de libro con el corte. Solo se escriben esas seis filas: ni se borra la hoja ni se da formato.
+
+/** siempre = false: solo si cambió algún número (recalcular los datos no abre otro archivo cada vez). */
+function sigbeEscribirPanel_(m, siempre) {
+  const t = sigbeCoberturaTotal_(m);
+  const filas = [['cobertura', t.cobertura], ['brigadistas', t.brigadistas], ['meta', t.meta], ['plantas cumplen', t.cumplen], ['plantas', t.plantas]];
+  const huella = JSON.stringify(filas) + '|' + (lnIdLibro_() || idDestino_());
+  if (!siempre && prop_('SIGBE_PANEL') === huella) return null;
+  const ss = sigbeRegistro_();
+  if (!ss) throw new Error('no se puede abrir el libro de SIGBE');
+  const sh = ss.getSheetByName(SIGBE_HOJA_PANEL) || ss.insertSheet(SIGBE_HOJA_PANEL);
+  const ahora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+  sh.getRange(1, 1, filas.length + 1, 2).setValues(filas.concat([['actualizado', "'" + ahora]])); // ' = texto tal cual, no fecha
+  props_().setProperty('SIGBE_PANEL', huella);
+  return { libro: ss, t: t, ahora: ahora };
+}
+
+/** Disparador cada hora (lo crea instalarPanel): reescribe la hoja PANEL con la cobertura del momento. */
+function actualizarPanel(e) {
+  lnTareaODueno_(e);
+  let m = sigbeCacheLeer_(sigbeClaveModelo_());
+  if (!m) { m = sigbeConstruirModelo_(); sigbeCacheGuardar_(sigbeClaveModelo_(), m); }
+  const r = sigbeEscribirPanel_(m, true);
+  return lnMostrar_('Hoja PANEL de «' + r.libro.getName() + '» actualizada (' + r.ahora + '): ' + (r.t.cobertura === '' ? 'sin meta (¿falta la pestaña Indicador?)' : r.t.cobertura + ' % de la meta') +
+    ' · ' + r.t.brigadistas + ' brigadistas · meta ' + r.t.meta + ' · ' + r.t.cumplen + ' de ' + r.t.plantas + ' plantas cumplen.');
+}
+
+/** Desde el editor, una vez: crea el disparador de cada hora, escribe la hoja PANEL y dice qué poner en el Panel. */
+function instalarPanel() {
+  lnSoloDueno_();
+  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'actualizarPanel').forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('actualizarPanel').timeBased().everyHours(1).create();
+  const txt = actualizarPanel();
+  const ss = sigbeRegistro_();
+  return lnMostrar_(txt + '\nDisparador: actualizarPanel cada hora (y además cada vez que cambian los números).' +
+    '\nEn el proyecto del Panel del Centro de formación → ⚙ Configuración del proyecto → Propiedades de la secuencia de comandos, ponga:' +
+    '\n  ID_SIGBE = ' + ss.getId() + '\n  (libro «' + ss.getName() + '»: ' + ss.getUrl() + ')' +
+    (lnIdLibro_() ? '' : '\nTodavía no hay libro nuevo: la hoja quedó en el 2.0. Cuando cree el libro nuevo, corra instalarPanel otra vez y cambie ID_SIGBE.'));
 }
 
 /**
@@ -1316,7 +1400,7 @@ function getHojaExtra(token, nombre) {
 function sigbeEsHojaPropia_(nombre) {
   const n = sigbeNorm_(nombre);
   return ['2026 BRIGADISTAS HOLCIM', '2026 BRIGADISTAS INHOUSE', '2026 CRONOGRAMA', 'INDICADOR', sigbeNorm_(SIGBE_HOJA_BITACORA), sigbeNorm_(SIGBE_HOJA_INGRESOS)].some(x => n.indexOf(x) === 0) ||
-    n.indexOf('TEMARIO') !== -1;
+    n.indexOf('TEMARIO') !== -1 || n === SIGBE_HOJA_PANEL;
 }
 
 /** Historial: cambios hechos desde la app y cambios detectados en el Excel (los más recientes primero). */
@@ -1351,7 +1435,7 @@ function sigbeVigilarBloqueado_() {
   sigbeLimpiarCaches_();
   const m = sigbeConstruirModelo_();
   sigbeInvalidar_();
-  sigbeCacheGuardar_('sigbe_m_' + sigbeGen_(), m);
+  sigbeCacheGuardar_(sigbeClaveModelo_(), m);
   const foto = sigbeFoto_(m);
   const props = props_();
   let archivo = null, anterior = null;
