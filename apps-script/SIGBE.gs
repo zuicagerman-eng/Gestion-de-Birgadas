@@ -57,7 +57,7 @@ const SIGBE_CAMPOS = {
   certificado: { etiqueta: 'Certificado 0256', titulo: 'CERTIFICADO 0256', buscar: ['CERTIFICADO'] },
 };
 const SIGBE_GRUPOS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
-const SIGBE_CLASE_I = ['Sí', 'No', 'En formación']; // si la columna tiene desplegable en la hoja, se usan esas opciones
+const SIGBE_CLASE_I = ['46 horas', '21 horas', 'No aplica']; // siempre estas, aunque la hoja tenga un desplegable viejo
 
 // Sede: [nombre a mostrar, palabras que la identifican en cualquier hoja]
 const SIGBE_SEDES = [
@@ -557,7 +557,7 @@ function actualizarBrigadistasLote(token, lista) {
         if (campo === 'grupo' && nuevo && SIGBE_GRUPOS.indexOf(nuevo) === -1) { rechazos.push('Grupo sanguíneo: "' + nuevo + '" no es válido (' + SIGBE_GRUPOS.join(', ') + ')'); return; }
         if (c) {
           const opciones = opcionesDe(H, c, p.fila);
-          if (opciones && nuevo && opciones.indexOf(nuevo) === -1) { rechazos.push(def.etiqueta + ': "' + nuevo + '" no está en las opciones de la hoja (' + opciones.join(', ') + ')'); return; }
+          if (opciones && nuevo && campo !== 'clase1' && opciones.indexOf(nuevo) === -1) { rechazos.push(def.etiqueta + ': "' + nuevo + '" no está en las opciones de la hoja (' + opciones.join(', ') + ')'); return; }
         } else {
           c = sigbeCrearColumna_(H.sh, H.t, campo); // la columna no existía: se crea al final
         }
@@ -629,7 +629,7 @@ function getCatalogos(token) {
     contratistas: sigbeUnicos_(inhouse.map(p => p.k)),
     holcimTieneCertificado: !!h.cols.certificado,
     grupos: SIGBE_GRUPOS,
-    clases: lista(sh, h.cols.clase1, SIGBE_CLASE_I),
+    clases: SIGBE_CLASE_I,
     empresas: (() => {
       let ind = [];
       try { ind = sigbeLeerIndicador_(sigbeHoja_(F.datos, SIGBE_HOJA_INDICADOR)).filter(f => !f.tot).map(f => f.emp); } catch (e) { ind = []; }

@@ -52,7 +52,8 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   En la ficha, cada sesión tiene una casilla **Asistió**: se marcan o desmarcan varias (o **Marcar todas las ya
   realizadas**) y **Guardar asistencia** las guarda juntas en una sola llamada (con Deshacer). Las sesiones con fecha
   futura muestran **Aún no**. Si se cierra la ficha con cambios sin guardar, pregunta. Lo usan los tres tipos de usuario.
-  Grupo sanguíneo: O+, O-, A+, A-, B+, B-, AB+, AB-. Clase I: la lista de la hoja si tiene desplegable; si no, Sí / No / En formación.
+  Grupo sanguíneo: O+, O-, A+, A-, B+, B-, AB+, AB-. Clase I: 46 horas / 21 horas / No aplica (los datos viejos, como «Sí», se ven
+  tal cual hasta que se cambien).
 - **Cronograma**: próximas / pasadas / por definir / no aplican, filtros por mes, tema y estado; botón para abrir la asistencia.
   **Programar / Editar** cambia la fecha (Holcim), la fecha Ambipar, el estado, # brigadistas y observaciones de una planta,
   y puede pasar la fecha y el estado a otras plantas de la misma fila. "No aplica" pone `-`; desde **No aplican** se habilita.
