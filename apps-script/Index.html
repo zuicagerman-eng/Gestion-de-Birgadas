@@ -142,7 +142,7 @@
     @media (max-width: 576px) { .matriz .col-persona { min-width: 130px; max-width: 150px; } }
     .btn-completar { padding: 0 .4rem; font-size: .72rem; color: #8a5a00; background: #fff4d6; border: 1px dashed #f0b429; border-radius: 999px; white-space: nowrap; }
     .btn-completar:hover, .btn-completar:focus { background: #ffe8a8; color: #5c3c00; }
-    #ficha-cuerpo tr.fila-pendiente > td { background: #e8f1ff; }
+    #ficha-cuerpo tr.fila-pendiente > td, #gstor-tabla tr.fila-pendiente > td { background: #e8f1ff; }
     .celda-cambiada { background: #fff8e1 !important; box-shadow: inset 3px 0 0 #f59f00; }
     .tabla-compacta { font-size: .86rem; } .tabla-compacta td, .tabla-compacta th { padding: 5px 8px; } .tabla-compacta .barrita { height: 4px; margin-top: 3px; }
     .fila-click:hover td { background: #f6f9ff; }
@@ -628,6 +628,18 @@
                     <div class="col-lg-4 d-flex gap-2"><button class="btn btn-sm btn-success flex-grow-1" type="submit" id="usr-ok"><i class="fa-solid fa-user-plus me-1"></i>Agregar</button><button class="btn btn-sm btn-outline-secondary" type="button" data-accion="usr-cancelar" id="usr-cancelar" style="display:none;">Cancelar</button></div>
                   </div>
                 </form>
+              </div>
+              <div class="tarjeta p-3 mb-3 no-proveedor" id="gstor-tarjeta" style="display:none;">
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-1"><h2 class="h6 fw-bold mb-0 me-auto"><i class="fa-solid fa-id-badge me-2 text-primary"></i>Personal de GSTOR</h2>
+                  <button type="button" class="btn btn-sm btn-outline-primary" data-accion="gstor-traer"><i class="fa-solid fa-rotate me-1"></i>Traer de GSTOR</button></div>
+                <p class="small text-muted mb-2">Todos los usuarios de GSTOR. Entran a SIGBE con su cédula (o correo) y su clave de GSTOR, como <b>Holcim</b>. Aquí les asignas la <b>sede</b> (de cuál reciben avisos y cuál ven al entrar) aunque todavía no hayan entrado. Solo lo ves tú.</p>
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                  <input type="search" id="gstor-buscar" class="form-control form-control-sm" style="max-width:280px" placeholder="Buscar cédula, nombre o planta…" aria-label="Buscar en el personal de GSTOR">
+                  <div class="form-check mb-0"><input class="form-check-input" type="checkbox" id="gstor-sin"><label class="form-check-label small" for="gstor-sin">Solo los que aún no están en SIGBE</label></div>
+                  <span class="small text-muted ms-auto" id="gstor-conteo"></span>
+                </div>
+                <div id="gstor-tabla" class="table-responsive"><div class="small text-muted">Pulsa <b>Traer de GSTOR</b>.</div></div>
+                <div id="gstor-pie" class="d-flex flex-wrap align-items-center gap-2 mt-2"></div>
               </div>
               <div class="row g-3">
                 <div class="col-lg-6 conf-principal no-proveedor"><div class="tarjeta p-3 h-100">

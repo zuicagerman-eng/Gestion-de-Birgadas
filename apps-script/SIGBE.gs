@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.10.0';
+const SIGBE_VERSION = '4.10.1';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -1716,6 +1716,78 @@ function sigbeDatosDeGstor_(u, g, nuevo) {
       props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
     }
     return u;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Personal de GSTOR (solo el gestor): todos los usuarios de GSTOR con su planta, y si ya están en SIGBE con qué sedes.
+ * Sirve para asignarles la sede antes de que entren.
+ */
+function getUsuariosGstor(token) {
+  const yo = sigbePerfil_(sigbeExigirSesion_(token));
+  if (!yo.principal) throw new Error('Solo el gestor (' + prop_('SIGBE_USUARIO') + ') ve el personal de GSTOR.');
+  if (!sigbeGstorConectado_()) return { conectado: false, lista: [] };
+  const j = sigbeGstor_({ accion: 'usuarios' });
+  if (!j.ok) throw new Error('GSTOR: ' + (j.error || 'no entregó la lista.'));
+  const lista = sigbeUsuarios_(), principal = String(prop_('SIGBE_USUARIO') || '').toLowerCase(), correoGestor = String(prop_('SIGBE_CORREO') || '').toLowerCase();
+  return { conectado: true, sedes: SIGBE_SEDES.map(x => x[0]), lista: (j.lista || []).map(g => {
+    const u = String(g.usuario || '').toLowerCase(), x = lista[u];
+    const sugerida = g.planta ? sigbeSede_(g.planta) : '';
+    return { usuario: u, nombre: g.nombre || '', correo: g.correo || '', rol: g.rol || '', activoGstor: !!g.activo, planta: g.planta || '', ultimo: g.ultimo || '',
+      sugerida: SIGBE_SEDES.some(s => s[0] === sugerida) ? sugerida : '',
+      enSigbe: !!x, deAmbipar: !!x && !sigbeUsaClaveGestor_(x), esGestor: u === principal,
+      mismoCorreoGestor: !!g.correo && String(g.correo).toLowerCase() === correoGestor,
+      sedes: x ? x.s || [] : null, avisos: x ? x.av !== false : null, activo: x ? x.activo !== false : null };
+  }) };
+}
+
+/**
+ * Guarda las sedes que el gestor le asigna al personal de GSTOR: [{ usuario, sedes, avisos }]. Quien no estaba en SIGBE
+ * queda creado como Holcim (entra con su clave de GSTOR) con el nombre, el correo y la planta de GSTOR.
+ */
+function guardarUsuariosGstor(token, cambios) {
+  const lock = LockService.getScriptLock();
+  try {
+    const yo = sigbePerfil_(sigbeExigirSesion_(token));
+    if (!yo.principal) return { exito: false, mensaje: 'Solo el gestor asigna sedes al personal de GSTOR.' };
+    if (!sigbeGstorConectado_()) return { exito: false, mensaje: 'GSTOR no está conectado.' };
+    const j = sigbeGstor_({ accion: 'usuarios' }); // los datos vienen de GSTOR, no de la pantalla
+    if (!j.ok) return { exito: false, mensaje: 'GSTOR: ' + (j.error || 'no entregó la lista.') };
+    if (!sigbeBloquear_(lock, 10000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
+    const deGstor = {}; (j.lista || []).forEach(g => { deGstor[String(g.usuario || '').toLowerCase()] = g; });
+    const lista = sigbeUsuarios_(), principal = String(prop_('SIGBE_USUARIO') || '').toLowerCase(), correoGestor = String(prop_('SIGBE_CORREO') || '').toLowerCase();
+    const validas = SIGBE_SEDES.map(x => x[0]), bit = [], rech = [];
+    let creados = 0, cambiados = 0;
+    (cambios || []).slice(0, 300).forEach(c => {
+      const u = String(c.usuario || '').toLowerCase(), g = deGstor[u];
+      if (!g) { rech.push(u + ' (ya no está en GSTOR)'); return; }
+      if (u === principal || !/^[a-z0-9._-]{3,30}$/.test(u)) { rech.push(u + ' (no se puede)'); return; }
+      const x = lista[u] || {};
+      if (lista[u] && !sigbeUsaClaveGestor_(x)) { rech.push(u + ' (en SIGBE es de Ambipar)'); return; }
+      const sedes = (c.sedes || []).map(String).filter(sd => validas.indexOf(sd) !== -1);
+      const avisos = c.avisos !== false;
+      const antes = JSON.stringify(x), nuevo = !lista[u];
+      const correo = String(g.correo || '').trim().toLowerCase();
+      const libre = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo) && correo !== correoGestor && !Object.keys(lista).some(k => k !== u && (lista[k].c || '') === correo);
+      Object.assign(x, { org: 'Holcim', gstor: true, s: sedes, av: avisos });
+      if (nuevo) x.activo = true;
+      if (!x.n && g.nombre) x.n = String(g.nombre).trim().slice(0, 60);
+      if (!x.c && libre) x.c = correo;
+      if (g.planta) x.pl = String(g.planta).trim().slice(0, 60);
+      if (JSON.stringify(x) === antes) return;
+      lista[u] = x;
+      if (nuevo) creados++; else cambiados++;
+      bit.push(['Usuarios', 'Propiedades del script', '', '', '', 'Usuario ' + u + ' (Holcim, GSTOR)', nuevo ? '' : 'Sedes: ' + (JSON.parse(antes).s || []).join(', '),
+        (nuevo ? 'Agregado desde GSTOR · ' : '') + 'Sedes: ' + (sedes.join(', ') || 'todas') + (avisos ? '' : ' · sin avisos')]);
+    });
+    if (creados || cambiados) props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
+    if (bit.length) sigbeBitacora_(yo.usuario, bit);
+    return { exito: true, mensaje: (creados ? creados + ' agregado(s) desde GSTOR' : '') + (creados && cambiados ? ' y ' : '') + (cambiados ? cambiados + ' actualizado(s)' : '') +
+      (creados || cambiados ? '.' : 'No había cambios.') + (rech.length ? ' No se aplicó: ' + rech.join(', ') + '.' : '') };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
   } finally {
     lock.releaseLock();
   }

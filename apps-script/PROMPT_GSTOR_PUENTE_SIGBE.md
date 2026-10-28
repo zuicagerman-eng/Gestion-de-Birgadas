@@ -26,6 +26,10 @@ Capacitaciones):
   - Si sirve: `{ ok: true, existe: true, usuario, nombre, rol, correo, planta }`. `correo` es el del usuario o, si no
     tiene, el del maestro de Personal. `planta` es la del maestro de Personal (`personasRegistro_()`, por la cédula,
     p. ej. «HC-CALI»), o '' si no está.
+- `{ puente: <llave>, accion: 'usuarios' }` → la lista de **todos** los usuarios de GSTOR, para que el gestor de SIGBE
+  les asigne la sede antes de que entren: `{ ok: true, lista: [{ usuario, nombre, correo, rol, activo, planta, ultimo }] }`
+  (ordenada por usuario). `planta` es la del maestro de Personal por la cédula ('' si no está); `correo`, el del usuario
+  o, si no tiene, el del maestro. **Nunca** las huellas ni las sales.
 - Llave incorrecta: que siga respondiendo como hoy (`puenteCapacitaciones_` dice que el puente no está autorizado).
 
 **Lo que hay que agregar:**
@@ -35,7 +39,7 @@ Capacitaciones):
    `GSTOR_PUENTE = <llave>` y `GSTOR_URL = <URL /exec de GSTOR>`.
 2. `doPost`: si `p.puente` coincide con `PUENTE_SIGBE` (comparar con `mismaHuella_`), atender con `puenteSigbe_(p)`;
    si no, con `puenteCapacitaciones_(p)` como hoy.
-3. `puenteSigbe_(p)` con las dos acciones de arriba, y un ayudante que pase de cédula o correo al usuario de GSTOR
+3. `puenteSigbe_(p)` con las tres acciones de arriba, y un ayudante que pase de cédula o correo al usuario de GSTOR
    (claves de `usuarios_()` en minúscula; el correo se busca en `reg.correo`, sin distinguir mayúsculas).
 4. En `01-gstor/README.md`, en la tabla de propiedades: `PUENTE_SIGBE` — la pone `prepararPuenteSigbe`; es la llave con
    la que SIGBE pregunta si el usuario y la clave de GSTOR sirven; distinta de la de Capacitaciones; no se toca.
@@ -77,7 +81,7 @@ function esPuenteSigbe_(p) {
   return !!clave && mismaHuella_(String((p && p.puente) || ''), clave);
 }
 
-/** Lo que pide SIGBE: «estado» o «entrar» (con la cédula o el correo y la clave de GSTOR). */
+/** Lo que pide SIGBE: «estado», «entrar» (con la cédula o el correo y la clave de GSTOR) o «usuarios» (la lista). */
 function puenteSigbe_(p) {
   if (p.accion === 'estado') return { ok: true, activo: controlActivo_() };
   if (p.accion === 'entrar') {
@@ -89,6 +93,15 @@ function puenteSigbe_(p) {
     if (ced) { try { per = personasRegistro_().filter(function (x) { return x.cedula === ced; })[0] || {}; } catch (e) { per = {}; } }
     return { ok: true, existe: true, usuario: u0, nombre: r.reg.nombre || per.nombre || '', rol: r.reg.rol,
              correo: r.reg.correo || per.correo || '', planta: per.planta || '' };
+  }
+  if (p.accion === 'usuarios') {   // la lista para que el gestor de SIGBE les asigne la sede (sin huellas ni sales)
+    var u = usuarios_(), plantas = {};
+    try { personasRegistro_().forEach(function (x) { plantas[x.cedula] = x; }); } catch (e) { /* sin Personal: sin planta */ }
+    return { ok: true, lista: Object.keys(u).sort().map(function (k) {
+      var reg = u[k], per = plantas[cedula(k)] || {};
+      return { usuario: k, nombre: reg.nombre || per.nombre || '', correo: reg.correo || per.correo || '', rol: reg.rol,
+               activo: !!reg.activo, planta: per.planta || '', ultimo: reg.ultimo || '' };
+    }) };
   }
   throw new Error('Acción desconocida.');
 }
@@ -103,5 +116,9 @@ function usuarioPorCedulaOCorreo_(texto) {
 ```
 
 Antes de entregar: `python3 scripts/revisar_d6.py` debe pasar, y compruebe que Capacitaciones sigue entrando igual (con
-su llave responde `{ ok, usuario, nombre, rol }` como antes). Al final dígame qué archivo pegar en GSTOR y recuérdeme
+su llave responde `{ ok, usuario, nombre, rol }` como antes) y que con la llave de Capacitaciones la acción `usuarios`
+no responde la lista.
+
+> Si en GSTOR ya pegó la primera versión de este puente (solo «estado» y «entrar»), lo único nuevo es la acción
+> `usuarios` dentro de `puenteSigbe_`. Al final dígame qué archivo pegar en GSTOR y recuérdeme
 publicar versión nueva **en la misma implementación** (la de la URL /exec) y luego correr `prepararPuenteSigbe`.
