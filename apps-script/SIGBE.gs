@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.9.1';
+const SIGBE_VERSION = '4.9.2';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -1619,7 +1619,7 @@ function validarLoginAdmin(usuario, clave) {
     const k = lista[e] ? e : Object.keys(lista).find(x => e.indexOf('@') !== -1 && (lista[x].c || '') === e); // usuario o correo
     const x = k && lista[k];
     const ok = x && (sigbeUsaClaveGestor_(x) ? sigbeHash_(clave, props.getProperty('SIGBE_SAL')) === hash : sigbeHash_(clave, x.sal) === x.hash);
-    if (x && x.activo !== false && ok) quien = k;
+    if (x && x.activo !== false && !x.pend && ok) quien = k;
   }
   // Los intentos fallidos se anotan hasta 30 cada 10 minutos (si alguien prueba muchos usuarios, el registro no crece sin fin)
   const fallidos = quien ? 0 : (Number(cache.get('sigbe_fallidos')) || 0) + 1;
@@ -1685,7 +1685,7 @@ function sigbePerfil_(usuario) {
   if (usuario === principal) return { usuario: principal, nombre: prop_('SIGBE_NOMBRE') || principal, org: prop_('SIGBE_ORG') || 'Holcim', principal: true, rol: 'gestor',
     correo: prop_('SIGBE_CORREO') || '', sedes: sigbeJson_(prop_('SIGBE_SEDES_GESTOR'), []), avisos: prop_('SIGBE_AVISOS_GESTOR') !== 'no' };
   const x = sigbeUsuarios_()[usuario];
-  if (!x || x.activo === false) return null;
+  if (!x || x.activo === false || x.pend) return null; // con el acceso por enviar todavía no entra ni recibe avisos
   return { usuario: usuario, nombre: x.n || usuario, org: x.org || '', principal: false, rol: x.org === 'Holcim' ? 'holcim' : 'proveedor',
     correo: x.c || '', sedes: x.s || [], avisos: x.av !== false, claveTemporal: !!x.tmp && !sigbeUsaClaveGestor_(x), claveGestor: sigbeUsaClaveGestor_(x) };
 }
@@ -1708,7 +1708,7 @@ function getUsuarios(token) {
     yo: yo, orgs: SIGBE_ORGS, roles: SIGBE_ROLES,
     usuarios: [Object.assign(sigbePerfil_(prop_('SIGBE_USUARIO')), { nombre: prop_('SIGBE_NOMBRE') || '', activo: true })]
       .concat(Object.keys(lista).sort().map(k => ({ usuario: k, nombre: lista[k].n || '', org: lista[k].org || '', activo: lista[k].activo !== false, principal: false,
-        rol: lista[k].org === 'Holcim' ? 'holcim' : 'proveedor', correo: lista[k].c || '', sedes: lista[k].s || [], avisos: lista[k].av !== false, claveTemporal: !!lista[k].tmp && !sigbeUsaClaveGestor_(lista[k]), claveGestor: sigbeUsaClaveGestor_(lista[k]) }))),
+        rol: lista[k].org === 'Holcim' ? 'holcim' : 'proveedor', correo: lista[k].c || '', sedes: lista[k].s || [], avisos: lista[k].av !== false, claveTemporal: !!lista[k].tmp && !sigbeUsaClaveGestor_(lista[k]), claveGestor: sigbeUsaClaveGestor_(lista[k]), pendiente: !!lista[k].pend }))),
     correoActivo: sigbeCorreoDisponible_(),
   };
 }
@@ -1744,10 +1744,13 @@ function guardarUsuario(token, d) {
     const x = lista[u] || {};
     const cambios = [], orgAntes = x.org || '';
     const clavePropia = org !== 'Holcim'; // los de Holcim entran con la clave del gestor
-    if (d.clave && clavePropia) {
+    const diferir = !!d.nuevo && d.enviarAcceso === false; // se carga ya; el acceso se envía después con "Enviar acceso"
+    if (diferir) { x.pend = true; cambios.push('Usuario creado · acceso por enviar'); }
+    else if (d.clave && clavePropia) {
       if (String(d.clave).length < 8) return { exito: false, mensaje: 'La clave debe tener al menos 8 caracteres.' };
       x.sal = Utilities.getUuid(); x.hash = sigbeHash_(d.clave, x.sal);
       x.tmp = true; // clave puesta por el gestor: al entrar se le pide cambiarla
+      delete x.pend; // darle clave es enviarle el acceso
       cambios.push(d.nuevo ? 'Usuario creado' : 'Clave restablecida');
     } else if (d.nuevo && clavePropia) return { exito: false, mensaje: 'Ponle una clave inicial (mínimo 8 caracteres).' };
     else if (d.nuevo) cambios.push('Usuario creado (entra con la clave del gestor)');
@@ -1763,7 +1766,7 @@ function guardarUsuario(token, d) {
     props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
     // La clave temporal le llega al usuario por correo (no se guarda en ningún lado ni queda en el historial)
     let envio = null;
-    const pasaAHolcim = !clavePropia && (d.nuevo || orgAntes !== 'Holcim');
+    const pasaAHolcim = !clavePropia && !x.pend && (d.nuevo || orgAntes !== 'Holcim'); // con el acceso por enviar no se manda nada
     if (d.clave && clavePropia) envio = x.c ? sigbeEnviarClave_(u, x, d.clave, !!d.nuevo) : { ok: false, motivo: 'no tiene correo' };
     else if (pasaAHolcim) envio = x.c ? sigbeEnviarClave_(u, x, null, !!d.nuevo) : { ok: false, motivo: 'no tiene correo' };
     if (envio) cambios.push(envio.ok ? (clavePropia ? 'Clave enviada a ' : 'Acceso enviado a ') + x.c : 'Correo NO enviado (' + envio.motivo + ')');
@@ -1773,7 +1776,8 @@ function guardarUsuario(token, d) {
       ' Entra con la misma clave del gestor: pásasela tú por un medio privado.';
     else if (envio) como = envio.ok ? ' Le llegó un correo a ' + x.c + ' con la clave temporal; al entrar, la app le pide cambiarla.'
       : ' No se pudo enviar la clave por correo (' + envio.motivo + '): pásasela por un medio privado; al entrar, la app le pide cambiarla.';
-    if (clavePropia && orgAntes === 'Holcim' && !d.clave) como += ' Ahora es de Ambipar y ya no entra con la clave del gestor: dale su clave con "Nueva clave".';
+    if (clavePropia && orgAntes === 'Holcim' && !d.clave && !x.pend) como += ' Ahora es de Ambipar y ya no entra con la clave del gestor: dale su clave con "Nueva clave".';
+    if (x.pend) como += ' El acceso queda por enviar: todavía no puede entrar ni recibe avisos. Cuando quieras, usa "Enviar acceso".';
     return { exito: true, claveEnviada: !!(envio && envio.ok),
       mensaje: (d.nuevo ? 'Usuario "' + u + '" creado.' : d.clave ? 'Clave nueva para "' + u + '".' : cambios.length ? 'Guardado: ' + cambios.join(' · ') : 'No había cambios.') + como };
   } catch (e) {
@@ -1781,6 +1785,49 @@ function guardarUsuario(token, d) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Envía el acceso a usuarios que se cargaron con "acceso por enviar": a los de Ambipar se les genera una clave temporal
+ * (que solo va en el correo); a los de Holcim les llega su usuario (entran con la clave del gestor).
+ */
+function enviarAcceso(token, usuarios) {
+  const lock = LockService.getScriptLock();
+  try {
+    const yo = sigbePerfil_(sigbeExigirSesion_(token));
+    if (!yo.principal) return { exito: false, mensaje: 'Solo el usuario principal (' + prop_('SIGBE_USUARIO') + ') administra los usuarios.' };
+    if (!sigbeBloquear_(lock, 10000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo.' };
+    const lista = sigbeUsuarios_(), resultados = [], bit = [];
+    (usuarios || []).slice(0, 50).forEach(u => {
+      const x = lista[u];
+      if (!x) { resultados.push({ usuario: u, ok: false, motivo: 'no existe' }); return; }
+      if (!x.c) { resultados.push({ usuario: u, ok: false, motivo: 'no tiene correo' }); return; }
+      const clave = sigbeUsaClaveGestor_(x) ? null : sigbeClaveAleatoria_();
+      const envio = sigbeEnviarClave_(u, x, clave, true);
+      if (envio.ok) {
+        if (clave) { x.sal = Utilities.getUuid(); x.hash = sigbeHash_(clave, x.sal); x.tmp = true; }
+        delete x.pend;
+      }
+      resultados.push({ usuario: u, ok: envio.ok, motivo: envio.motivo || '' });
+      bit.push(['Usuarios', 'Propiedades del script', '', '', '', 'Usuario ' + u + ' (' + (x.org || '') + ')', 'Acceso por enviar', envio.ok ? 'Acceso enviado a ' + x.c : 'Acceso NO enviado (' + envio.motivo + ')']);
+    });
+    props_().setProperty('SIGBE_USUARIOS', JSON.stringify(lista));
+    if (bit.length) sigbeBitacora_(yo.usuario, bit);
+    const ok = resultados.filter(r => r.ok).length, mal = resultados.filter(r => !r.ok);
+    return { exito: true, resultados: resultados,
+      mensaje: ok + ' de ' + resultados.length + ' acceso(s) enviado(s).' + (mal.length ? ' No se envió a: ' + mal.map(r => r.usuario + ' (' + r.motivo + ')').join(', ') + '.' : '') };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Clave temporal de 12 letras y números (sin los que se confunden: 0/O, 1/l/I). */
+function sigbeClaveAleatoria_() {
+  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const b = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + Utilities.getUuid() + Date.now());
+  return b.slice(0, 12).map(x => a[(x + 256) % a.length]).join('');
 }
 
 /** Los usuarios de Holcim entran con la clave del gestor (no tienen clave propia). */

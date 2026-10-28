@@ -98,7 +98,12 @@ temporal* mientras tanto).
 
 **Los usuarios de Holcim entran con la clave del gestor** (no tienen clave propia ni "Nueva clave"): al crearlos les llega
 un correo con su usuario, sin la clave, y el gestor se la pasa. No pueden cambiarla; si el gestor cambia la suya, les
-llega un aviso por correo (sin la clave). Si un usuario pasa de Holcim a Ambipar, necesita su propia clave (*Nueva clave*). Las claves se guardan cifradas con sal en `SIGBE_USUARIOS`. Un usuario desactivado o eliminado pierde la sesión
+llega un aviso por correo (sin la clave). Si un usuario pasa de Holcim a Ambipar, necesita su propia clave (*Nueva clave*).
+
+**Cargar ahora y enviar el acceso después:** al agregar un usuario se puede desmarcar *Enviar el acceso por correo
+ahora*. Queda cargado como **acceso por enviar**: todavía no puede entrar ni recibe avisos. Cuando se quiera, el botón
+**Enviar acceso** (en su fila, o *Enviar acceso a los N* arriba de la tabla) le manda el correo: a los de Ambipar con una
+clave temporal generada en ese momento; a los de Holcim, su usuario (entran con la clave del gestor). Las claves se guardan cifradas con sal en `SIGBE_USUARIOS`. Un usuario desactivado o eliminado pierde la sesión
 al instante. El historial muestra quién hizo cada cambio, p. ej. `ambipar (Ambipar)`. Los permisos se revisan en el
 servidor, no solo en la pantalla.
 

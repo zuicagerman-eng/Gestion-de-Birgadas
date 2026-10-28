@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.9.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.9.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -133,6 +133,7 @@
       $('form-modulo').addEventListener('input', ajustarModulo); // los select y casillas también disparan "input"
       $('form-usuario').onsubmit = nuevoUsuario;
       $('usr-org').addEventListener('change', ajustarClaveUsuario);
+      $('usr-enviar').addEventListener('change', ajustarClaveUsuario);
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
       $('brig-buscar').oninput = conEspera(pintarBrigadistas);
@@ -358,6 +359,8 @@
         'cr-todas': () => document.querySelectorAll('#cr-otras input').forEach(x => { x.checked = true; }),
         'cr-ninguna': () => document.querySelectorAll('#cr-otras input').forEach(x => { x.checked = false; }),
         'usr-clave': () => restablecerClave(d.u),
+        'usr-enviar': () => enviarAccesoApp([d.u]),
+        'usr-enviar-todos': () => enviarAccesoApp(USUARIOS.usuarios.filter(u => u.pendiente).map(u => u.usuario)),
         'usr-activo': () => activarUsuario(d.u, d.v === '1'),
         'usr-quitar': () => eliminarUsuario(d.u),
         'usr-generar': () => { $('usr-clave').value = claveAleatoria(); },
@@ -1899,8 +1902,12 @@
           <td><span class="badge ${u.rol === 'proveedor' ? 'bg-warning-subtle text-warning-emphasis' : u.rol === 'gestor' ? 'text-bg-dark' : 'bg-primary-subtle text-primary-emphasis'}">${esc((USUARIOS.roles || {})[u.rol] || u.org || '—')}</span></td>
           <td class="small">${(u.sedes || []).length ? u.sedes.map(esc).join(', ') : '<span class="text-muted">Todas</span>'}</td>
           <td>${u.avisos && u.correo ? '<i class="fa-solid fa-envelope text-success" title="Recibe avisos"></i>' : '<i class="fa-solid fa-envelope text-muted opacity-50" title="No recibe avisos"></i>'}</td>
-          <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}${u.claveTemporal ? '<div class="small text-warning-emphasis" title="Aún no ha cambiado la clave que se le envió">clave temporal</div>' : ''}${u.claveGestor ? '<div class="small text-muted" title="Entra con la misma clave del gestor">clave del gestor</div>' : ''}</td>
-          <td class="text-end text-nowrap">${yo.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-editar" data-u="${esc(u.usuario)}">Editar</button>` : ''}${yo.principal && !u.principal ? `${u.claveGestor ? '' : `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button>`}<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
+          <td>${u.activo ? '<span class="badge bg-success-subtle text-success-emphasis">Activo</span>' : '<span class="badge text-bg-secondary">Desactivado</span>'}${u.claveTemporal ? '<div class="small text-warning-emphasis" title="Aún no ha cambiado la clave que se le envió">clave temporal</div>' : ''}${u.claveGestor ? '<div class="small text-muted" title="Entra con la misma clave del gestor">clave del gestor</div>' : ''}${u.pendiente ? '<div class="small text-primary fw-semibold" title="Cargado; todavía no puede entrar ni recibe avisos">acceso por enviar</div>' : ''}</td>
+          <td class="text-end text-nowrap">${yo.principal ? `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-editar" data-u="${esc(u.usuario)}">Editar</button>` : ''}${yo.principal && !u.principal ? `${u.pendiente ? `<button class="btn btn-sm btn-link p-0 me-2 fw-semibold" data-accion="usr-enviar" data-u="${esc(u.usuario)}">Enviar acceso</button>` : u.claveGestor ? '' : `<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-clave" data-u="${esc(u.usuario)}">Nueva clave</button>`}<button class="btn btn-sm btn-link p-0 me-2" data-accion="usr-activo" data-u="${esc(u.usuario)}" data-v="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-sm btn-link text-danger p-0" data-accion="usr-quitar" data-u="${esc(u.usuario)}">Eliminar</button>` : ''}</td></tr>`).join('');
+        const pend = USUARIOS.usuarios.filter(u => u.pendiente);
+        $('usr-pendientes').innerHTML = yo.principal && pend.length ? `<div class="alert alert-primary small py-2 d-flex flex-wrap align-items-center gap-2 mb-0"><i class="fa-solid fa-paper-plane"></i>
+          <span class="flex-grow-1"><b>${pend.length}</b> usuario(s) cargados con el acceso por enviar (${pend.map(u => esc(u.usuario)).join(', ')}): todavía no pueden entrar ni reciben avisos.</span>
+          <button class="btn btn-sm btn-primary" data-accion="usr-enviar-todos"><i class="fa-solid fa-paper-plane me-1"></i>Enviar acceso a los ${pend.length}</button></div>` : '';
         $('form-usuario').style.display = yo.principal ? '' : 'none';
         formUsuario(null);
       } catch (e) { error(e); }
@@ -1926,8 +1933,9 @@
     }
     /** Clave temporal solo al crear un usuario de Ambipar; los de Holcim entran con la clave del gestor. */
     function ajustarClaveUsuario() {
-      const holcim = $('usr-org').value === 'Holcim', x = usrEditando ? buscarUsuario(usrEditando) : {};
-      $('usr-clave-box').style.display = usrEditando || holcim ? 'none' : ''; $('usr-clave').required = !usrEditando && !holcim;
+      const holcim = $('usr-org').value === 'Holcim', x = usrEditando ? buscarUsuario(usrEditando) : {}, ahora = $('usr-enviar').checked;
+      $('usr-enviar-box').style.display = usrEditando ? 'none' : '';
+      $('usr-clave-box').style.display = usrEditando || holcim || !ahora ? 'none' : ''; $('usr-clave').required = !usrEditando && !holcim && ahora;
       $('usr-clave-gestor').style.display = holcim && !x.principal ? '' : 'none';
     }
     function datosFormUsuario() {
@@ -1956,8 +1964,8 @@
       const d = datosFormUsuario();
       if (d.avisos && !d.correo) return avisar('Ponle correo para que reciba los avisos (o desmarca "Recibe avisos por correo").', 'warning', 8000);
       if (usrEditando) { const x = buscarUsuario(usrEditando); d.usuario = usrEditando; d.activo = x.activo; if (x.principal) d.org = 'Holcim'; await usuarioApi(d); return; }
-      d.nuevo = true;
-      if (d.org !== 'Holcim') d.clave = $('usr-clave').value; // los de Holcim entran con la clave del gestor
+      d.nuevo = true; d.enviarAcceso = $('usr-enviar').checked;
+      if (d.enviarAcceso && d.org !== 'Holcim') d.clave = $('usr-clave').value; // los de Holcim entran con la clave del gestor
       await usuarioApi(d, !!d.clave);
     }
     function buscarUsuario(u) { return (USUARIOS && USUARIOS.usuarios.find(x => x.usuario === u)) || {}; }
@@ -1970,6 +1978,20 @@
       if (!activo && !confirm('¿Desactivar a "' + u + '"? No podrá entrar hasta que lo actives de nuevo.')) return;
       const x = buscarUsuario(u);
       usuarioApi({ usuario: u, nombre: x.nombre, org: x.org, correo: x.correo, sedes: x.sedes, avisos: x.avisos, activo: activo });
+    }
+    /** Envía el acceso a quienes se cargaron con el acceso por enviar. */
+    async function enviarAccesoApp(lista) {
+      if (!lista.length) return;
+      const sinCorreo = lista.filter(u => !buscarUsuario(u).correo);
+      if (!confirm('¿Enviar el acceso por correo a ' + lista.length + ' usuario(s)?\n\nA los de Ambipar les llega una clave temporal (al entrar la cambian); a los de Holcim, su usuario (entran con la clave del gestor: pásasela tú).' +
+        (sinCorreo.length ? '\n\nSin correo (no se les puede enviar): ' + sinCorreo.join(', ') : ''))) return;
+      ocupado(true);
+      try {
+        const r = await api('enviarAcceso', E.token, lista);
+        ocupado(false); if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito && r.resultados.every(x => x.ok) ? 'success' : 'warning', 12000);
+        cargarUsuarios();
+      } catch (e) { error(e); }
     }
     async function eliminarUsuario(u) {
       if (!confirm('¿Eliminar al usuario "' + u + '"? Lo que hizo sigue en el historial.')) return;
