@@ -134,6 +134,21 @@
     body.modo-ingreso #columna { flex: 0 0 100%; max-width: 100%; }
     body.rol-proveedor .no-proveedor { display: none !important; }
     .solo-proveedor { display: none !important; } body.rol-proveedor .solo-proveedor { display: revert !important; }
+    .solo-gestor { display: none !important; } body.rol-gestor .solo-gestor { display: block !important; }
+
+    /* Ayuda */
+    .btn-ayuda-vista { font-size: .78rem; font-weight: 600; vertical-align: middle; margin-left: .5rem; padding: 3px 10px; border-radius: 999px; border: 1px solid #c9d6f5; background: #eef3ff; color: #0b4fc2; white-space: nowrap; }
+    .btn-ayuda-vista:hover { background: #dfe8ff; }
+    #panel-ayuda { --bs-offcanvas-width: 440px; }
+    .ayuda-para { font-size: 1.02rem; }
+    .ayuda-sub { font-size: .95rem; font-weight: 700; margin: 1.1rem 0 .4rem; }
+    .ayuda-lista { padding-left: 1.2rem; margin-bottom: .25rem; } .ayuda-lista li { margin-bottom: .35rem; }
+    .ayuda-rol-chip { display: inline-block; font-size: .82rem; padding: 3px 10px; border-radius: 999px; background: var(--s-fondo); border: 1px solid var(--s-borde); }
+    .ayuda-titulo { font-size: 1.05rem; font-weight: 700; margin: 0 0 .6rem; }
+    .ayuda-avatar { width: 48px; height: 48px; flex: none; border-radius: 50%; display: grid; place-items: center; background: #eef3ff; color: #0b4fc2; font-size: 1.3rem; }
+    .ayuda-vista .btn { font-size: .8rem; }
+    .bv-op { border: 1px solid var(--s-borde); border-radius: 12px; background: #fff; padding: 14px 10px; text-align: center; }
+    .bv-op:hover, .bv-op:focus-visible { border-color: var(--s-azul); background: #f5f8ff; }
     #sel-sede.sede-filtrada, .multi-sel.sede-filtrada { border-color: #0d6efd; background-color: #eef4ff; font-weight: 600; }
     .multi-sel { min-width: 170px; max-width: 240px; } .multi-menu { min-width: 250px; max-height: 60vh; overflow-y: auto; }
     .sede-op:hover { background: #f1f5fb; }
@@ -167,7 +182,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.11.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.12.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -603,7 +618,7 @@
 
           <!-- CONFIGURACIÓN -->
           <section class="vista" id="v-configuracion" aria-labelledby="t-conf">
-            <h1 class="titulo-vista" id="t-conf">Configuración</h1>
+            <h1 class="titulo-vista" id="t-conf"><span class="no-proveedor">Configuración</span><span class="solo-proveedor">Mi clave</span></h1>
             <p class="sub-vista no-proveedor">Usuarios, archivos, tarea automática, tu clave y respaldos. Todo queda en el historial.</p>
             <p class="sub-vista solo-proveedor">Cambia aquí tu clave.</p>
             <div id="conf-sin-sesion" class="alert alert-info" style="display:none;"><i class="fa-solid fa-lock me-1"></i>Inicia sesión para ver y cambiar la configuración. <a href="#" data-accion="login">Iniciar sesión</a></div>
@@ -693,8 +708,10 @@
           <section class="vista ayuda" id="v-ayuda" aria-labelledby="t-ayuda">
             <h1 class="titulo-vista" id="t-ayuda">Ayuda</h1>
             <p class="sub-vista">SIGBE <span id="ayuda-version"></span> · Sistema de Gestión de Brigadas de Emergencia</p>
-            <div class="tarjeta p-4">
-              <h2 class="mt-0"><i class="fa-solid fa-diagram-project me-2 text-primary"></i>Cómo funciona</h2>
+            <div id="ayuda-rol"></div>
+            <details class="tarjeta p-4 solo-gestor">
+              <summary class="fw-semibold"><i class="fa-solid fa-screwdriver-wrench me-2 text-secondary"></i>Detalles técnicos (para el gestor)</summary>
+              <h2><i class="fa-solid fa-diagram-project me-2 text-primary"></i>Cómo funciona</h2>
               <div class="paso"><div class="n">1</div><div><b>La app es el gestor.</b> Asistencia, registro y cambios de brigadistas se hacen aquí. Todo queda en el historial con quién y cuándo.</div></div>
               <div class="paso"><div class="n">2</div><div><b>Hasta el corte</b>, la app guarda la asistencia en el <b>2.0</b> y lo demás en el <b>1.0</b>. Un minuto después pasa al <b>libro nuevo</b>, que es una copia ordenada con el cronograma.</div></div>
               <div class="paso"><div class="n">3</div><div><b>Después del corte</b>, la app lee y guarda solo en el libro nuevo. El 1.0 y el 2.0 quedan como histórico.</div></div>
@@ -714,7 +731,7 @@
                   <tr><td>La app se ve vieja</td><td>Apps Script → Implementar → Administrar implementaciones → ✏️ → Nueva versión.</td></tr>
                 </tbody>
               </table>
-            </div>
+            </details>
           </section>
         </main>
       </div>
@@ -729,6 +746,19 @@
       <div class="modal-header"><h2 class="modal-title h5" id="ficha-titulo">Brigadista</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body" id="ficha-cuerpo"></div>
       <div class="modal-footer" id="ficha-pie"></div>
+    </div></div>
+  </div>
+  <!-- PANEL: ayuda de la pantalla -->
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="panel-ayuda" aria-labelledby="pa-titulo">
+    <div class="offcanvas-header border-bottom"><h2 class="offcanvas-title h5 mb-0" id="pa-titulo">Ayuda</h2><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button></div>
+    <div class="offcanvas-body" id="pa-cuerpo"></div>
+  </div>
+  <!-- MODAL: bienvenida (la primera vez que cada usuario entra) -->
+  <div class="modal fade" id="modal-bienvenida" tabindex="-1" aria-labelledby="bv-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable"><div class="modal-content">
+      <div class="modal-header"><h2 class="modal-title h5" id="bv-titulo">SIGBE</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body" id="bv-cuerpo"></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-accion="ayuda-ir" data-v="ayuda"><i class="fa-solid fa-book me-1"></i>Ver la ayuda</button><button type="button" class="btn btn-primary" data-bs-dismiss="modal">Empezar</button></div>
     </div></div>
   </div>
   <!-- MODAL: sesión -->

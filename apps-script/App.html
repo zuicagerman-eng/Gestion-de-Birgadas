@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.11.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.12.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -92,6 +92,7 @@
     async function iniciar() {
       window.__sigbeArranco = true;
       document.querySelectorAll('#nav .nav-link').forEach(a => a.onclick = ev => { ev.preventDefault(); ir(a.dataset.vista); });
+      ponerBotonesAyuda();
       document.body.addEventListener('click', clicGeneral);
       $('sede-menu').addEventListener('change', ev => {
         const marcadas = [...document.querySelectorAll('#sede-menu input[data-sede]:checked')].map(x => x.dataset.sede);
@@ -224,6 +225,7 @@
         window.__sigbeDatos = true;
         finArranque();
         ir(E.vista === 'setup' ? 'inicio' : E.vista);
+        bienvenida();
       } catch (e) {
         if (/SESION_REQUERIDA/.test(e && e.message || '')) { finArranque(); olvidarSesion(true); mostrarIngreso(); } else errorArranque(e && e.message ? e.message : e);
       } finally { leyendo(false); E.arrancando = false; }
@@ -277,9 +279,10 @@
     function banner(html) { $('banner').innerHTML = html; $('banner').style.display = 'block'; }
     function pintarFrescura() {
       if (!D) { $('frescura').innerHTML = ''; return; }
-      const fuente = D.fuentes.corte ? 'libro nuevo' : '1.0 y 2.0';
-      $('lateral-datos').innerHTML = `<i class="fa-solid fa-rotate me-1"></i>Datos leídos: ${esc(D.generado.slice(8, 10) + '/' + D.generado.slice(5, 7) + ' ' + D.generado.slice(11))}<br>${D.fuentes.corte ? 'Libro nuevo' : 'Asistencia: 2.0 · Resto: 1.0'}`;
-      $('frescura').innerHTML = `<span title="Archivos de origen: ${esc(D.fuentes.asistencia.nombre)} / ${esc(D.fuentes.datos.nombre)}"><i class="fa-regular fa-clock me-1"></i>Datos de las ${esc(D.generado.slice(11))} · ${fuente}</span>
+      // De qué archivos salen los datos solo le sirve al gestor; a Holcim y a Ambipar les basta la hora
+      const gestor = rolActual() === 'gestor' && !!E.perfil, fuente = D.fuentes.corte ? 'libro nuevo' : '1.0 y 2.0';
+      $('lateral-datos').innerHTML = `<i class="fa-solid fa-rotate me-1"></i>Datos leídos: ${esc(D.generado.slice(8, 10) + '/' + D.generado.slice(5, 7) + ' ' + D.generado.slice(11))}${gestor ? '<br>' + (D.fuentes.corte ? 'Libro nuevo' : 'Asistencia: 2.0 · Resto: 1.0') : ''}`;
+      $('frescura').innerHTML = `<span ${gestor ? `title="Archivos de origen: ${esc(D.fuentes.asistencia.nombre)} / ${esc(D.fuentes.datos.nombre)}"` : ''}><i class="fa-regular fa-clock me-1"></i>Datos de las ${esc(D.generado.slice(11))}${gestor ? ' · ' + fuente : ''}</span>
         <button class="btn btn-sm btn-link p-0" data-accion="refrescar" title="Leer de nuevo las hojas" aria-label="Leer de nuevo las hojas"><i class="fa-solid fa-rotate"></i></button>`;
     }
 
@@ -313,7 +316,7 @@
       if (!D && ['setup', 'ayuda', 'configuracion', 'estado', 'ingresos'].indexOf(E.vista) === -1) return;
       ({ inicio: pintarInicio, asistencia: pintarAsistencia, matriz: prepararMatriz, brigadistas: prepararBrigadistas, cronograma: prepararCronograma,
          cobertura: pintarCobertura, revision: prepararRevision, cambios: cargarCambios, temarios: cargarTemarios, hojas: cargarHojas,
-         estado: cargarEstado, configuracion: cargarConfiguracion, ingresos: cargarIngresos, ingreso: () => {}, setup: () => {}, ayuda: () => {} })[E.vista]();
+         estado: cargarEstado, configuracion: cargarConfiguracion, ingresos: cargarIngresos, ingreso: () => {}, setup: () => {}, ayuda: pintarAyuda })[E.vista]();
     }
     /** Selector de sedes (varias a la vez) arriba. */
     function pintarSelectorSede() {
@@ -347,6 +350,9 @@
           catalogos = null; await cargarDatos(true); cargarVista();
         },
         reintentar: () => arrancar(),
+        'ayuda-vista': () => abrirAyudaVista(d.v),
+        'ayuda-ir': () => irDesdeAyuda(d.v),
+        bienvenida: () => bienvenida(true),
         login: () => pedirSesion(),
         registrar: abrirRegistro,
         'csv-brig': csvBrigadistas, 'csv-matriz': csvMatriz, 'csv-cambios': csvCambios, 'csv-hoja': csvHoja,
@@ -438,6 +444,7 @@
         avisar('Sesión iniciada.', 'success', 3000);
         document.body.classList.remove('modo-ingreso');
         if (trasLogin) { const f = trasLogin; trasLogin = null; await f(); } else if (!D) await arrancar(); else cargarVista();
+        bienvenida(); // p. ej. al volver a entrar después de cambiar la clave temporal
       } catch (e) { error(e); }
     }
     function cerrarSesion() {
@@ -2087,6 +2094,290 @@
       ocupado(true);
       try { const r = await api('quitarUsuario', E.token, u); ocupado(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 8000); cargarUsuarios(); }
       catch (e) { error(e); }
+    }
+
+    // ══════════ AYUDA (según el tipo de usuario) ══════════
+    // Cada texto es 'texto' (para todos) o ['gha', 'texto']: g = gestor, h = Holcim, a = Ambipar (proveedor).
+    const AYUDA = {
+      inicio: {
+        para: 'El resumen de todo en una sola pantalla: cómo va la asistencia a las capacitaciones y qué sesiones vienen.',
+        puede: [
+          'Cambiar de pestaña: <b>Asistencia</b> y <b>Próximas capacitaciones</b>.',
+          ['gh', 'Ver la <b>Cobertura</b> (si cada planta tiene los brigadistas que pide la meta) y la <b>Revisión de datos</b> (lo que conviene corregir).'],
+          'Hacer clic en una sede de las barras para ver solo esa sede, o elegir una o varias en <b>Sede</b>, arriba.',
+        ],
+        ojo: [
+          'El % de asistencia solo cuenta los módulos que ya se dictaron en cada planta (con fecha pasada) y que le aplican a cada persona.',
+          'Colores: <b class="text-success">verde</b> va bien (80 % o más), <b style="color:#e8590c">naranja</b> va a medias y <b class="text-danger">rojo</b> va atrasado (menos de 40 %).',
+        ],
+      },
+      asistencia: {
+        para: 'Marcar quién asistió a cada sesión de capacitación.',
+        pasos: [
+          'Elige la <b>sede</b>.',
+          'Elige la <b>sesión</b>. Cada tarjeta dice su fecha y cuántos tienen asistencia: <span class="pildora e-si">✓ con asistencia</span> <span class="pildora e-no">✗ sin registrar</span> <span class="pildora e-pend">· próxima</span>',
+          'Marca a quienes asistieron (o <b>Marcar todos</b>) y pulsa <b>Revisar y guardar</b>. Revisa el resumen y confirma.',
+          'Si te equivocaste, el aviso que sale abajo tiene <b>Deshacer</b>.',
+        ],
+        puede: [
+          '<b>Imprimir para firmar</b>: la lista de la sesión para que la firmen en papel.',
+          'Buscar a una persona por nombre o cédula dentro de la lista.',
+          ['gh', 'También desde la ficha de cada brigadista (Brigadistas → clic en su nombre) marcas varias sesiones de una vez.'],
+        ],
+        ojo: [
+          'Solo aparecen los brigadistas a quienes les aplica la sesión: si alguien entró a la brigada después de esa fecha, no aparece y no le cuenta en contra. <b>Ver desvinculados y a quienes no les aplica</b> los muestra.',
+          ['gh', 'Una sesión que el cronograma dice que <b>no aplica</b> no se puede marcar. Si sí se dictó, ponle la fecha en el Cronograma.'],
+          ['a', 'Una sesión que el cronograma dice que <b>no aplica</b> no se puede marcar. Si sí se dictó, habilítala en el Cronograma con <b>Programar / Agregar sesión</b> o avísale a Holcim.'],
+          'Si te vas a otra pantalla sin guardar, la app te pregunta antes de descartar lo marcado.',
+        ],
+      },
+      matriz: {
+        para: 'Cuánto lleva cada planta, módulo por módulo.',
+        puede: [
+          'Cada casilla es el % de brigadistas Holcim activos que asistieron, entre los que ya debían tomar ese módulo (la sesión les aplica y su fecha ya pasó).',
+          'Haz clic en un % para abrir esa lista de asistencia.',
+          'Buscar una planta, ver solo las que tienen módulos sin completar y <b>Descargar</b> la tabla.',
+        ],
+        ojo: [['gh', 'El detalle de cada persona está en su ficha (pantalla Brigadistas).']],
+      },
+      brigadistas: {
+        para: 'La lista de brigadistas (personal Holcim y contratistas) con sus datos: grupo sanguíneo, fecha de ingreso, empresa, Clase I y estado.',
+        puede: [
+          'Buscar y filtrar: <b>Todos / Holcim / Contratistas</b>, una o varias plantas, activos o desvinculados, empresas y datos que faltan.',
+          'Clic en el <b>nombre</b>: abre la ficha con sus datos y su asistencia a cada sesión (ahí también marcas asistencia).',
+          '<b>+ Completar</b>: llena un dato que falta.',
+          '<b>Editar en la tabla</b>: corrige a muchos de una vez y luego <b>Revisar y guardar</b>.',
+          '<b>Registrar brigadista</b>: agrega a alguien nuevo.',
+          '<b>Traer faltantes</b>: busca brigadistas que están en otras pestañas del Excel pero no en las listas, y los trae.',
+          '<b>Descargar</b> la lista tal como la estás viendo.',
+        ],
+        ojo: [
+          'La <b>fecha de ingreso</b> importa: las sesiones anteriores a esa fecha no le aplican y no le cuentan en contra.',
+          'Si alguien sale de la brigada no se borra: ponle Estado <b>Desvinculado</b> y su fecha de retiro.',
+          '<b>Brigadista Clase I</b>: 46 horas, 21 horas o No aplica.',
+        ],
+      },
+      cronograma: {
+        para: 'Las fechas de cada sesión de capacitación en cada planta.',
+        puede: [
+          'Ver las sesiones <b>Próximas, Pasadas, Por definir</b>, <b>Todas</b> o las que <b>No aplican</b>; filtrar por mes, tema o estado, y buscar.',
+          '<b>Asistencia</b>, en una sesión, te lleva directo a su lista.',
+          ['gh', '<b>Programar</b> o <b>Editar</b> una sesión: Fecha Holcim, Fecha Ambipar, estado y observaciones.'],
+          ['gh', '<b>Habilitar</b> una sesión que dice «no aplica», o marcar que no aplica.'],
+          ['a', '<b>Programar</b> o <b>Editar</b> una sesión: pones la <b>Fecha Ambipar</b>, el estado y las observaciones.'],
+          'Al editar puedes aplicar el mismo cambio a las otras plantas de esa fila.',
+          '<b>Programar / Agregar sesión</b>: una sesión nueva en una planta.',
+          '<b>Nuevo módulo</b>: un tema de capacitación que todavía no está.',
+        ],
+        otro: [['a', 'La <b>Fecha Holcim</b> y marcar que una sesión no aplica los hace Holcim.']],
+        ojo: ['Lo que cambias aquí cambia qué sesiones aplican en Tomar asistencia y en el avance de cada planta.'],
+      },
+      cobertura: {
+        para: 'Si cada planta tiene los brigadistas que pide la meta: el 20 % de su personal.',
+        puede: [
+          'Arriba, los totales: personal, brigadistas (Holcim + contratistas), la meta y cuántas plantas cumplen.',
+          'Cada tarjeta es una planta: ábrela para ver cada empresa, cuántos brigadistas tiene y cuántos le faltan.',
+          'Ver solo las plantas a las que les faltan brigadistas, y ordenar por las más críticas o por nombre.',
+        ],
+        ojo: [
+          '<b>Personal</b> sale de la pestaña Indicador del Excel. <b>Brigadistas</b> son los activos en las listas de la app. <b>Meta</b> = 20 % del personal, redondeado hacia arriba.',
+          'Si un brigadista no cuenta, puede que su empresa o su planta no tengan fila en el Indicador: arriba sale el aviso con quiénes son.',
+        ],
+      },
+      revision: {
+        para: 'Lo que conviene corregir en las listas: datos que faltan, cédulas repetidas, asistencias en sesiones que no aplican…',
+        puede: [
+          'Cada punto dice qué revisar y dónde. <b>Completar</b> o <b>Ver ficha</b> te lleva a corregirlo.',
+          'Ver solo los <span class="punto punto-error"></span>errores o los <span class="punto punto-aviso"></span>avisos, y buscar.',
+        ],
+      },
+      cambios: {
+        para: 'Quién cambió qué y cuándo.',
+        puede: [
+          'Ver lo que se guardó <b>desde la app</b> (con el usuario que lo hizo) y lo que alguien cambió directamente <b>en el Excel</b> (lo detecta la revisión de cada hora).',
+          'Buscar por persona, cédula o módulo, filtrar por hoja y por fechas, y <b>Descargar</b>.',
+        ],
+      },
+      temarios: {
+        para: 'El contenido de cada capacitación: los temas de cada módulo.',
+        puede: ['Elige el temario y ábrelo por partes; también puedes buscar una palabra.'],
+      },
+      hojas: {
+        para: 'Las demás pestañas del Excel (Seguimiento, Datos de contacto, Evacuadores…), para consultarlas sin abrir el archivo.',
+        puede: ['Elige la pestaña, busca y filtra por una columna; <b>Descargar</b> lo que estás viendo.'],
+      },
+      ingresos: {
+        para: 'Quién entró a la app, cuándo y con qué tipo de usuario, y los intentos fallidos de clave.',
+        ojo: ['Si ves muchos intentos fallidos con un mismo usuario, avísale a esa persona o al gestor.'],
+      },
+      estado: {
+        para: 'Si la app puede leer y guardar en los archivos de Excel y si la revisión automática de cada hora está funcionando.',
+        ojo: ['Si algo no carga o no guarda, aquí se ve por qué. Lo técnico lo arregla el gestor.'],
+      },
+      configuracion: {
+        para: 'Tu clave y, para los gestores, los usuarios y los ajustes de la app.',
+        puede: [
+          ['g', '<b>Usuarios</b>: agregar, editar, enviar o reenviar el acceso por correo, desactivar o eliminar.'],
+          ['g', '<b>Personal de GSTOR</b>: ver a todos los usuarios de GSTOR y asignarles una o varias sedes antes de que entren.'],
+          ['g', 'Archivos de Excel, revisión automática y respaldos.'],
+          ['h', 'Ver los usuarios de la app.'],
+          'Cambiar tu clave.',
+        ],
+        otro: [['h', 'Agregar o cambiar usuarios y la configuración lo hace un gestor.']],
+        ojo: [
+          ['gh', 'Si entras con tu clave de GSTOR, esa clave se cambia en GSTOR, no aquí.'],
+          ['g', 'Solo el usuario principal nombra o quita gestores (tipo «Gestor»).'],
+        ],
+      },
+    };
+    const ROLES = {
+      gestor: { nombre: 'Gestor', ico: 'fa-user-shield', txt: 'Ves y haces todo: asistencia, cronograma y brigadistas, y además administras los usuarios y la configuración de la app.' },
+      holcim: { nombre: 'Holcim', ico: 'fa-user-tie', txt: 'Tomas asistencia, programas el cronograma y mantienes al día los datos de los brigadistas. Los usuarios y la configuración los maneja un gestor.' },
+      proveedor: { nombre: 'Ambipar', ico: 'fa-truck-medical', txt: 'Tomas asistencia de los módulos, pones la Fecha Ambipar en el cronograma, programas sesiones y creas módulos. Los datos de los brigadistas los maneja Holcim.' },
+    };
+    // [qué, gestor, Holcim, Ambipar]
+    const PERMISOS = [
+      ['Ver el Dashboard, el avance por planta, el cronograma y los temarios', 1, 1, 1],
+      ['Tomar asistencia', 1, 1, 1],
+      ['Poner la Fecha Ambipar, el estado y las observaciones de una sesión', 1, 1, 1],
+      ['Programar o agregar sesiones y crear módulos', 1, 1, 1],
+      ['Poner la Fecha Holcim y marcar que una sesión no aplica', 1, 1, 0],
+      ['Ver los brigadistas, registrarlos y completar o corregir sus datos', 1, 1, 0],
+      ['Ver la cobertura, la revisión de datos, el historial, otras hojas y los ingresos', 1, 1, 0],
+      ['Dar acceso a otras personas, asignar sedes y cambiar la configuración', 1, 0, 0],
+    ];
+    const TAREAS = [
+      ['gha', 'fa-clipboard-check', 'Tomar asistencia', 'asistencia', ['Menú → <b>Tomar asistencia</b>.', 'Elige la sede y luego la sesión.', 'Marca a quienes asistieron (o <b>Marcar todos</b>).', 'Pulsa <b>Revisar y guardar</b> y confirma.']],
+      ['a', 'fa-calendar-check', 'Poner la Fecha Ambipar de una sesión', 'cronograma', ['Menú → <b>Cronograma</b>.', 'Busca la sesión (por mes, tema o con el buscador).', 'Pulsa <b>Programar</b> o <b>Editar</b>.', 'Pon la <b>Fecha Ambipar</b> (y el estado si cambió) y guarda.']],
+      ['gh', 'fa-calendar-check', 'Programar la fecha de una sesión', 'cronograma', ['Menú → <b>Cronograma</b>.', 'Busca la sesión (por mes, tema o con el buscador).', 'Pulsa <b>Programar</b> o <b>Editar</b>.', 'Pon la Fecha Holcim (y la Fecha Ambipar si ya la tienes) y guarda. Si es igual en otras plantas, márcalas para cambiarlas también.']],
+      ['gha', 'fa-calendar-plus', 'Agregar una sesión que no está', 'cronograma', ['Menú → <b>Cronograma</b> → <b>Programar / Agregar sesión</b>.', 'Elige el módulo y la planta.', 'Pon la fecha (Ambipar pone la Fecha Ambipar), el estado si hace falta, y guarda.']],
+      ['gh', 'fa-user-plus', 'Registrar un brigadista nuevo', 'brigadistas', ['Menú → <b>Brigadistas</b> → <b>Registrar brigadista</b>.', 'Elige si es personal Holcim o contratista, la planta, y escribe nombre y cédula.', 'Llena lo que sepas (grupo sanguíneo, fecha de ingreso, Clase I…) y pulsa <b>Revisar y guardar</b>.']],
+      ['gh', 'fa-pen-to-square', 'Completar los datos que faltan', 'brigadistas', ['Menú → <b>Brigadistas</b>.', 'Pulsa el enlace «<b>… con datos por completar</b>» (arriba a la derecha).', 'En cada fila, <b>+ Completar</b>; o <b>Editar en la tabla</b> para hacer muchos de una vez y luego <b>Revisar y guardar</b>.']],
+      ['gh', 'fa-user-minus', 'Retirar a un brigadista', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre.', 'En la ficha, <b>Editar</b> (o <b>Completar datos</b>).', 'Estado <b>Desvinculado</b> y su fecha de retiro; guarda. No se borra: queda su historial.']],
+      ['g', 'fa-user-gear', 'Darle acceso a alguien', 'configuracion', ['Menú → <b>Configuración</b> → <b>Usuarios</b>.', 'Llena usuario, nombre, correo, tipo (Holcim o Ambipar) y sus sedes.', 'Pulsa <b>Agregar</b>. Si dejas marcado «Enviar el acceso por correo ahora», le llega de una vez; si no, se lo envías después.']],
+      ['gha', 'fa-key', 'Cambiar tu clave', 'configuracion', ['Menú → <b class="no-proveedor">Configuración</b><b class="solo-proveedor">Mi clave</b>.', 'Escribe tu clave actual y la nueva dos veces.', 'Pulsa <b>Cambiar</b>. Si entras con tu clave de GSTOR, cámbiala en GSTOR.']],
+    ];
+    const FALLAS = [
+      ['gha', '«La sesión no es válida o expiró»', 'La sesión dura 6 horas. Vuelve a entrar con tu usuario y clave.'],
+      ['gha', '«Alguien la cambió mientras tanto»', 'Otra persona guardó esa misma casilla después de que abriste la lista. Vuelve a abrir la sesión y revisa.'],
+      ['gh', '«Según el cronograma esa sesión no aplica»', 'Si sí se dictó, ponle la fecha en el Cronograma y vuelve a intentar.'],
+      ['a', '«Según el cronograma esa sesión no aplica»', 'Si sí se dictó, habilítala en el Cronograma (Programar / Agregar sesión) o avísale a Holcim.'],
+      ['gha', 'No veo a un brigadista en la lista de asistencia', 'Puede que haya entrado a la brigada después de la fecha de la sesión o que esté desvinculado. Marca «Ver desvinculados y a quienes no les aplica».'],
+      ['gha', 'Un cambio reciente no aparece', 'Pulsa <i class="fa-solid fa-rotate"></i> arriba, junto a la hora de los datos.'],
+      ['a', 'Olvidé mi clave', 'Pídele al gestor de SIGBE que te envíe una clave nueva.'],
+      ['h', 'Olvidé mi clave', 'Si entras con tu clave de GSTOR, recupérala en GSTOR. Si no, pídele al gestor de SIGBE una nueva.'],
+      ['g', '«No se puede guardar… se muestra una copia»', 'La cuenta que ejecuta la app perdió acceso a un archivo. Revisa Estado del sistema.'],
+      ['g', 'Sale el aviso de «versiones distintas»', 'Vuelve a pegar los archivos que dice el aviso y publica una nueva versión.'],
+    ];
+    const INICIO_ROL = {
+      gestor: [['inicio', 'Dashboard', 'Cómo va todo, de un vistazo.'], ['brigadistas', 'Brigadistas', 'Completa y corrige los datos de cada brigadista.'], ['configuracion', 'Usuarios', 'Da acceso a Holcim y a Ambipar.']],
+      holcim: [['asistencia', 'Tomar asistencia', 'Marca quién asistió a cada sesión.'], ['brigadistas', 'Brigadistas', 'Completa y corrige los datos de cada brigadista.'], ['cronograma', 'Cronograma', 'Programa las fechas de las sesiones.']],
+      proveedor: [['asistencia', 'Tomar asistencia', 'Marca quién asistió a cada sesión.'], ['cronograma', 'Cronograma', 'Pon la Fecha Ambipar y programa sesiones.'], ['matriz', 'Avance por planta', 'Mira cuánto lleva cada planta.']],
+    };
+    function rolActual() { return (E.perfil && ROLES[E.perfil.rol]) ? E.perfil.rol : 'gestor'; }
+    function nombreRol(r) { return r === 'proveedor' ? (E.perfil && E.perfil.org) || 'Ambipar' : ROLES[r].nombre; }
+    /** Los textos que le tocan al tipo de usuario actual. */
+    function paraRol(lista) { const l = { gestor: 'g', holcim: 'h', proveedor: 'a' }[rolActual()]; return (lista || []).filter(x => typeof x === 'string' || x[0].indexOf(l) !== -1).map(x => typeof x === 'string' ? x : x[x.length - 1]); }
+    function vistaVisible(v) { return !(rolActual() === 'proveedor' && VISTAS_NO_PROVEEDOR.indexOf(v) !== -1); }
+    function nombreVista(v) {
+      const a = document.querySelector(`#nav [data-vista="${v}"]`); if (!a) return v;
+      const x = (a.querySelector(rolActual() === 'proveedor' ? '.solo-proveedor' : '.no-proveedor') || a).cloneNode(true);
+      x.querySelectorAll('.badge').forEach(b => b.remove()); // sin el contador (p. ej. Revisión de datos 383)
+      return x.textContent.trim();
+    }
+    /** «MIRANDA SOTELO MARISOL» → «Miranda Sotelo Marisol» (los nombres de GSTOR vienen en mayúsculas). */
+    function nombreBonito(n) { n = String(n || '').trim(); return n === n.toUpperCase() ? n.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()) : n; }
+    function iconoVista(v) { const i = document.querySelector(`#nav [data-vista="${v}"] i`); return i ? i.className : 'fa-solid fa-circle-question'; }
+    /** Un botón «¿Cómo funciona?» junto al título de cada pantalla. */
+    function ponerBotonesAyuda() {
+      Object.keys(AYUDA).forEach(v => {
+        const h = document.querySelector('#v-' + v + ' .titulo-vista');
+        if (h && !h.querySelector('.btn-ayuda-vista')) h.insertAdjacentHTML('beforeend', ` <button type="button" class="btn-ayuda-vista" data-accion="ayuda-vista" data-v="${v}"><i class="fa-regular fa-circle-question me-1" aria-hidden="true"></i>¿Cómo funciona?</button>`);
+      });
+    }
+    function listaAyuda(titulo, ico, items, numerada) {
+      if (!items.length) return '';
+      const t = numerada ? 'ol' : 'ul';
+      return `<h3 class="ayuda-sub"><i class="fa-solid ${ico} me-2" aria-hidden="true"></i>${titulo}</h3><${t} class="ayuda-lista ${numerada ? 'numerada' : ''}">${items.map(x => '<li>' + x + '</li>').join('')}</${t}>`;
+    }
+    function abrirAyudaVista(v) {
+      const a = AYUDA[v]; if (!a) return;
+      const r = rolActual();
+      $('pa-titulo').innerHTML = `<i class="${iconoVista(v)} me-2 text-primary" aria-hidden="true"></i>${esc(nombreVista(v))}`;
+      $('pa-cuerpo').innerHTML = `<div class="ayuda-rol-chip mb-3"><i class="fa-solid ${ROLES[r].ico} me-1" aria-hidden="true"></i>Tu usuario: <b>${esc(nombreRol(r))}</b></div>
+        <p class="ayuda-para">${a.para}</p>` +
+        listaAyuda('Paso a paso', 'fa-shoe-prints', paraRol(a.pasos), true) +
+        listaAyuda('Lo que puedes hacer aquí', 'fa-circle-check text-success', paraRol(a.puede)) +
+        listaAyuda('Esto lo hace otra persona', 'fa-user-lock text-secondary', paraRol(a.otro)) +
+        listaAyuda('Ten en cuenta', 'fa-lightbulb text-warning', paraRol(a.ojo)) +
+        `<hr><button type="button" class="btn btn-sm btn-outline-primary" data-accion="ayuda-ir" data-v="ayuda"><i class="fa-solid fa-book me-1"></i>Ver toda la ayuda</button>`;
+      bootstrap.Offcanvas.getOrCreateInstance($('panel-ayuda')).show();
+    }
+    /** Desde la ayuda o la bienvenida: cierra lo que esté abierto y va a la pantalla. */
+    function irDesdeAyuda(v) {
+      const off = bootstrap.Offcanvas.getInstance($('panel-ayuda')); if (off) off.hide();
+      const m = bootstrap.Modal.getInstance($('modal-bienvenida')); if (m) m.hide();
+      ir(v);
+    }
+    function pintarAyuda() {
+      const r = rolActual(), col = { gestor: 1, holcim: 2, proveedor: 3 }[r];
+      const si = PERMISOS.filter(p => p[col]), no = PERMISOS.filter(p => !p[col]);
+      const vistas = Object.keys(AYUDA).filter(vistaVisible);
+      const tareas = paraRol(TAREAS.map(t => [t[0], t]));
+      const fallas = paraRol(FALLAS.map(f => [f[0], f]));
+      const marca = x => x ? '<i class="fa-solid fa-check text-success" aria-label="Sí"></i>' : '<span class="text-muted" aria-label="No">—</span>';
+      $('ayuda-rol').innerHTML = `
+        <div class="tarjeta p-4 mb-3 ayuda-hola">
+          <div class="d-flex align-items-start gap-3">
+            <div class="ayuda-avatar"><i class="fa-solid ${ROLES[r].ico}" aria-hidden="true"></i></div>
+            <div class="flex-grow-1">
+              <h2 class="h5 mb-1">${E.perfil && E.perfil.nombre ? 'Hola, ' + esc(nombreBonito(E.perfil.nombre)) + '. ' : ''}Entraste como <span class="text-primary">${esc(nombreRol(r))}</span></h2>
+              <p class="mb-3">${ROLES[r].txt}</p>
+              <div class="row g-3">
+                <div class="col-md-6"><div class="fw-semibold small mb-1"><i class="fa-solid fa-circle-check text-success me-1"></i>Puedes</div><ul class="ayuda-lista">${si.map(p => '<li>' + p[0] + '</li>').join('')}</ul></div>
+                ${no.length ? `<div class="col-md-6"><div class="fw-semibold small mb-1"><i class="fa-solid fa-user-lock text-secondary me-1"></i>Lo hace otra persona</div><ul class="ayuda-lista text-muted">${no.map(p => '<li>' + p[0] + '</li>').join('')}</ul></div>` : ''}
+              </div>
+              <div class="small text-muted mt-2"><i class="fa-regular fa-circle-question me-1"></i>En cada pantalla, el botón <b>¿Cómo funciona?</b> junto al título te explica qué puedes hacer ahí.</div>
+            </div>
+          </div>
+        </div>
+        <h2 class="ayuda-titulo">Tus pantallas</h2>
+        <div class="row g-2 mb-4">${vistas.map(v => `<div class="col-sm-6 col-xl-4"><div class="tarjeta p-3 h-100 d-flex flex-column ayuda-vista">
+            <div class="fw-semibold mb-1"><i class="${iconoVista(v)} me-2 text-primary" aria-hidden="true"></i>${esc(nombreVista(v))}</div>
+            <div class="small text-muted flex-grow-1">${AYUDA[v].para}</div>
+            <div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-sm btn-primary" data-accion="ayuda-ir" data-v="${v}">Abrir</button><button type="button" class="btn btn-sm btn-outline-secondary" data-accion="ayuda-vista" data-v="${v}">¿Cómo funciona?</button></div>
+          </div></div>`).join('')}</div>
+        <h2 class="ayuda-titulo">Paso a paso</h2>
+        <div class="accordion mb-4" id="ayuda-tareas">${tareas.map((t, k) => `<div class="accordion-item">
+            <h3 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#ayuda-t${k}" aria-expanded="false" aria-controls="ayuda-t${k}"><i class="fa-solid ${t[1]} me-2 text-primary" aria-hidden="true"></i>${t[2]}</button></h3>
+            <div id="ayuda-t${k}" class="accordion-collapse collapse" data-bs-parent="#ayuda-tareas"><div class="accordion-body"><ol class="ayuda-lista numerada mb-2">${t[4].map(x => '<li>' + x + '</li>').join('')}</ol>
+              <button type="button" class="btn btn-sm btn-outline-primary" data-accion="ayuda-ir" data-v="${t[3]}">Ir a ${esc(nombreVista(t[3]))}</button></div></div>
+          </div>`).join('')}</div>
+        <h2 class="ayuda-titulo">Si algo no sale</h2>
+        <div class="tarjeta p-0 mb-4"><table class="table table-sm small mb-0 align-middle"><thead><tr><th scope="col" class="ps-3">Qué ves</th><th scope="col">Qué hacer</th></tr></thead>
+          <tbody>${fallas.map(f => `<tr><td class="ps-3 fw-semibold">${f[1]}</td><td>${f[2]}</td></tr>`).join('')}</tbody></table></div>
+        <details class="tarjeta p-3 mb-4"><summary class="fw-semibold"><i class="fa-solid fa-users me-2 text-primary"></i>¿Quién puede hacer qué?</summary>
+          <div class="table-responsive mt-2"><table class="table table-sm small mb-0 align-middle"><thead><tr><th scope="col"></th><th scope="col" class="text-center">Gestor</th><th scope="col" class="text-center">Holcim</th><th scope="col" class="text-center">Ambipar</th></tr></thead>
+            <tbody>${PERMISOS.map(p => `<tr><td>${p[0]}</td><td class="text-center">${marca(p[1])}</td><td class="text-center">${marca(p[2])}</td><td class="text-center">${marca(p[3])}</td></tr>`).join('')}</tbody></table></div>
+          <p class="small text-muted mb-0 mt-2">Cada usuario ve las sedes que le asignaron al entrar, y puede cambiarlas arriba en <b>Sede</b>. Todo lo que se guarda queda en el historial con quién y cuándo.</p>
+        </details>
+        <div class="mb-4"><button type="button" class="btn btn-sm btn-outline-secondary" data-accion="bienvenida"><i class="fa-solid fa-hand-sparkles me-1"></i>Ver otra vez la bienvenida</button></div>`;
+    }
+    /** La primera vez que cada usuario entra (en este equipo): qué puede hacer y por dónde empezar. */
+    function bienvenida(siempre) {
+      if (!E.usuario || !E.perfil || E.perfil.claveTemporal) return;
+      const clave = 'sigbe_bienvenida_' + E.usuario;
+      if (!siempre && leer('localStorage', clave)) return;
+      guardar('localStorage', clave, '1');
+      const r = rolActual();
+      $('bv-titulo').innerHTML = `<i class="fa-solid fa-hand-sparkles me-2 text-warning" aria-hidden="true"></i>Hola${E.perfil.nombre ? ', ' + esc(nombreBonito(E.perfil.nombre)) : ''}`;
+      $('bv-cuerpo').innerHTML = `<p class="mb-1">Te damos la bienvenida a <b>SIGBE</b>. Aquí se lleva la <b>brigada de emergencias</b>: quiénes son los brigadistas, sus capacitaciones y su asistencia.</p>
+        <p>Entraste como <b>${esc(nombreRol(r))}</b>: ${ROLES[r].txt}</p>
+        <div class="fw-semibold small mb-2">Por dónde empezar</div>
+        <div class="row g-2">${INICIO_ROL[r].map(x => `<div class="col-sm-4"><button type="button" class="bv-op w-100 h-100" data-accion="ayuda-ir" data-v="${x[0]}">
+          <i class="${iconoVista(x[0])} fa-lg text-primary mb-2" aria-hidden="true"></i><div class="fw-semibold">${x[1]}</div><div class="small text-muted">${x[2]}</div></button></div>`).join('')}</div>
+        <p class="small text-muted mt-3 mb-0"><i class="fa-regular fa-circle-question me-1"></i>En cada pantalla, <b>¿Cómo funciona?</b> junto al título te explica qué hacer. La guía completa está en <b>Ayuda</b>, en el menú.</p>`;
+      modal('modal-bienvenida').show();
     }
 
     // ══════════ ENTRADA (usuario y clave) ══════════

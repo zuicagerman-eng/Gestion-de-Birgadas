@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.11.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.12.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -107,6 +107,17 @@ ahora*. Queda cargado como **acceso por enviar**: todavía no puede entrar ni re
 clave temporal generada en ese momento; a los de Holcim, su usuario (entran con la clave del gestor). Las claves se guardan cifradas con sal en `SIGBE_USUARIOS`. Un usuario desactivado o eliminado pierde la sesión
 al instante. El historial muestra quién hizo cada cambio, p. ej. `ambipar (Ambipar)`. Los permisos se revisan en el
 servidor, no solo en la pantalla.
+
+## Ayuda dentro de la app
+
+- **¿Cómo funciona?** junto al título de cada pantalla: un panel lateral que explica esa pantalla según quién entró
+  (Gestor, Holcim o Ambipar). Dice para qué sirve, el paso a paso, lo que esa persona puede hacer ahí y lo que hace otra.
+- **Ayuda** (menú): el tipo de usuario con lo que puede y lo que no, sus pantallas, tareas paso a paso, «Si algo no sale»
+  y una tabla de quién puede hacer qué. Los detalles técnicos (1.0, 2.0, corte) solo los ve el gestor.
+- **Bienvenida**: la primera vez que cada usuario entra en un equipo (si tiene clave temporal, después de cambiarla). Se
+  puede volver a ver desde Ayuda.
+- A Holcim y a Ambipar no se les muestra de qué archivos salen los datos (1.0 / 2.0), solo la hora.
+- Los textos están en `App.html` (`AYUDA`, `PERMISOS`, `TAREAS`, `FALLAS`). Si cambia un permiso, actualícelos.
 
 ## Conexión con GSTOR (personal de Holcim)
 
