@@ -140,6 +140,7 @@
       $('gstor-buscar').oninput = conEspera(pintarGstor); $('gstor-sin').onchange = pintarGstor;
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
+      $('reg-planta').onchange = ajustarPlantaNueva;
       $('brig-buscar').oninput = conEspera(pintarBrigadistas);
       ['brig-estado', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
       escucharMultiSel('brig-planta', brig.plantas, 'Todas las plantas', 'plantas', pintarBrigadistas);
@@ -515,10 +516,10 @@
       const colorPct = x => x >= 80 ? 'var(--s-ok)' : x >= 40 ? '#e8590c' : 'var(--s-mal)';
       $('inicio-kpis').innerHTML =
         kpi('fa-list-check', colorPct(pct), 'Asistencia a módulos ya dictados', t ? pct + ' %' : '—',
-          t ? `<b>${c}</b> de <b>${t}</b> asistencias esperadas: cada brigadista Holcim activo por cada módulo que ya se dictó en su planta.` : 'Todavía no hay módulos con fecha pasada.', t ? pct : undefined) +
-        kpi('fa-user-check', colorPct(cumps.length ? alDia / cumps.length * 100 : 0), 'Brigadistas Holcim al día', `${alDia} de ${cumps.length}`,
+          t ? `<b>${c}</b> de <b>${t}</b> asistencias esperadas: cada brigadista propio activo (Holcim, Geocycle, Transcem, Fundación) por cada módulo que ya se dictó en su planta.` : 'Todavía no hay módulos con fecha pasada.', t ? pct : undefined) +
+        kpi('fa-user-check', colorPct(cumps.length ? alDia / cumps.length * 100 : 0), 'Brigadistas propios al día', `${alDia} de ${cumps.length}`,
           `asistieron a todos los módulos ya dictados${ninguna ? ` · <b>${ninguna}</b> no tienen ninguna asistencia` : ''}.`) +
-        kpi('fa-users', 'var(--s-azul)', 'Brigadistas Holcim activos', h.length, `son los que toman asistencia por módulo en la lista${h.length - cumps.length ? ` (${h.length - cumps.length} aún sin módulos dictados)` : ''}.`) +
+        kpi('fa-users', 'var(--s-azul)', 'Brigadistas propios activos', h.length, `son los que toman asistencia por módulo en la lista${h.length - cumps.length ? ` (${h.length - cumps.length} aún sin módulos dictados)` : ''}.`) +
         kpi('fa-certificate', '#7b2cbf', 'Contratistas con certificado 0256', ih.length ? Math.round(conCert / ih.length * 100) + ' %' : '—', `<b>${conCert}</b> de <b>${ih.length}</b> contratistas activos tienen el certificado.`, ih.length ? conCert / ih.length * 100 : undefined);
       const sedes = unicos(P.map(p => p.sede)).filter(sedeOk);
       $('inicio-por-sede').innerHTML = sedes.map(sd => {
@@ -788,10 +789,10 @@
     }
     function pintarMatriz() {
       const filas = filasMatriz();
-      $('mat-conteo').textContent = filas.length + ' planta(s) · ' + filas.reduce((n, x) => n + x.personas, 0) + ' brigadistas Holcim activos';
+      $('mat-conteo').textContent = filas.length + ' planta(s) · ' + filas.reduce((n, x) => n + x.personas, 0) + ' brigadistas propios activos';
       const color = pct => pct >= 80 ? 'e-si' : pct >= 40 ? 'e-pend' : 'e-no';
       const corta = f => f ? f.slice(0, 5) : '';
-      $('mat-tabla').innerHTML = `<table class="matriz"><thead><tr><th class="col-persona" scope="col">Planta</th><th scope="col" title="Brigadistas Holcim activos">Brig.</th>` +
+      $('mat-tabla').innerHTML = `<table class="matriz"><thead><tr><th class="col-persona" scope="col">Planta</th><th scope="col" title="Brigadistas propios activos">Brig.</th>` +
         D.unidades.map(u => `<th scope="col" title="${esc(u.clave + ': ' + u.titulo)}">${esc(u.clave)}</th>`).join('') + '<th scope="col">Avance</th></tr></thead><tbody>' +
         filas.map(x => `<tr><th scope="row" class="col-persona fw-semibold">${esc(x.p)}<div class="small text-muted fw-normal">${esc(x.sede)}</div></th><td class="text-center">${x.personas}</td>` +
           x.celdas.map(c => {
@@ -804,7 +805,7 @@
           `<td>${pildoraCump({ c: x.c, t: x.t, pct: x.pct })}</td></tr>`).join('') + '</tbody></table>' + (filas.length ? '' : '<p class="text-muted p-3 mb-0">No hay plantas con ese filtro.</p>');
     }
     function csvMatriz() {
-      descargarCsv('avance_por_planta' + sufijoSede() + '.csv', [['Sede', 'Planta', 'Brigadistas Holcim activos'].concat(D.unidades.map(u => u.clave), ['Avance'])]
+      descargarCsv('avance_por_planta' + sufijoSede() + '.csv', [['Sede', 'Planta', 'Brigadistas propios activos'].concat(D.unidades.map(u => u.clave), ['Avance'])]
         .concat(filasMatriz().map(x => [x.sede, x.p, x.personas].concat(x.celdas.map(c => c.pct !== null ? c.pct + '% (' + c.n.si + '/' + c.debido + ')' : c.n.pend ? 'Pendiente' + (c.prox ? ' ' + c.prox.f : '') : 'No aplica'), [x.pct === null ? '' : x.pct + '% (' + x.c + '/' + x.t + ')']))));
     }
 
@@ -813,11 +814,12 @@
     const CAMPOS_B = {
       cedula: 'Cédula', grupo: 'Grupo sanguíneo', fechaIngreso: 'Fecha de ingreso', empresa: 'Empresa',
       clase1: 'Brigadista Clase I', estado: 'Estado', fechaRetiro: 'Fecha de retiro', certificado: 'Certificado 0256',
+      obsRetiro: 'Observaciones del retiro',
     };
     function datosDe(p) {
       return p.tipo === 'HOLCIM'
-        ? { cedula: p.c, grupo: p.gs || '', fechaIngreso: p.fi || '', empresa: p.em || 'HOLCIM', clase1: p.c1 || '', estado: p.e || '', fechaRetiro: p.fr || '', certificado: p.ce || '' }
-        : { cedula: p.c, grupo: p.gs || '', fechaIngreso: p.fi || '', empresa: p.k || '', clase1: p.c1 || '', estado: p.e || '', fechaRetiro: p.fr || '', certificado: p.ce || '' };
+        ? { cedula: p.c, grupo: p.gs || '', fechaIngreso: p.fi || '', empresa: p.em || 'HOLCIM', clase1: p.c1 || '', estado: p.e || '', fechaRetiro: p.fr || '', certificado: p.ce || '', obsRetiro: p.or || '' }
+        : { cedula: p.c, grupo: p.gs || '', fechaIngreso: p.fi || '', empresa: p.k || '', clase1: p.c1 || '', estado: p.e || '', fechaRetiro: p.fr || '', certificado: p.ce || '', obsRetiro: p.or || '' };
     }
     /** Qué le falta a la persona (claves de CAMPOS_B). */
     function faltantes(p) {
@@ -831,8 +833,8 @@
     /** Pasa lo guardado a los datos en memoria (sin volver a leer todo). */
     function aplicarDatos(p, cambios) {
       const iso2txt = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split('-').reverse().join('/') : v;
-      const mapa = p.tipo === 'HOLCIM' ? { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'em', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce' }
-        : { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'k', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce' };
+      const mapa = p.tipo === 'HOLCIM' ? { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'em', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce', obsRetiro: 'or' }
+        : { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'k', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce', obsRetiro: 'or' };
       Object.keys(cambios).forEach(k => { if (mapa[k]) p[mapa[k]] = k === 'empresa' && p.tipo === 'INHOUSE' ? String(cambios[k]).toUpperCase() : iso2txt(String(cambios[k])); });
       p.activo = !/desvinculado/i.test(p.e);
       if (p.tipo === 'INHOUSE') p.emp = p.k || 'Contratista';
@@ -840,6 +842,13 @@
       REV = null;
     }
     function todosBrigadistas() { return P.concat(I); }
+    /** HOLCIM, GEOCYCLE, TRANSCEM o FUNDACION (personal propio, según su empresa) o INHOUSE (contratistas). */
+    function grupoDe(p) {
+      if (p.tipo === 'INHOUSE') return 'INHOUSE';
+      const n = norm(p.em);
+      return ['GEOCYCLE', 'TRANSCEM', 'FUNDACION'].find(k => n.indexOf(k) !== -1) || 'HOLCIM';
+    }
+    const NOMBRE_GRUPO = { HOLCIM: 'Holcim', GEOCYCLE: 'Geocycle', TRANSCEM: 'Transcem', FUNDACION: 'Fundación', INHOUSE: 'contratistas' };
     /**
      * Lista desplegable con casillas para elegir varias opciones a la vez (como el selector de sedes). sel es el arreglo
      * de elegidas: vacío = todas. "solo" deja únicamente esa opción.
@@ -880,7 +889,7 @@
     function listaBrigadistas() {
       const q = norm($('brig-buscar').value), est = $('brig-estado').value, dat = $('brig-datos').value;
       const pls = brig.plantas, ems = brig.empresas; // vacío = todas
-      const lista = todosBrigadistas().filter(p => enSede(p) && (!brig.tipo || p.tipo === brig.tipo) && (!pls.length || pls.indexOf(p.p) !== -1) &&
+      const lista = todosBrigadistas().filter(p => enSede(p) && (!brig.tipo || grupoDe(p) === brig.tipo) && (!pls.length || pls.indexOf(p.p) !== -1) &&
         (est === '' || (est === 'act') === p.activo) && (!ems.length || ems.indexOf(datosDe(p).empresa) !== -1) &&
         (!dat || (dat === 'incompletos') === (faltantes(p).length > 0)) &&
         (!q || norm([p.n, p.c, p.p, datosDe(p).empresa].join(' ')).includes(q)));
@@ -892,8 +901,13 @@
       const lista = listaBrigadistas();
       brig.visibles = lista;
       document.querySelectorAll('#brig-cab th.ordenable').forEach(th => th.setAttribute('aria-sort', th.dataset.orden === brig.orden ? (brig.dir > 0 ? 'ascending' : 'descending') : 'none'));
-      const h = lista.filter(p => p.tipo === 'HOLCIM').length, inc = lista.filter(p => faltantes(p).length).length;
-      $('brig-conteo').innerHTML = `${lista.length} brigadista(s) · ${h} Holcim · ${lista.length - h} contratistas${inc ? ` · <a href="#" data-accion="brig-incompletos">${inc} con datos por completar</a>` : ''}`;
+      const inc = lista.filter(p => faltantes(p).length).length, por = {};
+      lista.forEach(p => { const g = grupoDe(p); por[g] = (por[g] || 0) + 1; });
+      $('brig-conteo').innerHTML = `${lista.length} brigadista(s) · ${Object.keys(NOMBRE_GRUPO).filter(g => por[g]).map(g => por[g] + ' ' + NOMBRE_GRUPO[g]).join(' · ')}${inc ? ` · <a href="#" data-accion="brig-incompletos">${inc} con datos por completar</a>` : ''}`;
+      // Cuántos hay de cada grupo con los demás filtros (sin el de grupo)
+      const tipo = brig.tipo; brig.tipo = ''; const todos = listaBrigadistas(); brig.tipo = tipo;
+      const n = {}; todos.forEach(p => { const g = grupoDe(p); n[g] = (n[g] || 0) + 1; });
+      document.querySelectorAll('#brig-tipo [data-n]').forEach(x => { x.textContent = x.dataset.n ? n[x.dataset.n] || 0 : todos.length; });
       const editar = brig.editar && E.usuario;
       $('brig-modo').innerHTML = editar ? '<i class="fa-solid fa-xmark me-1"></i>Salir de edición' : '<i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla';
       $('brig-modo').className = 'btn btn-sm no-proveedor ' + (editar ? 'btn-warning' : 'btn-outline-primary');
@@ -912,10 +926,10 @@
             ${ctl('cedula', falta.indexOf('cedula') !== -1 ? `<input class="form-control form-control-sm ed" ${base} data-campo="cedula" inputmode="numeric" value="${esc(valor('cedula'))}" placeholder="Cédula" style="width:110px">` : esc(x.cedula))}
             ${ctl('grupo', `<select class="form-select form-select-sm ed" ${base} data-campo="grupo" style="width:80px"><option value="">—</option>${op(catalogos.grupos, valor('grupo'))}</select>`)}
             ${ctl('fechaIngreso', `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaIngreso" value="${esc(isoDe(valor('fechaIngreso')) || valor('fechaIngreso'))}" style="width:135px">`)}
-            ${ctl('empresa', `<input class="form-control form-control-sm ed" ${base} data-campo="empresa" list="dl-empresas" value="${esc(valor('empresa'))}" placeholder="Empresa" style="width:150px">`)}
+            ${ctl('empresa', `<input class="form-control form-control-sm ed" ${base} data-campo="empresa" list="${p.tipo === 'HOLCIM' ? 'dl-propias' : 'dl-empresas'}" value="${esc(valor('empresa'))}" placeholder="Empresa" style="width:150px">`)}
             ${ctl('clase1', `<select class="form-select form-select-sm ed" ${base} data-campo="clase1" style="width:115px"><option value="">—</option>${op(catalogos.clases, valor('clase1'))}</select>`)}
             ${ctl('estado', `<select class="form-select form-select-sm ed" ${base} data-campo="estado" style="width:125px">${p.tipo === 'INHOUSE' && !x.estado ? '<option value="">Activo</option>' : ''}${op(catalogos.estados, valor('estado'))}</select>`)}
-            ${ctl('fechaRetiro', inactivo ? `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaRetiro" value="${esc(isoDe(valor('fechaRetiro')) || valor('fechaRetiro'))}" style="width:135px">` : '<span class="text-muted small">—</span>')}</tr>`;
+            ${ctl('fechaRetiro', inactivo ? `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaRetiro" value="${esc(isoDe(valor('fechaRetiro')) || valor('fechaRetiro'))}" style="width:135px" aria-label="Fecha de retiro (obligatoria)" title="Obligatoria para desvincular"><input class="form-control form-control-sm ed mt-1" ${base} data-campo="obsRetiro" maxlength="300" value="${esc(valor('obsRetiro'))}" placeholder="Observaciones (opcional)" style="width:135px" aria-label="Observaciones del retiro">` : '<span class="text-muted small">—</span>')}</tr>`;
         }
         return `<tr class="fila-click ${p.activo ? '' : 'text-muted'}" data-accion="ficha" data-tipo="${p.tipo}" data-j="${p.j}" tabindex="0">
           <td class="small">${esc(p.p)}</td><td class="fw-semibold">${esc(p.n)}</td><td>${ver('cedula')}</td><td>${ver('grupo')}</td><td class="text-nowrap">${ver('fechaIngreso')}</td>
@@ -960,6 +974,10 @@
     }
     function confirmarTabla() {
       const items = Object.keys(brig.cambios).map(k => { const [t, j] = k.split(':'); const p = t === 'INHOUSE' ? I[+j] : P[+j]; return { p: p, cambios: brig.cambios[k] }; });
+      // Desvincular pide la fecha de retiro
+      const sinFecha = items.filter(x => { const d = datosDe(x.p), est = 'estado' in x.cambios ? x.cambios.estado : d.estado, fr = 'fechaRetiro' in x.cambios ? x.cambios.fechaRetiro : d.fechaRetiro;
+        return ('estado' in x.cambios || 'fechaRetiro' in x.cambios) && /desvinculado/i.test(est) && !String(fr || '').trim(); });
+      if (sinFecha.length) return avisar('Para desvincular hace falta la <b>fecha de retiro</b>: ' + sinFecha.map(x => esc(x.p.n)).join(', ') + '.', 'warning', 10000);
       const fmt = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split('-').reverse().join('/') : v;
       $('conf-titulo').textContent = 'Guardar cambios de ' + items.length + ' brigadista(s)';
       $('conf-cuerpo').innerHTML = '<table class="table table-sm small mb-2"><thead><tr><th>Brigadista</th><th>Dato</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
@@ -994,8 +1012,8 @@
     }
     function csvBrigadistas() {
       if (!brig.visibles.length) return avisar('No hay brigadistas para descargar.', 'warning');
-      descargarCsv('brigadistas' + sufijoSede() + '.csv', [['Planta', 'Nombres y apellidos', 'Cédula', 'Grupo sanguíneo', 'Fecha de ingreso', 'Empresa', 'Brigadista Clase I', 'Estado', 'Fecha de retiro', 'Tipo', 'Sede', 'Certificado 0256', 'Cumplimiento', 'Datos por completar']]
-        .concat(brig.visibles.map(p => { const x = datosDe(p); return [p.p, p.n, x.cedula, x.grupo, x.fechaIngreso, x.empresa, x.clase1, x.estado || 'Activo', x.fechaRetiro, p.tipo, p.sede, x.certificado, p.cump.pct === null ? '' : p.cump.pct + '%', faltantes(p).map(k => CAMPOS_B[k]).join(', ')]; })));
+      descargarCsv('brigadistas' + sufijoSede() + '.csv', [['Planta', 'Nombres y apellidos', 'Cédula', 'Grupo sanguíneo', 'Fecha de ingreso', 'Empresa', 'Brigadista Clase I', 'Estado', 'Fecha de retiro', 'Observaciones del retiro', 'Tipo', 'Sede', 'Certificado 0256', 'Cumplimiento', 'Datos por completar']]
+        .concat(brig.visibles.map(p => { const x = datosDe(p); return [p.p, p.n, x.cedula, x.grupo, x.fechaIngreso, x.empresa, x.clase1, x.estado || 'Activo', x.fechaRetiro, x.obsRetiro, p.tipo, p.sede, x.certificado, p.cump.pct === null ? '' : p.cump.pct + '%', faltantes(p).map(k => CAMPOS_B[k]).join(', ')]; })));
     }
 
     // ══════════ FICHA ══════════
@@ -1016,7 +1034,7 @@
         `<div class="row g-3 mb-3">${dato('Planta', esc(f.p))}${dato('Cédula', falta.indexOf('cedula') !== -1 ? '' : esc(x.cedula))}${dato('Grupo sanguíneo', esc(x.grupo))}
         ${dato('Fecha de ingreso', esc(x.fechaIngreso))}${dato('Empresa', esc(x.empresa))}${dato('Brigadista Clase I', esc(x.clase1))}
         ${dato('Estado', x.estado || f.tipo === 'INHOUSE' ? `<span class="badge ${f.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>` : '')}
-        ${f.activo ? '' : dato('Fecha de retiro', esc(x.fechaRetiro))}${x.certificado ? dato('Certificado 0256', esc(x.certificado)) : ''}
+        ${f.activo ? '' : dato('Fecha de retiro', esc(x.fechaRetiro))}${f.activo || !x.obsRetiro ? '' : dato('Observaciones del retiro', esc(x.obsRetiro))}${x.certificado ? dato('Certificado 0256', esc(x.certificado)) : ''}
         ${f.tipo === 'HOLCIM' ? dato('Cumplimiento', f.cump.pct === null ? 'sin módulos vencidos' : f.cump.pct + ' % (' + f.cump.c + ' de ' + f.cump.t + ' módulos)') : ''}</div>`;
       if (editando) {
         const op = (lista, v, vacio) => (vacio ? `<option value="">${vacio}</option>` : '') + (v && lista.indexOf(v) === -1 ? [v].concat(lista) : lista).map(o => `<option value="${esc(o)}" ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('');
@@ -1025,10 +1043,11 @@
           ${falta.indexOf('cedula') !== -1 ? `<div class="col-md-4"><label class="form-label small" for="ed-cedula">Cédula</label><input id="ed-cedula" class="form-control form-control-sm" inputmode="numeric" value="${esc(x.cedula)}"></div>` : ''}
           <div class="col-md-4"><label class="form-label small" for="ed-grupo">Grupo sanguíneo</label><select id="ed-grupo" class="form-select form-select-sm">${op(catalogos.grupos, x.grupo, '—')}</select></div>
           <div class="col-md-4"><label class="form-label small" for="ed-fechaIngreso">Fecha de ingreso</label><input type="date" id="ed-fechaIngreso" class="form-control form-control-sm" value="${esc(isoDe(x.fechaIngreso))}"></div>
-          <div class="col-md-4"><label class="form-label small" for="ed-empresa">Empresa</label><input id="ed-empresa" class="form-control form-control-sm" list="dl-empresas" value="${esc(x.empresa)}"></div>
+          <div class="col-md-4"><label class="form-label small" for="ed-empresa">Empresa</label><input id="ed-empresa" class="form-control form-control-sm" list="${f.tipo === 'HOLCIM' ? 'dl-propias' : 'dl-empresas'}" value="${esc(x.empresa)}"></div>
           <div class="col-md-4"><label class="form-label small" for="ed-clase1">Brigadista Clase I</label><select id="ed-clase1" class="form-select form-select-sm">${op(catalogos.clases, x.clase1, '—')}</select></div>
           <div class="col-md-4"><label class="form-label small" for="ed-estado">Estado</label><select id="ed-estado" class="form-select form-select-sm">${f.tipo === 'INHOUSE' && !x.estado ? '<option value="">Activo</option>' : ''}${op(catalogos.estados, x.estado)}</select></div>
-          <div class="col-md-4" id="ed-retiro-box" style="${inactivo ? '' : 'display:none'}"><label class="form-label small" for="ed-fechaRetiro">Fecha de retiro</label><input type="date" id="ed-fechaRetiro" class="form-control form-control-sm" value="${esc(isoDe(x.fechaRetiro))}"></div>
+          <div class="col-md-4 ed-retiro" id="ed-retiro-box" style="${inactivo ? '' : 'display:none'}"><label class="form-label small" for="ed-fechaRetiro">Fecha de retiro <span class="text-danger">*</span></label><input type="date" id="ed-fechaRetiro" class="form-control form-control-sm" value="${esc(isoDe(x.fechaRetiro))}"></div>
+          <div class="col-md-8 ed-retiro" style="${inactivo ? '' : 'display:none'}"><label class="form-label small" for="ed-obsRetiro">Observaciones del retiro <span class="text-muted">(opcional)</span></label><input id="ed-obsRetiro" class="form-control form-control-sm" maxlength="300" placeholder="Motivo, a dónde se fue…" value="${esc(x.obsRetiro)}"></div>
           ${f.tipo === 'INHOUSE' || catalogos.holcimTieneCertificado ? `<div class="col-md-4"><label class="form-label small" for="ed-certificado">Certificado 0256</label><select id="ed-certificado" class="form-select form-select-sm">${op(catalogos.certificados, x.certificado, x.certificado ? '' : '—')}</select></div>` : ''}
           </div><p class="small text-muted mt-2 mb-0">La planta y el nombre no se editan desde la app para no desordenar la hoja. Si la hoja no tiene la columna de un dato, se crea al guardar.</p></div>`;
       }
@@ -1050,7 +1069,7 @@
       if (editando) $('ficha-pie').innerHTML = '<button class="btn btn-outline-secondary" data-accion="ficha-cancelar">Cancelar</button><button class="btn btn-success" data-accion="ficha-revisar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>';
       else pieFicha();
       if (editando) {
-        $('ed-estado').onchange = () => { $('ed-retiro-box').style.display = /desvinculado/i.test($('ed-estado').value) ? '' : 'none'; };
+        $('ed-estado').onchange = () => { const d = /desvinculado/i.test($('ed-estado').value); document.querySelectorAll('#ficha-cuerpo .ed-retiro').forEach(e => { e.style.display = d ? '' : 'none'; }); if (d && !$('ed-fechaRetiro').value) $('ed-fechaRetiro').focus(); };
         const foco = campoFoco && $('ed-' + campoFoco);
         if (foco) setTimeout(() => foco.focus(), 350);
       }
@@ -1127,6 +1146,7 @@
       $('reg-cert').innerHTML = catalogos.certificados.map(x => `<option ${/pendiente/i.test(x) ? 'selected' : ''}>${esc(x)}</option>`).join('');
       $('reg-contratistas').innerHTML = catalogos.contratistas.map(x => `<option value="${esc(x)}">`).join('');
       $('dl-empresas').innerHTML = catalogos.empresas.map(x => `<option value="${esc(x)}">`).join('');
+      $('dl-propias').innerHTML = (catalogos.propias || []).map(x => `<option value="${esc(x)}">`).join('');
       $('reg-grupo').innerHTML = '<option value="">—</option>' + catalogos.grupos.map(x => `<option>${esc(x)}</option>`).join('');
       $('reg-clase1').innerHTML = '<option value="">—</option>' + catalogos.clases.map(x => `<option>${esc(x)}</option>`).join('');
       return true;
@@ -1138,9 +1158,13 @@
     }
     function revisarEdicion() {
       const f = ficha, x = datosDe(f), cambios = {}, anteriores = {};
-      ['cedula', 'grupo', 'fechaIngreso', 'empresa', 'clase1', 'estado', 'fechaRetiro', 'certificado'].forEach(k => {
+      // Desvincular pide la fecha de retiro; las observaciones son opcionales
+      if ($('ed-estado') && /desvinculado/i.test($('ed-estado').value) && !$('ed-fechaRetiro').value && !(x.fechaRetiro && !isoDe(x.fechaRetiro))) {
+        $('ed-fechaRetiro').focus(); return avisar('Para desvincular a ' + esc(f.n) + ' pon la <b>fecha de retiro</b>.', 'warning', 8000);
+      }
+      ['cedula', 'grupo', 'fechaIngreso', 'empresa', 'clase1', 'estado', 'fechaRetiro', 'obsRetiro', 'certificado'].forEach(k => {
         const el = $('ed-' + k);
-        if (!el || (k === 'fechaRetiro' && $('ed-retiro-box').style.display === 'none')) return;
+        if (!el || ((k === 'fechaRetiro' || k === 'obsRetiro') && $('ed-retiro-box').style.display === 'none')) return;
         let v = el.value.trim();
         if (k === 'empresa' && f.tipo === 'INHOUSE') v = v.toUpperCase();
         const esFecha = k === 'fechaIngreso' || k === 'fechaRetiro';
@@ -1191,7 +1215,16 @@
       $('reg-contratista').required = !holcim;
       const plantas = holcim ? catalogos.plantasHolcim : catalogos.plantasInhouse;
       const deSede = plantas.filter(p => E.sede && norm(p).includes(norm(E.sede)));
-      $('reg-planta').innerHTML = '<option value="">Elige la planta…</option>' + plantas.map(p => `<option ${deSede.length === 1 && deSede[0] === p ? 'selected' : ''}>${esc(p)}</option>`).join('');
+      $('reg-planta').innerHTML = '<option value="">Elige la planta…</option>' + plantas.map(p => `<option ${deSede.length === 1 && deSede[0] === p ? 'selected' : ''}>${esc(p)}</option>`).join('') +
+        '<option value="__nueva">+ Nueva planta…</option>';
+      ajustarPlantaNueva();
+    }
+    /** «+ Nueva planta…»: pide el nombre (se crea al guardar el primer brigadista). */
+    function ajustarPlantaNueva() {
+      const nueva = $('reg-planta').value === '__nueva';
+      $('reg-planta-nueva-box').style.display = nueva ? '' : 'none';
+      $('reg-planta-nueva').required = nueva;
+      if (nueva) setTimeout(() => $('reg-planta-nueva').focus(), 50);
     }
     function avisarCedulaRepetida() {
       const c = $('reg-cedula').value.replace(/\D/g, '');
@@ -1201,14 +1234,20 @@
     function revisarRegistro(ev) {
       ev.preventDefault();
       const tipo = document.querySelector('input[name="reg-tipo"]:checked').value;
-      const d = { tipo: tipo, planta: $('reg-planta').value, contratista: $('reg-contratista').value, nombre: $('reg-nombre').value.trim(), cedula: $('reg-cedula').value.replace(/\D/g, ''),
+      const plantaNueva = $('reg-planta').value === '__nueva';
+      const d = { tipo: tipo, planta: plantaNueva ? $('reg-planta-nueva').value.trim().replace(/\s+/g, ' ').toUpperCase() : $('reg-planta').value, plantaNueva: plantaNueva, contratista: $('reg-contratista').value, nombre: $('reg-nombre').value.trim(), cedula: $('reg-cedula').value.replace(/\D/g, ''),
         estado: $('reg-estado').value, fechaIngreso: $('reg-fecha').value, certificado: $('reg-cert-box').style.display === 'none' ? '' : $('reg-cert').value,
         grupo: $('reg-grupo').value, clase1: $('reg-clase1').value, empresa: tipo === 'HOLCIM' ? $('reg-empresa').value.trim() : '' };
       const ya = todosBrigadistas().find(p => String(p.c).replace(/\D/g, '') === d.cedula);
       if (ya) return avisar('La cédula ' + esc(d.cedula) + ' ya está registrada: <b>' + esc(ya.n) + '</b> (' + esc(ya.p) + ').', 'warning', 9000);
+      if (plantaNueva) {
+        if (d.planta.length < 2) return avisar('Escribe el nombre de la planta nueva.', 'warning');
+        const igual = (tipo === 'HOLCIM' ? catalogos.plantasHolcim : catalogos.plantasInhouse).find(p => norm(p) === norm(d.planta));
+        if (igual) { d.planta = igual; d.plantaNueva = false; } // ya existía (con otra escritura): se usa esa
+      }
       const fila = (k, v) => v ? `<tr><th class="text-muted fw-normal">${k}</th><td class="fw-semibold">${esc(v)}</td></tr>` : '';
       $('conf-titulo').textContent = 'Revisa los datos antes de guardar';
-      $('conf-cuerpo').innerHTML = '<table class="table table-sm mb-2">' + fila('Tipo', tipo === 'HOLCIM' ? 'Personal Holcim' : 'Contratista (Inhouse)') + fila('Planta', d.planta) +
+      $('conf-cuerpo').innerHTML = '<table class="table table-sm mb-2">' + fila('Tipo', tipo === 'HOLCIM' ? 'Personal propio' : 'Contratista (Inhouse)') + fila('Planta', d.planta + (d.plantaNueva ? ' (planta nueva: se crea al guardar)' : '')) +
         fila('Empresa', tipo === 'INHOUSE' ? d.contratista.toUpperCase() : d.empresa) + fila('Nombre', d.nombre.toUpperCase()) + fila('Cédula', d.cedula) +
         fila('Grupo sanguíneo', d.grupo) + fila('Brigadista Clase I', d.clase1) +
         fila('Estado', tipo === 'HOLCIM' ? d.estado : '') + fila('Fecha de ingreso', d.fechaIngreso ? d.fechaIngreso.split('-').reverse().join('/') : '') + fila('Certificado 0256', d.certificado) + '</table>';
@@ -1450,10 +1489,12 @@
      * Cobertura por planta: el total de cada planta es el encabezado de su tarjeta (no una fila más);
      * el detalle por empresa queda plegado. Metas y faltantes en personas enteras (no 0,6 personas).
      */
-    /** Brigadistas activos en las listas de la app, por sede (Holcim + contratistas). */
+    /** Brigadistas activos en las listas de la app, por sede (propios + contratistas). */
     function brigadistasEnListas(sede) {
-      const h = P.filter(p => p.activo && (!sede || p.sede === sede) && enSede(p)).length, c = I.filter(p => p.activo && (!sede || p.sede === sede) && enSede(p)).length;
-      return { h: h, c: c, t: h + c };
+      const propios = P.filter(p => p.activo && (!sede || p.sede === sede) && enSede(p)), c = I.filter(p => p.activo && (!sede || p.sede === sede) && enSede(p)).length;
+      const por = {}; propios.forEach(p => { const g = grupoDe(p); por[g] = (por[g] || 0) + 1; });
+      const grupos = Object.keys(por).length > 1 ? ['HOLCIM', 'GEOCYCLE', 'TRANSCEM', 'FUNDACION'].filter(g => por[g]).map(g => por[g] + ' ' + NOMBRE_GRUPO[g]).join(', ') : '';
+      return { h: propios.length, c: c, t: propios.length + c, grupos: grupos };
     }
     /** Cada tarjeta es una planta del Indicador; todo con números y % explícitos. */
     function pintarCobertura(pre) {
@@ -1465,7 +1506,7 @@
       const kpi = (eti, num, sub, color, detalle) => `<div class="col-6 col-lg-3"><div class="kpi"><div class="eti">${eti}</div><div class="num" style="color:${color || 'inherit'}">${num}</div>${detalle ? '<div class="small fw-semibold">' + detalle + '</div>' : ''}<div class="small text-muted">${sub}</div></div></div>`;
       const propios = plantas.reduce((n, x) => n + x.perPropio, 0), inhouse = plantas.reduce((n, x) => n + x.perInhouse, 0);
       $(pre + '-kpis').innerHTML = kpi('Personal', per, 'trabajadores según la pestaña Indicador', '', `${propios} propios + ${inhouse} inhouse`) +
-        kpi('Brigadistas', L.t, `activos en las listas de la app · ${per ? Math.round(L.t / per * 1000) / 10 : 0} % del personal`, '', `${L.h} Holcim + ${L.c} inhouse`) +
+        kpi('Brigadistas', L.t, `activos en las listas de la app · ${per ? Math.round(L.t / per * 1000) / 10 : 0} % del personal${L.grupos ? ' · ' + L.grupos : ''}`, '', `${L.h} propios + ${L.c} inhouse`) +
         kpi('Meta (20 %)', meta, meta > bri ? `faltan ${meta - bri} brigadistas · vas en ${meta ? Math.round(bri / meta * 100) : 0} % de la meta` : `meta cumplida (${meta ? Math.round(bri / meta * 100) : 0} %)`, meta > bri ? 'var(--s-mal)' : 'var(--s-ok)') +
         kpi('Plantas que cumplen', cumplen + ' de ' + plantas.length, `${plantas.length ? Math.round(cumplen / plantas.length * 100) : 0} % de las plantas${plantas.length - cumplen ? ' · ' + (plantas.length - cumplen) + ' por debajo de la meta' : ''}`, cumplen === plantas.length ? 'var(--s-ok)' : '#e8590c');
       const sin = (D.indicadorSinFila || []).filter(x => sedeOk(x.sede));
@@ -2134,7 +2175,7 @@
       matriz: {
         para: 'Cuánto lleva cada planta, módulo por módulo.',
         puede: [
-          'Cada casilla es el % de brigadistas Holcim activos que asistieron, entre los que ya debían tomar ese módulo (la sesión les aplica y su fecha ya pasó).',
+          'Cada casilla es el % de brigadistas propios activos (Holcim, Geocycle, Transcem, Fundación) que asistieron, entre los que ya debían tomar ese módulo (la sesión les aplica y su fecha ya pasó).',
           'Haz clic en un % para abrir esa lista de asistencia.',
           'Buscar una planta, ver solo las que tienen módulos sin completar y <b>Descargar</b> la tabla.',
         ],
@@ -2153,8 +2194,8 @@
         ],
         ojo: [
           'La <b>fecha de ingreso</b> importa: las sesiones anteriores a esa fecha no le aplican y no le cuentan en contra.',
-          'Si alguien sale de la brigada no se borra: ponle Estado <b>Desvinculado</b> y su fecha de retiro.',
-          '<b>Brigadista Clase I</b>: 46 horas, 21 horas o No aplica.',
+          'Si alguien sale de la brigada no se borra: ponle Estado <b>Desvinculado</b> y su <b>fecha de retiro</b> (obligatoria); las observaciones del retiro son opcionales.',
+          '<b>Brigadista Clase I</b>: 41 horas, 21 horas o Pendiente.',
         ],
       },
       cronograma: {
@@ -2175,7 +2216,7 @@
       cobertura: {
         para: 'Si cada planta tiene los brigadistas que pide la meta: el 20 % de su personal.',
         puede: [
-          'Arriba, los totales: personal, brigadistas (Holcim + contratistas), la meta y cuántas plantas cumplen.',
+          'Arriba, los totales: personal, brigadistas (propios + contratistas), la meta y cuántas plantas cumplen. Propios = Holcim, Geocycle, Transcem y Fundación.',
           'Cada tarjeta es una planta: ábrela para ver cada empresa, cuántos brigadistas tiene y cuántos le faltan.',
           'Ver solo las plantas a las que les faltan brigadistas, y ordenar por las más críticas o por nombre.',
         ],
@@ -2253,7 +2294,7 @@
       ['gha', 'fa-calendar-plus', 'Agregar una sesión que no está', 'cronograma', ['Menú → <b>Cronograma</b> → <b>Programar / Agregar sesión</b>.', 'Elige el módulo y la planta.', 'Pon la fecha (Ambipar pone la Fecha Ambipar), el estado si hace falta, y guarda.']],
       ['gh', 'fa-user-plus', 'Registrar un brigadista nuevo', 'brigadistas', ['Menú → <b>Brigadistas</b> → <b>Registrar brigadista</b>.', 'Elige si es personal Holcim o contratista, la planta, y escribe nombre y cédula.', 'Llena lo que sepas (grupo sanguíneo, fecha de ingreso, Clase I…) y pulsa <b>Revisar y guardar</b>.']],
       ['gh', 'fa-pen-to-square', 'Completar los datos que faltan', 'brigadistas', ['Menú → <b>Brigadistas</b>.', 'Pulsa el enlace «<b>… con datos por completar</b>» (arriba a la derecha).', 'En cada fila, <b>+ Completar</b>; o <b>Editar en la tabla</b> para hacer muchos de una vez y luego <b>Revisar y guardar</b>.']],
-      ['gh', 'fa-user-minus', 'Retirar a un brigadista', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre.', 'En la ficha, <b>Editar</b> (o <b>Completar datos</b>).', 'Estado <b>Desvinculado</b> y su fecha de retiro; guarda. No se borra: queda su historial.']],
+      ['gh', 'fa-user-minus', 'Retirar a un brigadista', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre.', 'En la ficha, <b>Editar</b> (o <b>Completar datos</b>).', 'Estado <b>Desvinculado</b>, su <b>fecha de retiro</b> (obligatoria) y, si quieres, observaciones; guarda. No se borra: queda su historial.']],
       ['g', 'fa-user-gear', 'Darle acceso a alguien', 'configuracion', ['Menú → <b>Configuración</b> → <b>Usuarios</b>.', 'Llena usuario, nombre, correo, tipo (Holcim o Ambipar) y sus sedes.', 'Pulsa <b>Agregar</b>. Si dejas marcado «Enviar el acceso por correo ahora», le llega de una vez; si no, se lo envías después.']],
       ['gha', 'fa-key', 'Cambiar tu clave', 'configuracion', ['Menú → <b class="no-proveedor">Configuración</b><b class="solo-proveedor">Mi clave</b>.', 'Escribe tu clave actual y la nueva dos veces.', 'Pulsa <b>Cambiar</b>. Si entras con tu clave de GSTOR, cámbiala en GSTOR.']],
     ];

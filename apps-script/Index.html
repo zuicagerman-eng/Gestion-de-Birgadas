@@ -341,7 +341,7 @@
           <!-- MATRIZ -->
           <section class="vista" id="v-matriz" aria-labelledby="t-matriz">
             <h1 class="titulo-vista" id="t-matriz">Avance por planta</h1>
-            <p class="sub-vista">Asistencia de los brigadistas Holcim activos de cada planta, módulo por módulo. El % es cuántos asistieron entre los que ya debían tomarlo (la sesión aplica y su fecha pasó). Haz clic en un % para abrir esa lista de asistencia. El detalle de cada persona está en su ficha (Brigadistas).</p>
+            <p class="sub-vista">Asistencia de los brigadistas propios activos (Holcim, Geocycle, Transcem, Fundación) de cada planta, módulo por módulo. El % es cuántos asistieron entre los que ya debían tomarlo (la sesión aplica y su fecha pasó). Haz clic en un % para abrir esa lista de asistencia. El detalle de cada persona está en su ficha (Brigadistas).</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros">
                 <input type="search" class="form-control form-control-sm" id="mat-buscar" placeholder="Buscar planta o sede…" aria-label="Buscar planta">
@@ -370,10 +370,13 @@
             <div class="tarjeta p-3 mb-2">
               <div class="filtros mb-2">
                 <input type="search" id="brig-buscar" class="form-control form-control-sm flex-grow-1" placeholder="Buscar nombre, cédula, planta o empresa…" aria-label="Buscar brigadista" style="max-width: 360px;">
-                <span role="group" aria-label="Tipo" id="brig-tipo" class="d-flex segmento">
-                  <button class="chip" data-tipo="" aria-pressed="true">Todos</button>
-                  <button class="chip" data-tipo="HOLCIM" aria-pressed="false">Holcim</button>
-                  <button class="chip" data-tipo="INHOUSE" aria-pressed="false">Contratistas</button>
+                <span role="group" aria-label="Empresa o tipo" id="brig-tipo" class="d-flex flex-wrap gap-1">
+                  <button class="chip" data-tipo="" aria-pressed="true">Todos<span class="n" data-n=""></span></button>
+                  <button class="chip" data-tipo="HOLCIM" aria-pressed="false" title="Personal propio de Holcim">Holcim<span class="n" data-n="HOLCIM"></span></button>
+                  <button class="chip" data-tipo="GEOCYCLE" aria-pressed="false">Geocycle<span class="n" data-n="GEOCYCLE"></span></button>
+                  <button class="chip" data-tipo="TRANSCEM" aria-pressed="false">Transcem<span class="n" data-n="TRANSCEM"></span></button>
+                  <button class="chip" data-tipo="FUNDACION" aria-pressed="false">Fundación<span class="n" data-n="FUNDACION"></span></button>
+                  <button class="chip" data-tipo="INHOUSE" aria-pressed="false">Contratistas<span class="n" data-n="INHOUSE"></span></button>
                 </span>
               </div>
               <div class="filtros">
@@ -400,7 +403,7 @@
               <button class="btn btn-outline-secondary btn-sm" data-accion="brig-descartar">Descartar</button>
               <button class="btn btn-success btn-sm" data-accion="brig-guardar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>
             </div>
-            <datalist id="dl-empresas"></datalist>
+            <datalist id="dl-empresas"></datalist><datalist id="dl-propias"></datalist>
           </section>
 
           <!-- CRONOGRAMA -->
@@ -787,16 +790,17 @@
       <div class="modal-header"><h2 class="modal-title h5" id="reg-titulo"><i class="fa-solid fa-user-plus text-success me-2"></i>Registrar brigadista</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body"><div class="row g-3">
         <div class="col-12"><div class="btn-group w-100" role="group" aria-label="Tipo de brigadista">
-          <input type="radio" class="btn-check" name="reg-tipo" id="reg-tipo-h" value="HOLCIM" checked><label class="btn btn-outline-primary" for="reg-tipo-h">Personal Holcim</label>
+          <input type="radio" class="btn-check" name="reg-tipo" id="reg-tipo-h" value="HOLCIM" checked><label class="btn btn-outline-primary" for="reg-tipo-h">Personal propio <span class="small d-none d-sm-inline">(Holcim, Geocycle, Transcem, Fundación)</span></label>
           <input type="radio" class="btn-check" name="reg-tipo" id="reg-tipo-i" value="INHOUSE"><label class="btn btn-outline-primary" for="reg-tipo-i">Contratista (Inhouse)</label>
         </div></div>
-        <div class="col-md-6"><label class="form-label" for="reg-planta">Planta *</label><select id="reg-planta" class="form-select" required></select></div>
+        <div class="col-md-6"><label class="form-label" for="reg-planta">Planta *</label><select id="reg-planta" class="form-select" required></select>
+          <div id="reg-planta-nueva-box" class="mt-2" style="display:none;"><label class="form-label small mb-0" for="reg-planta-nueva">Nombre de la planta nueva *</label><input id="reg-planta-nueva" class="form-control" maxlength="40" placeholder="Como las demás: LÍNEA - NOMBRE (p. ej. COR - FUNDACIÓN)"><div class="form-text">Se crea al guardar. Revisa bien el nombre: así aparecerá en toda la app.</div></div></div>
         <div class="col-md-6 solo-inhouse"><label class="form-label" for="reg-contratista">Empresa contratista *</label><input id="reg-contratista" class="form-control" list="reg-contratistas"><datalist id="reg-contratistas"></datalist></div>
         <div class="col-md-6"><label class="form-label" for="reg-nombre">Nombre y apellido *</label><input id="reg-nombre" class="form-control" required></div>
         <div class="col-md-6"><label class="form-label" for="reg-cedula">Cédula *</label><input id="reg-cedula" class="form-control" inputmode="numeric" pattern="[0-9.]{5,15}" title="Solo números" required><div class="form-text" id="reg-cedula-aviso" role="status"></div></div>
         <div class="col-md-6 solo-holcim"><label class="form-label" for="reg-estado">Estado</label><select id="reg-estado" class="form-select"></select></div>
         <div class="col-md-6"><label class="form-label" for="reg-fecha">Fecha de ingreso a la brigada</label><input type="date" id="reg-fecha" class="form-control"></div>
-        <div class="col-md-6 solo-holcim"><label class="form-label" for="reg-empresa">Empresa</label><input id="reg-empresa" class="form-control" list="dl-empresas" placeholder="HOLCIM"></div>
+        <div class="col-md-6 solo-holcim"><label class="form-label" for="reg-empresa">Empresa</label><input id="reg-empresa" class="form-control" list="dl-propias" placeholder="HOLCIM, GEOCYCLE, TRANSCEM o FUNDACIÓN"></div>
         <div class="col-md-3"><label class="form-label" for="reg-grupo">Grupo sanguíneo</label><select id="reg-grupo" class="form-select"></select></div>
         <div class="col-md-3"><label class="form-label" for="reg-clase1">Brigadista Clase I</label><select id="reg-clase1" class="form-select"></select></div>
         <div class="col-md-6" id="reg-cert-box"><label class="form-label" for="reg-cert">Certificado 0256</label><select id="reg-cert" class="form-select"></select></div>
