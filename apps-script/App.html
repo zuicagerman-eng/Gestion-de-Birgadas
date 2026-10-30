@@ -2230,10 +2230,11 @@
     function pintarGaleria() { if ($('evid-galeria')) $('evid-galeria').innerHTML = galeriaEvid(); }
     async function cargarEvidencias(forzar) {
       const k = E.sede + '|' + asis.key;
-      if (!forzar && evid.k === k && evid.lista) return;
-      evid.k = k; evid.lista = null; pintarGaleria();
+      if (!forzar && evid.k === k && (evid.lista || evid.cargando)) return; // la lista se repinta a cada clic: se pide una vez
+      evid.k = k; evid.lista = null; evid.cargando = true; pintarGaleria();
       try { const l = await api('getEvidencias', E.token, E.sede, asis.key); if (evid.k === k) { evid.lista = l || []; pintarGaleria(); } }
       catch (e) { if (evid.k === k) { evid.lista = []; pintarGaleria(); } }
+      finally { if (evid.k === k) evid.cargando = false; }
     }
     /** Foto → JPEG de máximo 1600 px (pesa poco y se ve bien) y su miniatura de 240 px. */
     function reducirFoto(archivo) {

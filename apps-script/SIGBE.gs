@@ -914,7 +914,10 @@ function actualizarBrigadistasLote(token, lista) {
         if (campo === 'empresa' && H.inhouse) nuevo = nuevo.toUpperCase();
         if (campo === 'planta' || campo === 'otrasPlantas') { // solo plantas que ya están en la lista (o una nueva, a propósito)
           const cP = H.t.col('PLANTA');
-          const conocidas = H.plantas || (H.plantas = sigbeUnicos_(H.t.filas.map(f => String(f.valores[cP - 1] || '').trim()).filter(x => !/^TOTAL/i.test(x))));
+          const deTabla = (t, c) => t.filas.map(f => String(f.valores[c - 1] || '').trim()).filter(x => x && !/^TOTAL/i.test(x));
+          // Un contratista también puede ir a una planta que solo está en la lista Holcim (como en el registro)
+          const deHolcim = () => { try { const t = sigbeTabla_(sigbeHoja_(F.asistencia, SIGBE_HOJA_HOLCIM), ['PLANTA', 'CEDULA']); return deTabla(t, t.col('PLANTA')); } catch (e) { return []; } };
+          const conocidas = H.plantas || (H.plantas = sigbeUnicos_(deTabla(H.t, cP).concat(H.inhouse ? deHolcim() : [])));
           const canon = x => conocidas.find(k => sigbeNorm_(k) === sigbeNorm_(x)) || '';
           if (campo === 'planta') {
             if (!nuevo) { rechazos.push('Planta: no puede quedar vacía'); return; }
@@ -973,8 +976,11 @@ function actualizarBrigadistasLote(token, lista) {
     Object.keys(celdas).forEach(k => { if (celdas[k].length) sigbeEscribirCeldas_(hojas[k].sh, celdas[k]); });
     // Traslados: después de escribir todo (mover filas cambia los números de fila)
     traslados.forEach(x => { try { sigbeMoverAPlanta_(x.H, x.cedula, x.nombre, x.planta); } catch (e) { console.log('Traslado: ' + e.message); } });
-    // Un traslado en la lista Holcim cambia qué sesiones le aplican: el libro nuevo se reorganiza
-    if (bitacora.length) sigbeTrasGuardar_(F, usuario, bitacora, traslados.some(x => !x.H.inhouse));
+    // Un traslado en la lista Holcim cambia qué sesiones le aplican: el libro nuevo se reorganiza (después del corte,
+    // la huella de la reorganización no ve un traslado porque la lista no cambia de tamaño: se borra para que sí corra)
+    const trasladoHolcim = traslados.some(x => !x.H.inhouse);
+    if (trasladoHolcim) { try { props_().deleteProperty('LIBRO_NUEVO_HUELLA_CRONO_CORTE'); } catch (e) { /* corre con la tarea de cada hora */ } }
+    if (bitacora.length) sigbeTrasGuardar_(F, usuario, bitacora, trasladoHolcim);
     const conRechazos = resultados.filter(r => r.rechazos && r.rechazos.length);
     return { exito: true, guardados: total, resultados: resultados,
       mensaje: total + ' dato(s) guardado(s)' + (conRechazos.length ? '; ' + conRechazos.length + ' persona(s) con datos que no se aplicaron.' : '.') };
