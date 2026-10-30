@@ -142,6 +142,9 @@
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
       $('reg-planta').onchange = ajustarPlantaNueva;
+      $('restr-buscar').oninput = conEspera(pintarRestricciones); $('restr-ver').oninput = pintarRestricciones;
+      $('form-restr').onsubmit = guardarRestriccionApp;
+      $('restr-persona').oninput = mostrarPersonaRestr;
       $('brig-buscar').oninput = conEspera(pintarBrigadistas);
       ['brig-estado', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
       escucharMultiSel('brig-planta', brig.plantas, 'Todas las plantas', 'plantas', pintarBrigadistas);
@@ -264,6 +267,7 @@
       P = D.holcim.map((p, j) => { const o = Object.assign({}, p, { j: j, tipo: 'HOLCIM', sede: (D.plantas[p.p] || {}).sede || p.p, activo: !/desvinculado/i.test(p.e), emp: 'Holcim' }); o.cump = cumplimiento(o); return o; });
       I = D.inhouse.map((p, j) => Object.assign({}, p, { j: j, tipo: 'INHOUSE', activo: !/desvinculado/i.test(p.e), emp: p.k || 'Contratista', cump: { c: 0, t: 0, pct: null } }));
       P.concat(I).forEach(ponerOtrasPlantas);
+      ponerRestricciones();
       asis.cambios = {}; brig.cambios = {};
       P.forEach(p => { const id = quien(p); if (id in idAsis) asis.cambios[p.j] = idAsis[id]; if (id in idBrig) brig.cambios['HOLCIM:' + p.j] = idBrig[id]; });
       I.forEach(p => { const id = quien(p); if (id in idBrig) brig.cambios['INHOUSE:' + p.j] = idBrig[id]; });
@@ -320,7 +324,7 @@
     function cargarVista() {
       if (!D && ['setup', 'ayuda', 'configuracion', 'estado', 'ingresos'].indexOf(E.vista) === -1) return;
       ({ inicio: pintarInicio, asistencia: pintarAsistencia, matriz: prepararMatriz, brigadistas: prepararBrigadistas, cronograma: prepararCronograma,
-         cobertura: pintarCobertura, revision: prepararRevision, cambios: cargarCambios, temarios: cargarTemarios, hojas: cargarHojas,
+         cobertura: pintarCobertura, revision: prepararRevision, cambios: cargarCambios, restricciones: pintarRestricciones, temarios: cargarTemarios, hojas: cargarHojas,
          estado: cargarEstado, configuracion: cargarConfiguracion, ingresos: cargarIngresos, ingreso: () => {}, setup: () => {}, ayuda: pintarAyuda })[E.vista]();
     }
     /** Selector de sedes (varias a la vez) arriba. */
@@ -400,6 +404,9 @@
         'asis-filtro': () => { asis.filtro = d.f; pintarAsistencia(); },
         'asis-alternar': () => alternar(+d.j),
         'asis-todos': () => marcarTodos(d.v === '1'),
+        'restr-nueva': () => abrirRestriccion(''),
+        'restr-editar': () => abrirRestriccion(d.c),
+        'restr-levantar': levantarRestriccion,
         'asis-planta': () => { const k = asis.plantas.indexOf(d.pl); if (k === -1) asis.plantas.push(d.pl); else asis.plantas.splice(k, 1); pintarLista(); },
         'asis-descartar': () => { asis.cambios = {}; pintarAsistencia(); },
         'asis-guardar': confirmarAsistencia,
@@ -673,7 +680,7 @@
           const v = valorActual(p), cambiada = p.j in asis.cambios;
           const habil = puede && p.activo && (x.aplica || v);
           return `<div class="fila-persona d-flex flex-wrap align-items-center gap-2 ${cambiada ? 'cambiada' : ''} ${p.activo && x.aplica ? '' : 'inactiva'}" data-busca="${esc(norm(p.n + ' ' + p.c))}">
-            <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.sede !== E.sede ? ' <span class="badge bg-info-subtle text-info-emphasis" title="Su planta principal es ' + esc(p.p) + '; también va a las sesiones de esta sede">de otra planta</span>' : ''}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? '' : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
+            <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.sede !== E.sede ? ' <span class="badge bg-info-subtle text-info-emphasis" title="Su planta principal es ' + esc(p.p) + '; también va a las sesiones de esta sede">de otra planta</span>' : ''}${avisoRestr(p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? '' : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
             <button class="btn ${v ? 'btn-success' : 'btn-outline-secondary'} btn-asistio" data-accion="asis-alternar" data-j="${p.j}" aria-pressed="${v}" ${habil ? '' : 'disabled'}>${v ? '<i class="fa-solid fa-check me-1"></i>Asistió' : '<i class="fa-regular fa-square me-1"></i>No asistió'}</button></div>`;
         }).join('') + `<p class="text-muted" id="asis-vacio" style="${conInfo.length ? 'display:none' : ''}">No hay brigadistas para mostrar.</p></div>` +
         (n ? `<div class="barra-guardar p-3 d-flex flex-wrap align-items-center gap-2 rounded-top" role="region" aria-label="Cambios sin guardar">
@@ -1050,7 +1057,8 @@
       const f = ficha, x = datosDe(f), falta = faltantes(f);
       $('ficha-titulo').textContent = f.n;
       const dato = (k, v) => `<div class="col-sm-6 col-md-4"><div class="small text-muted">${k}</div><div class="fw-semibold">${v || '<span class="badge bg-warning-subtle text-warning-emphasis">Por completar</span>'}</div></div>`;
-      let html = (falta.length && !editando ? `<div class="alert alert-warning small py-2"><i class="fa-solid fa-triangle-exclamation me-1"></i>Faltan: <b>${falta.map(k => CAMPOS_B[k]).join(', ')}</b>. Pulsa <b>Completar datos</b>.</div>` : '') +
+      let html = (f.restr && f.restr.vigente ? `<div class="alert alert-danger small py-2 mb-2"><i class="fa-solid fa-notes-medical me-1"></i><b>Restricción médica:</b> ${esc(f.restr.r)}${f.restr.h ? ' (hasta el ' + esc(fechaCorta(f.restr.h)) + ')' : ''}</div>` : '') +
+        (falta.length && !editando ? `<div class="alert alert-warning small py-2"><i class="fa-solid fa-triangle-exclamation me-1"></i>Faltan: <b>${falta.map(k => CAMPOS_B[k]).join(', ')}</b>. Pulsa <b>Completar datos</b>.</div>` : '') +
         `<div class="row g-3 mb-3">${dato('Planta', esc(f.p) + (f.otras && f.otras.length ? '<div class="small text-muted fw-normal">También en: ' + esc(f.otras.join(', ')) + '</div>' : ''))}${dato('Cédula', falta.indexOf('cedula') !== -1 ? '' : esc(x.cedula))}${dato('Grupo sanguíneo', esc(x.grupo))}
         ${dato('Fecha de ingreso', esc(x.fechaIngreso))}${dato('Empresa', esc(x.empresa))}${dato('Brigadista Clase I', esc(x.clase1))}
         ${dato('Estado', x.estado || f.tipo === 'INHOUSE' ? `<span class="badge ${f.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>` : '')}
@@ -2181,6 +2189,90 @@
       catch (e) { error(e); }
     }
 
+    // ══════════ RESTRICCIONES MÉDICAS ══════════
+    // Aparte de los datos del brigadista (dato de salud). Las registra Ambipar (o un gestor); todos las ven.
+    function fechaCorta(iso) { return /^\d{4}-\d{2}-\d{2}$/.test(iso || '') ? iso.split('-').reverse().join('/') : iso || ''; }
+    function puedeRestr() { return !!E.perfil && (E.perfil.rol === 'gestor' || E.perfil.rol === 'proveedor'); }
+    function ponerRestricciones() {
+      D.restr = D.restr || {};
+      P.concat(I).forEach(p => {
+        const r = D.restr[String(p.c).replace(/\D/g, '')];
+        p.restr = r ? Object.assign({ vigente: !r.h || r.h >= D.hoy }, r) : null;
+      });
+    }
+    function avisoRestr(p) {
+      if (!p.restr || !p.restr.vigente) return '';
+      return `<div class="text-danger mt-1"><i class="fa-solid fa-notes-medical me-1" aria-hidden="true"></i><b>Restricción médica:</b> ${esc(p.restr.r)}${p.restr.h ? ' <span class="text-muted">(hasta el ' + esc(fechaCorta(p.restr.h)) + ')</span>' : ''}</div>`;
+    }
+    function pintarRestricciones() {
+      if (!D) return;
+      $('restr-nueva-btn').style.display = puedeRestr() ? '' : 'none';
+      const q = norm($('restr-buscar').value), ver = $('restr-ver').value;
+      const lista = todosBrigadistas().filter(p => p.restr && enSedeAlguna(p) && (ver === 'todas' || (ver === 'vencidas') === !p.restr.vigente) &&
+        (!q || norm([p.n, p.c, p.p, p.restr.r].join(' ')).includes(q))).sort((a, b) => a.n.localeCompare(b.n, 'es'));
+      $('restr-conteo').textContent = lista.length + ' brigadista(s)';
+      $('restr-lista').innerHTML = lista.length ? '<div class="tarjeta">' + lista.map(p => `<div class="d-flex flex-wrap align-items-start gap-3 p-3 border-bottom ${p.restr.vigente ? '' : 'opacity-75'}">
+          <i class="fa-solid fa-notes-medical fa-lg mt-1 ${p.restr.vigente ? 'text-danger' : 'text-secondary'}" aria-hidden="true"></i>
+          <div class="flex-grow-1" style="min-width:220px"><div class="fw-semibold">${esc(p.n)} <span class="small text-muted fw-normal">· C.C. ${esc(p.c)} · ${esc(p.p)}</span></div>
+            <div>${esc(p.restr.r)}</div>
+            <div class="small text-muted">${p.restr.h ? (p.restr.vigente ? 'Vigente hasta el ' : 'Venció el ') + esc(fechaCorta(p.restr.h)) : 'Sin fecha de fin'} · registró ${esc(p.restr.u || '—')}${p.restr.f ? ' el ' + esc(fechaCorta(p.restr.f)) : ''}</div></div>
+          ${puedeRestr() ? `<button class="btn btn-sm btn-outline-secondary" data-accion="restr-editar" data-c="${esc(String(p.c))}"><i class="fa-solid fa-pen me-1"></i>Editar</button>` : ''}
+        </div>`).join('') + '</div>'
+        : `<div class="tarjeta p-4 text-center text-muted"><i class="fa-solid fa-notes-medical fa-2x mb-2 d-block" aria-hidden="true"></i>${ver === 'vencidas' ? 'No hay restricciones vencidas.' : 'No hay restricciones médicas registradas' + (E.sedes.length ? ' en estas sedes' : '') + '.'}${puedeRestr() && ver !== 'vencidas' ? '<div class="mt-2"><button class="btn btn-sm btn-danger" data-accion="restr-nueva"><i class="fa-solid fa-plus me-1"></i>Registrar restricción</button></div>' : ''}</div>`;
+    }
+    let restrCedula = '';
+    function abrirRestriccion(cedula) {
+      if (!puedeRestr()) return avisar('Las restricciones médicas las registra Ambipar.', 'info');
+      restrCedula = cedula || '';
+      const p = cedula ? todosBrigadistas().find(x => String(x.c) === String(cedula)) : null;
+      $('restr-personas').innerHTML = todosBrigadistas().filter(x => x.activo && enSedeAlguna(x)).sort((a, b) => a.n.localeCompare(b.n, 'es'))
+        .map(x => `<option value="${esc(x.n + ' · C.C. ' + x.c + ' · ' + x.p)}">`).join('');
+      $('restr-persona').value = p ? p.n + ' · C.C. ' + p.c + ' · ' + p.p : '';
+      $('restr-persona').disabled = !!p;
+      $('restr-texto').value = p && p.restr ? p.restr.r : '';
+      $('restr-hasta').value = p && p.restr ? p.restr.h || '' : '';
+      $('restr-levantar').style.display = p && p.restr ? '' : 'none';
+      mostrarPersonaRestr();
+      modal('modal-restr').show();
+      setTimeout(() => (p ? $('restr-texto') : $('restr-persona')).focus(), 300);
+    }
+    /** La persona elegida (por la cédula que trae la opción, o por nombre o cédula escritos). */
+    function personaRestr() {
+      if (restrCedula) return todosBrigadistas().find(x => String(x.c) === String(restrCedula)) || null;
+      const v = $('restr-persona').value, ced = (v.match(/C\.C\. (\d+)/) || [])[1] || (/^\d{5,12}$/.test(v.trim()) ? v.trim() : '');
+      if (ced) return todosBrigadistas().find(x => String(x.c).replace(/\D/g, '') === ced) || null;
+      const n = norm(v); return n ? todosBrigadistas().find(x => norm(x.n) === n) || null : null;
+    }
+    function mostrarPersonaRestr() {
+      const p = personaRestr();
+      $('restr-persona-txt').innerHTML = p ? (p.restr && !restrCedula ? `<span class="text-danger">Ya tiene una restricción: ${esc(p.restr.r)}. Al guardar se reemplaza.</span>` : '')
+        : ($('restr-persona').value ? '<span class="text-warning-emphasis">Elige a la persona de la lista.</span>' : '');
+    }
+    async function guardarRestriccionApp(ev) {
+      if (ev) ev.preventDefault();
+      const p = personaRestr();
+      if (!p) return avisar('Elige al brigadista de la lista.', 'warning');
+      await enviarRestriccion(p, $('restr-texto').value.trim(), $('restr-hasta').value);
+    }
+    async function levantarRestriccion() {
+      const p = personaRestr();
+      if (!p || !confirm('¿Levantar la restricción médica de ' + p.n + '? Quedará en el historial.')) return;
+      await enviarRestriccion(p, '', '');
+    }
+    async function enviarRestriccion(p, texto, hasta) {
+      ocupado(true);
+      try {
+        const r = await api('guardarRestriccion', E.token, { cedula: String(p.c), restriccion: texto, hasta: hasta });
+        ocupado(false);
+        if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 8000);
+        if (!r.exito) return;
+        modal('modal-restr').hide();
+        D.restr = r.restr || D.restr; ponerRestricciones();
+        cargarVista();
+      } catch (e) { error(e); }
+    }
+
     // ══════════ AYUDA (según el tipo de usuario) ══════════
     // Cada texto es 'texto' (para todos) o ['gha', 'texto']: g = gestor, h = Holcim, a = Ambipar (proveedor).
     const AYUDA = {
@@ -2232,7 +2324,9 @@
           'Clic en el <b>nombre</b>: abre la ficha con sus datos y su asistencia a cada sesión (ahí también marcas asistencia).',
           '<b>+ Completar</b>: llena un dato que falta.',
           '<b>Editar en la tabla</b>: corrige a muchos de una vez y luego <b>Revisar y guardar</b>.',
-          '<b>Registrar brigadista</b>: agrega a alguien nuevo.',
+          '<b>Registrar brigadista</b>: agrega a alguien nuevo (si su planta no está, «+ Nueva planta…»).',
+          'En la ficha, <b>Editar</b>: cambiar su <b>planta</b> (traslado: conserva su asistencia) y marcar <b>otras plantas</b> a cuyas sesiones también va (para la meta cuenta solo en su planta).',
+          'Los chips <b>Holcim, Geocycle, Transcem, Fundación</b> y <b>Contratistas</b> separan a cada grupo según su empresa.',
           '<b>Traer faltantes</b>: busca brigadistas que están en otras pestañas del Excel pero no en las listas, y los trae.',
           '<b>Descargar</b> la lista tal como la estás viendo.',
         ],
@@ -2283,6 +2377,21 @@
           'Buscar por persona, cédula o módulo, filtrar por hoja y por fechas, y <b>Descargar</b>.',
         ],
       },
+      restricciones: {
+        para: 'Lo que un brigadista no puede hacer en las prácticas por su salud. Es un dato de salud: úsalo solo para cuidar a la persona.',
+        pasos: [
+          ['ga', 'Pulsa <b>Registrar restricción</b>.'],
+          ['ga', 'Escribe el nombre o la cédula y elige a la persona de la lista.'],
+          ['ga', 'Escribe qué no puede hacer y, si es temporal, hasta cuándo. Pulsa <b>Guardar</b>.'],
+        ],
+        puede: [
+          'Ver quiénes tienen restricción, buscar y ver también las vencidas.',
+          ['ga', '<b>Editar</b> una restricción, o <b>levantarla</b> cuando ya no aplique.'],
+          'En la lista de asistencia la restricción sale en rojo debajo del nombre, y en la ficha del brigadista arriba.',
+        ],
+        otro: [['h', 'Las restricciones médicas las registra Ambipar.']],
+        ojo: ['Se guardan aparte, en la pestaña «Restricciones médicas SIGBE» del libro (no en la lista de brigadistas). El historial de cambios solo dice que se registró, actualizó o levantó, sin el detalle.'],
+      },
       temarios: {
         para: 'El contenido de cada capacitación: los temas de cada módulo.',
         puede: ['Elige el temario y ábrelo por partes; también puedes buscar una palabra.'],
@@ -2318,7 +2427,7 @@
     const ROLES = {
       gestor: { nombre: 'Gestor', ico: 'fa-user-shield', txt: 'Ves y haces todo: asistencia, cronograma y brigadistas, y además administras los usuarios y la configuración de la app.' },
       holcim: { nombre: 'Holcim', ico: 'fa-user-tie', txt: 'Tomas asistencia, programas el cronograma y mantienes al día los datos de los brigadistas. Los usuarios y la configuración los maneja un gestor.' },
-      proveedor: { nombre: 'Ambipar', ico: 'fa-truck-medical', txt: 'Tomas asistencia de los módulos, pones la Fecha Ambipar en el cronograma, programas sesiones y creas módulos. Los datos de los brigadistas los maneja Holcim.' },
+      proveedor: { nombre: 'Ambipar', ico: 'fa-truck-medical', txt: 'Tomas asistencia de los módulos, pones la Fecha Ambipar en el cronograma, programas sesiones, creas módulos y registras las restricciones médicas. Los demás datos de los brigadistas los maneja Holcim.' },
     };
     // [qué, gestor, Holcim, Ambipar]
     const PERMISOS = [
@@ -2327,7 +2436,10 @@
       ['Poner la Fecha Ambipar, el estado y las observaciones de una sesión', 1, 1, 1],
       ['Programar o agregar sesiones y crear módulos', 1, 1, 1],
       ['Poner la Fecha Holcim y marcar que una sesión no aplica', 1, 1, 0],
+      ['Ver las restricciones médicas (y en la lista de asistencia)', 1, 1, 1],
+      ['Registrar, cambiar o levantar restricciones médicas', 1, 0, 1],
       ['Ver los brigadistas, registrarlos y completar o corregir sus datos', 1, 1, 0],
+      ['Trasladar a un brigadista de planta, ponerle otras plantas o crear una planta nueva', 1, 1, 0],
       ['Ver la cobertura, la revisión de datos, el historial, otras hojas y los ingresos', 1, 1, 0],
       ['Dar acceso a otras personas, asignar sedes y cambiar la configuración', 1, 0, 0],
     ];
@@ -2338,6 +2450,8 @@
       ['gha', 'fa-calendar-plus', 'Agregar una sesión que no está', 'cronograma', ['Menú → <b>Cronograma</b> → <b>Programar / Agregar sesión</b>.', 'Elige el módulo y la planta.', 'Pon la fecha (Ambipar pone la Fecha Ambipar), el estado si hace falta, y guarda.']],
       ['gh', 'fa-user-plus', 'Registrar un brigadista nuevo', 'brigadistas', ['Menú → <b>Brigadistas</b> → <b>Registrar brigadista</b>.', 'Elige si es personal Holcim o contratista, la planta, y escribe nombre y cédula.', 'Llena lo que sepas (grupo sanguíneo, fecha de ingreso, Clase I…) y pulsa <b>Revisar y guardar</b>.']],
       ['gh', 'fa-pen-to-square', 'Completar los datos que faltan', 'brigadistas', ['Menú → <b>Brigadistas</b>.', 'Pulsa el enlace «<b>… con datos por completar</b>» (arriba a la derecha).', 'En cada fila, <b>+ Completar</b>; o <b>Editar en la tabla</b> para hacer muchos de una vez y luego <b>Revisar y guardar</b>.']],
+      ['ga', 'fa-notes-medical', 'Registrar una restricción médica', 'restricciones', ['Menú → <b>Restricciones médicas</b> → <b>Registrar restricción</b>.', 'Escribe el nombre o la cédula y elige a la persona.', 'Escribe qué no puede hacer y, si es temporal, hasta cuándo. Pulsa <b>Guardar</b>.']],
+      ['gh', 'fa-right-left', 'Trasladar a un brigadista de planta', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre → <b>Editar</b>.', 'En <b>Planta</b> elige la nueva (o «+ Nueva planta…» para crearla).', 'Si también va a sesiones de otras plantas, márcalas en <b>Otras plantas</b>. Revisa y guarda: conserva su asistencia.']],
       ['gh', 'fa-user-minus', 'Retirar a un brigadista', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre.', 'En la ficha, <b>Editar</b> (o <b>Completar datos</b>).', 'Estado <b>Desvinculado</b>, su <b>fecha de retiro</b> (obligatoria) y, si quieres, observaciones; guarda. No se borra: queda su historial.']],
       ['g', 'fa-user-gear', 'Darle acceso a alguien', 'configuracion', ['Menú → <b>Configuración</b> → <b>Usuarios</b>.', 'Llena usuario, nombre, correo, tipo (Holcim o Ambipar) y sus sedes.', 'Pulsa <b>Agregar</b>. Si dejas marcado «Enviar el acceso por correo ahora», le llega de una vez; si no, se lo envías después.']],
       ['gha', 'fa-key', 'Cambiar tu clave', 'configuracion', ['Menú → <b class="no-proveedor">Configuración</b><b class="solo-proveedor">Mi clave</b>.', 'Escribe tu clave actual y la nueva dos veces.', 'Pulsa <b>Cambiar</b>. Si entras con tu clave de GSTOR, cámbiala en GSTOR.']],
@@ -2357,7 +2471,7 @@
     const INICIO_ROL = {
       gestor: [['inicio', 'Dashboard', 'Cómo va todo, de un vistazo.'], ['brigadistas', 'Brigadistas', 'Completa y corrige los datos de cada brigadista.'], ['configuracion', 'Usuarios', 'Da acceso a Holcim y a Ambipar.']],
       holcim: [['asistencia', 'Tomar asistencia', 'Marca quién asistió a cada sesión.'], ['brigadistas', 'Brigadistas', 'Completa y corrige los datos de cada brigadista.'], ['cronograma', 'Cronograma', 'Programa las fechas de las sesiones.']],
-      proveedor: [['asistencia', 'Tomar asistencia', 'Marca quién asistió a cada sesión.'], ['cronograma', 'Cronograma', 'Pon la Fecha Ambipar y programa sesiones.'], ['matriz', 'Avance por planta', 'Mira cuánto lleva cada planta.']],
+      proveedor: [['asistencia', 'Tomar asistencia', 'Marca quién asistió a cada sesión.'], ['cronograma', 'Cronograma', 'Pon la Fecha Ambipar y programa sesiones.'], ['restricciones', 'Restricciones médicas', 'Registra lo que alguien no puede hacer en las prácticas.']],
     };
     function rolActual() { return (E.perfil && ROLES[E.perfil.rol]) ? E.perfil.rol : 'gestor'; }
     function nombreRol(r) { return r === 'proveedor' ? (E.perfil && E.perfil.org) || 'Ambipar' : ROLES[r].nombre; }

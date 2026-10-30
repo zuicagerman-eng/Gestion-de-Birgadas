@@ -40,6 +40,7 @@ const SIGBE_HOJA_CRONOGRAMA = '2026 Cronograma Nacional Brigadas';
 const SIGBE_HOJA_BITACORA = 'Bitácora SIGBE';
 const SIGBE_HOJA_SEGUIMIENTO = '2026 Seguimiento';
 const SIGBE_HOJA_PANEL = 'PANEL'; // la cobertura para el Panel del Centro de formación
+const SIGBE_HOJA_RESTRICCIONES = 'Restricciones médicas SIGBE';
 const SIGBE_HORAS_SESION = 6;
 const SIGBE_MINUTOS_CACHE = 10;
 const SIGBE_MAX_CAMBIOS = 300;       // máximo de cambios del Excel que se anotan uno por uno en cada pasada
@@ -221,6 +222,7 @@ function sigbeConstruirModelo_() {
     })(),
     indicadorSinFila: indicadorSinFila,
     seguimiento: seguimiento,
+    restr: (() => { try { return sigbeRestricciones_(); } catch (e) { avisos.push('Restricciones médicas: ' + e.message); return {}; } })(),
     sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1).concat(sedes.filter(s => !SIGBE_SEDES.some(x => x[0] === s))),
   };
   // Cada vez que se recalcula la cobertura, la hoja PANEL (solo si cambió algún número)
@@ -260,6 +262,77 @@ function sigbeCoberturaTotal_(m) {
   const activos = l => l.filter(p => !/desvinculado/i.test(p.e)).length; // como la pantalla: activo = no desvinculado
   return { cobertura: meta ? Math.round(bri / meta * 100) : '', brigadistas: activos(m.holcim) + activos(m.inhouse), meta: meta,
     cumplen: pl.filter(x => !x.faltan).length, plantas: pl.length };
+}
+
+// ═════════════════════════════ RESTRICCIONES MÉDICAS ═════════════════════════════
+// Aparte de las listas: una pestaña propia en el libro de registro (como el historial). Las registra Ambipar (o un
+// gestor); Holcim las consulta, y en la lista de asistencia salen junto al nombre. Cada cambio es una fila nueva (queda
+// la historia): vale la última de cada cédula, y si su texto está vacío es que se levantó. Es un dato de salud: el
+// historial de cambios solo dice «registrada / actualizada / levantada», sin el texto.
+
+function sigbeHojaRestricciones_(crear) {
+  const ss = sigbeRegistro_();
+  if (!ss) throw new Error('No se puede abrir el libro de SIGBE.');
+  let sh = ss.getSheetByName(SIGBE_HOJA_RESTRICCIONES);
+  if (!sh && crear) {
+    sh = ss.insertSheet(SIGBE_HOJA_RESTRICCIONES);
+    sh.getRange(1, 1, 1, 7).setValues([['Fecha', 'Registró', 'Cédula', 'Nombre', 'Planta', 'Restricción', 'Vigente hasta']])
+      .setFontWeight('bold').setBackground('#1a252f').setFontColor('#ffffff');
+    sh.setFrozenRows(1);
+    try { sh.protect().setDescription('Restricciones médicas (dato de salud): solo la app escribe aquí').setWarningOnly(true); } catch (e) { /* sin permiso */ }
+  }
+  return sh;
+}
+
+/** Restricciones vigentes por cédula: { cedula: { r: texto, h: 'yyyy-MM-dd' | '', f: fecha de registro, u: quién } }. */
+function sigbeRestricciones_() {
+  const clave = 'sigbe_restr_' + (prop_('SIGBE_RESTR_GEN') || '0');
+  const enCache = sigbeCacheLeer_(clave);
+  if (enCache) return enCache;
+  const o = {}, zona = Session.getScriptTimeZone();
+  const dia = v => v instanceof Date ? Utilities.formatDate(v, zona, 'yyyy-MM-dd') : String(v || '').trim();
+  const sh = sigbeHojaRestricciones_(false);
+  if (sh && sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues().forEach(f => {
+      const ced = String(f[2]).replace(/\D/g, '');
+      if (!ced) return;
+      const r = String(f[5] || '').trim();
+      if (r) o[ced] = { r: r, h: dia(f[6]), f: dia(f[0]), u: String(f[1] || '').trim() }; else delete o[ced];
+    });
+  }
+  sigbeCacheGuardar_(clave, o);
+  return o;
+}
+
+/** Registra, cambia o levanta (texto vacío) la restricción médica de un brigadista. d: { cedula, restriccion, hasta }. */
+function guardarRestriccion(token, d) {
+  const lock = LockService.getScriptLock();
+  try {
+    if (sigbeRol_(sigbeExigirSesion_(token)) === 'holcim') return { exito: false, mensaje: 'Las restricciones médicas las registra Ambipar (o un gestor).' };
+    const usuario = sigbeExigirRol_(token, ['gestor', 'proveedor']);
+    const ced = String((d && d.cedula) || '').replace(/\D/g, '');
+    const texto = String((d && d.restriccion) || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    const hasta = String((d && d.hasta) || '').trim();
+    if (!ced) return { exito: false, mensaje: 'Elige el brigadista.' };
+    if (hasta && !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) return { exito: false, mensaje: 'La fecha «vigente hasta» no es válida.' };
+    if (!sigbeBloquear_(lock, 20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
+    const F = sigbeFuentes_();
+    const quien = sigbeQuienTieneCedula_(F, ced, {});
+    if (!quien) return { exito: false, mensaje: 'La cédula ' + ced + ' no está en las listas de brigadistas.' };
+    const antes = sigbeRestricciones_()[ced];
+    if (!texto && !antes) return { exito: true, mensaje: quien.n + ' no tenía restricción médica.', restr: sigbeRestricciones_() };
+    const sh = sigbeHojaRestricciones_(true);
+    sh.appendRow([new Date(), sigbeTxt_(sigbeEtiquetaUsuario_(usuario)), ced, sigbeTxt_(quien.n), sigbeTxt_(quien.p), sigbeTxt_(texto), hasta ? sigbeFecha_(hasta) : '']);
+    props_().setProperty('SIGBE_RESTR_GEN', String(Date.now()));
+    const que = !texto ? 'Levantada' : antes ? 'Actualizada' : 'Registrada';
+    sigbeBitacora_(usuario, [['Restricción médica', SIGBE_HOJA_RESTRICCIONES, sh.getLastRow(), ced, quien.n, 'Restricción médica', antes ? 'Registrada' : '', que]]);
+    sigbeInvalidar_();
+    return { exito: true, mensaje: 'Restricción médica de ' + quien.n + ': ' + que.toLowerCase() + '.', restr: sigbeRestricciones_() };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ═════════════════════════════ HOJA PANEL (PANEL DEL CENTRO DE FORMACIÓN) ═════════════════════════════
@@ -1160,7 +1233,7 @@ function getBrigadistasFaltantes(token) {
   const cfg = configOrigen_();
   [F.v1 || sigbeAbrir_(cfg.modo === 'configurado' ? cfg.id : ''), F.v2 || sigbeAbrir_(idDestino_()), F.corte ? F.libro : null]
     .forEach(ss => { if (ss && !libros.some(x => x.getId() === ss.getId())) libros.push(ss); });
-  const propias = [SIGBE_HOJA_BITACORA, SIGBE_HOJA_INGRESOS].map(sigbeNorm_);
+  const propias = [SIGBE_HOJA_BITACORA, SIGBE_HOJA_INGRESOS, SIGBE_HOJA_RESTRICCIONES].map(sigbeNorm_);
   const candidatos = {}, fuentes = [];
   libros.forEach(ss => {
     ss.getSheets().forEach(sh => {
@@ -1481,7 +1554,7 @@ function getHojaExtra(token, nombre) {
 
 function sigbeEsHojaPropia_(nombre) {
   const n = sigbeNorm_(nombre);
-  return ['2026 BRIGADISTAS HOLCIM', '2026 BRIGADISTAS INHOUSE', '2026 CRONOGRAMA', 'INDICADOR', sigbeNorm_(SIGBE_HOJA_BITACORA), sigbeNorm_(SIGBE_HOJA_INGRESOS)].some(x => n.indexOf(x) === 0) ||
+  return ['2026 BRIGADISTAS HOLCIM', '2026 BRIGADISTAS INHOUSE', '2026 CRONOGRAMA', 'INDICADOR', sigbeNorm_(SIGBE_HOJA_BITACORA), sigbeNorm_(SIGBE_HOJA_INGRESOS), sigbeNorm_(SIGBE_HOJA_RESTRICCIONES)].some(x => n.indexOf(x) === 0) ||
     n.indexOf('TEMARIO') !== -1 || n === SIGBE_HOJA_PANEL;
 }
 
