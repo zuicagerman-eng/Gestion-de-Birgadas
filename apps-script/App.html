@@ -1295,7 +1295,7 @@
       const nueva = $('reg-planta').value === '__nueva';
       $('reg-planta-nueva-box').style.display = nueva ? '' : 'none';
       $('reg-planta-nueva').required = nueva;
-      if (nueva) setTimeout(() => $('reg-planta-nueva').focus(), 50);
+      if (nueva) $('reg-planta-nueva').focus(); // de una vez (con un retraso, lo que se escriba en otra casilla podía caer aquí)
     }
     function avisarCedulaRepetida() {
       const c = $('reg-cedula').value.replace(/\D/g, '');
@@ -2350,8 +2350,8 @@
       $('restr-hasta').value = p && p.restr ? p.restr.h || '' : '';
       $('restr-levantar').style.display = p && p.restr ? '' : 'none';
       mostrarPersonaRestr();
+      $('modal-restr').addEventListener('shown.bs.modal', () => (p ? $('restr-texto') : $('restr-persona')).focus(), { once: true });
       modal('modal-restr').show();
-      setTimeout(() => (p ? $('restr-texto') : $('restr-persona')).focus(), 300);
     }
     /** La persona elegida (por la cédula que trae la opción, o por nombre o cédula escritos). */
     function personaRestr() {
