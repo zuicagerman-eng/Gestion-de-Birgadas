@@ -56,6 +56,8 @@ const SIGBE_CAMPOS = {
   estado: { etiqueta: 'Estado', titulo: 'ESTADO', buscar: ['ESTADO'] },
   fechaRetiro: { etiqueta: 'Fecha de retiro', titulo: 'FECHA DE RETIRO', buscar: ['FECHA DE RETIRO', 'FECHA RETIRO'], fecha: true },
   certificado: { etiqueta: 'Certificado 0256', titulo: 'CERTIFICADO 0256', buscar: ['CERTIFICADO'] },
+  planta: { etiqueta: 'Planta', titulo: 'PLANTA', buscar: ['PLANTA'] }, // cambiarla = traslado (la fila pasa al grupo de su planta)
+  otrasPlantas: { etiqueta: 'Otras plantas', titulo: 'OTRAS PLANTAS', buscar: ['OTRAS PLANTAS'] }, // también va a las sesiones de estas
   obsRetiro: { etiqueta: 'Observaciones del retiro', titulo: 'OBSERVACIONES DEL RETIRO', buscar: ['OBSERVACIONES DEL RETIRO', 'OBSERVACIONES DE RETIRO', 'MOTIVO DE RETIRO', 'MOTIVO DEL RETIRO'] },
 };
 const SIGBE_GRUPOS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
@@ -174,7 +176,7 @@ function sigbeConstruirModelo_() {
     });
     return {
       r: p.fila, p: p.planta, e: p.estado, n: p.nombre, c: p.cedula, ce: p.certificado, fi: p.fechaIngreso, em: p.empresa,
-      gs: p.grupo, c1: p.clase1, fr: p.fechaRetiro, or: p.obsRetiro,
+      gs: p.grupo, c1: p.clase1, fr: p.fechaRetiro, or: p.obsRetiro, op: p.otras,
       m: h.sesiones.map(s => p.valores[s.colAsis - 1] === true ? '1' : '0').join(''), x: x,
     };
   });
@@ -211,6 +213,12 @@ function sigbeConstruirModelo_() {
     crono: lista,  // na = 1: "-" o gris (no aplica); las pantallas las muestran solo en el cronograma
     cronoFilas: crono.filas.map(f => ({ fila: f.fila, mes: f.mes, nombre: f.nombre, pre: f.prefijo, cl: f.clave })),
     cobertura: sigbeCoberturaPlantas_(indicador),
+    sedePlanta: (() => { // planta → sede, para las listas y los filtros
+      const o = {};
+      h.personas.map(p => p.planta).concat(inhouse.map(p => p.p), h.personas.concat(inhouse).map(p => p.otras || p.op || '').join(',').split(','))
+        .map(x => String(x || '').trim()).filter(Boolean).forEach(pl => { o[pl] = sigbeSede_(pl); });
+      return o;
+    })(),
     indicadorSinFila: indicadorSinFila,
     seguimiento: seguimiento,
     sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1).concat(sedes.filter(s => !SIGBE_SEDES.some(x => x[0] === s))),
@@ -620,7 +628,7 @@ function actualizarBrigadistasLote(token, lista) {
       const dv = (H[k].dvs[fila - H[k].f0] || [])[0];
       return dv && dv.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST ? dv.getCriteriaValues()[0].map(String) : null;
     };
-    const bitacora = [], resultados = [], celdas = { HOLCIM: [], INHOUSE: [] }, cedulasNuevas = {};
+    const bitacora = [], resultados = [], celdas = { HOLCIM: [], INHOUSE: [] }, cedulasNuevas = {}, traslados = [];
     let total = 0;
     lista.forEach(data => {
       const H = hoja(data.tipo === 'INHOUSE' ? 'INHOUSE' : 'HOLCIM');
@@ -648,6 +656,24 @@ function actualizarBrigadistasLote(token, lista) {
         if (campo === 'cedula') nuevo = nuevo.replace(/\D/g, '');
         if (campo === 'grupo' && nuevo) nuevo = nuevo.toUpperCase().replace(/\s+/g, '').replace('0', 'O');
         if (campo === 'empresa' && H.inhouse) nuevo = nuevo.toUpperCase();
+        if (campo === 'planta' || campo === 'otrasPlantas') { // solo plantas que ya están en la lista (o una nueva, a propósito)
+          const cP = H.t.col('PLANTA');
+          const conocidas = H.plantas || (H.plantas = sigbeUnicos_(H.t.filas.map(f => String(f.valores[cP - 1] || '').trim()).filter(x => !/^TOTAL/i.test(x))));
+          const canon = x => conocidas.find(k => sigbeNorm_(k) === sigbeNorm_(x)) || '';
+          if (campo === 'planta') {
+            if (!nuevo) { rechazos.push('Planta: no puede quedar vacía'); return; }
+            const existe = canon(nuevo), nueva = nuevo.toUpperCase().replace(/\s+/g, ' ');
+            if (!existe && !(data.plantaNueva && /^[A-Z0-9ÁÉÍÓÚÑÜ][A-Z0-9ÁÉÍÓÚÑÜ .&()\-]{1,39}$/.test(nueva) && !/^TOTAL/.test(nueva))) {
+              rechazos.push('Planta: «' + nuevo + '» no está en la lista; para crearla elige «+ Nueva planta…»'); return;
+            }
+            nuevo = existe || nueva;
+          } else {
+            const lista = nuevo.split(/[,;]/).map(x => x.trim()).filter(Boolean), malas = lista.filter(x => !canon(x));
+            if (malas.length) { rechazos.push('Otras plantas: no están en la lista: ' + malas.join(', ')); return; }
+            const principal = sigbeNorm_('planta' in cambios ? cambios.planta : p.valores[cP - 1]);
+            nuevo = sigbeUnicos_(lista.map(canon)).filter(x => sigbeNorm_(x) !== principal).join(', ');
+          }
+        }
         if (def.fecha && nuevo && !/^\d{4}-\d{2}-\d{2}$/.test(nuevo)) { rechazos.push(def.etiqueta + ': fecha no válida'); return; }
         const nuevoTexto = def.fecha && nuevo ? nuevo.split('-').reverse().join('/') : nuevo;
         let c = sigbeColCampo_(H.t, campo, H.inhouse);
@@ -673,21 +699,26 @@ function actualizarBrigadistasLote(token, lista) {
         let valor = nuevo;
         if (def.fecha) valor = nuevo ? sigbeFecha_(nuevo) : '';
         else if (campo === 'certificado' || campo === 'cedula') valor = sigbeNumOTexto_(nuevo);
-        escrituras.push({ c: c, valor: valor });
-        bitacora.push(['Edición de brigadista', H.sh.getName(), p.fila, p.cedula || nuevo, p.nombre, def.etiqueta, actual, nuevoTexto]);
+        escrituras.push({ c: c, valor: valor, campo: campo });
+        bitacora.push([campo === 'planta' ? 'Traslado de planta' : 'Edición de brigadista', H.sh.getName(), p.fila, p.cedula || nuevo, p.nombre, def.etiqueta, actual, nuevoTexto]);
         if (campo === 'cedula') p.cedula = nuevo;
       });
       if (escrituras.length) {
         if (!H.respaldo) { try { sigbeRespaldoHoy_(H.ss, true); } catch (e) { /* sigue */ } H.respaldo = true; }
         escrituras.forEach(e => { celdas[H.inhouse ? 'INHOUSE' : 'HOLCIM'].push({ fila: p.fila, col: e.c, v: sigbeTxt_(e.valor) }); p.valores[e.c - 1] = e.valor; });
         total += escrituras.length;
+        const tr = escrituras.find(e => e.campo === 'planta');
+        if (tr) traslados.push({ H: H, cedula: p.cedula, nombre: p.nombre, planta: tr.valor });
       }
       resultados.push({ exito: !!escrituras.length || !rechazos.length, nombre: p.nombre, rechazos: rechazos,
         mensaje: escrituras.length ? escrituras.length + ' dato(s) actualizado(s) de ' + p.nombre + (rechazos.length ? '. No se aplicó: ' + rechazos.join('; ') : '.')
           : (rechazos.length ? 'No se guardó: ' + rechazos.join('; ') : 'No había cambios.') });
     });
     Object.keys(celdas).forEach(k => { if (celdas[k].length) sigbeEscribirCeldas_(hojas[k].sh, celdas[k]); });
-    if (bitacora.length) sigbeTrasGuardar_(F, usuario, bitacora);
+    // Traslados: después de escribir todo (mover filas cambia los números de fila)
+    traslados.forEach(x => { try { sigbeMoverAPlanta_(x.H, x.cedula, x.nombre, x.planta); } catch (e) { console.log('Traslado: ' + e.message); } });
+    // Un traslado en la lista Holcim cambia qué sesiones le aplican: el libro nuevo se reorganiza
+    if (bitacora.length) sigbeTrasGuardar_(F, usuario, bitacora, traslados.some(x => !x.H.inhouse));
     const conRechazos = resultados.filter(r => r.rechazos && r.rechazos.length);
     return { exito: true, guardados: total, resultados: resultados,
       mensaje: total + ' dato(s) guardado(s)' + (conRechazos.length ? '; ' + conRechazos.length + ' persona(s) con datos que no se aplicaron.' : '.') };
@@ -696,6 +727,27 @@ function actualizarBrigadistasLote(token, lista) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Traslado: lleva la fila de la persona justo después de la última de su planta nueva (antes del TOTAL de esa planta),
+ * para que cada planta siga siendo un grupo seguido en la hoja. Si la planta no tiene a nadie, al final de los datos.
+ */
+function sigbeMoverAPlanta_(H, cedula, nombre, planta) {
+  const sh = H.sh, fe = H.t.filaEncabezado, cP = H.t.col('PLANTA'), cC = H.t.col('CEDULA'), cN = H.t.col('NOMBRE Y APELLIDO');
+  const n = sh.getLastRow() - fe;
+  if (n < 1) return 0;
+  const v = sh.getRange(fe + 1, 1, n, Math.max(cP, cC, cN)).getValues();
+  const ced = String(cedula || '').replace(/\D/g, ''), nom = sigbeNorm_(nombre);
+  const i = v.findIndex(f => ced ? String(f[cC - 1]).replace(/\D/g, '') === ced : sigbeNorm_(f[cN - 1]) === nom);
+  if (i === -1) return 0;
+  const fila = fe + 1 + i;
+  let ultima = 0;
+  v.forEach((f, k) => { if (k !== i && sigbeNorm_(f[cP - 1]) === sigbeNorm_(planta)) ultima = fe + 1 + k; });
+  if (!ultima) v.forEach((f, k) => { if (k !== i && f.some(x => x !== '' && x !== null && x !== false)) ultima = fe + 1 + k; });
+  if (!ultima || ultima === fila - 1) return fila; // ya está en su sitio
+  sh.moveRows(sh.getRange(fila, 1), ultima + 1);
+  return ultima < fila ? ultima + 1 : ultima;
 }
 
 /** Columna (1-based) de un campo del brigadista en esa tabla, o 0 si no existe. */
@@ -1507,8 +1559,8 @@ function sigbeClavePersona_(c, n) {
 
 function sigbeFoto_(m) {
   const h = {}, i = {}, cr = {};
-  m.holcim.forEach(p => { h[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, e: p.e, fi: p.fi, ce: p.ce, m: p.m, em: p.em, gs: p.gs, c1: p.c1, fr: p.fr, or: p.or || '' }; });
-  m.inhouse.forEach(p => { i[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, k: p.k, ce: p.ce, e: p.e, fi: p.fi, gs: p.gs, c1: p.c1, fr: p.fr, or: p.or || '' }; });
+  m.holcim.forEach(p => { h[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, e: p.e, fi: p.fi, ce: p.ce, m: p.m, em: p.em, gs: p.gs, c1: p.c1, fr: p.fr, or: p.or || '', op: p.op || '' }; });
+  m.inhouse.forEach(p => { i[sigbeClavePersona_(p.c, p.n)] = { n: p.n, c: p.c, p: p.p, k: p.k, ce: p.ce, e: p.e, fi: p.fi, gs: p.gs, c1: p.c1, fr: p.fr, or: p.or || '', op: p.op || '' }; });
   m.crono.forEach(x => { if (!x.na) cr[x.pl + '|' + x.ses + '|' + x.ent] = { f: x.f, e: x.e }; });
   return { v: 1, origen: m.fuentes.asistencia.id + '|' + m.fuentes.datos.id, ses: m.sesiones.map(s => s.key), h: h, i: i, cr: cr };
 }
@@ -1528,7 +1580,7 @@ function sigbeDiferencias_(a, b) {
     });
     Object.keys(x).forEach(k => { if (!y[k]) out.push([A, hoja, '', x[k].c, x[k].n, 'Baja de la lista (' + x[k].p + ')', 'En la lista', 'Ya no está']); });
   };
-  const extra = [['gs', 'Grupo sanguíneo'], ['c1', 'Brigadista Clase I'], ['fr', 'Fecha de retiro'], ['or', 'Observaciones del retiro']];
+  const extra = [['gs', 'Grupo sanguíneo'], ['c1', 'Brigadista Clase I'], ['fr', 'Fecha de retiro'], ['or', 'Observaciones del retiro'], ['op', 'Otras plantas']];
   personas(SIGBE_HOJA_HOLCIM, a.h || {}, b.h || {}, [['e', 'Estado'], ['fi', 'Fecha de ingreso'], ['ce', 'Certificado 0256'], ['p', 'Planta'], ['em', 'Empresa']].concat(extra));
   personas(SIGBE_HOJA_INHOUSE, a.i || {}, b.i || {}, [['k', 'Empresa'], ['ce', 'Certificado 0256'], ['e', 'Estado'], ['p', 'Planta'], ['fi', 'Fecha de ingreso']].concat(extra));
   Object.keys(b.h || {}).forEach(k => {
@@ -2612,7 +2664,7 @@ function sigbeLeerHolcim_(sh) {
     planta: t.col('PLANTA'), estado: t.col('ESTADO'), nombre: t.col('NOMBRE Y APELLIDO'), cedula: t.col('CEDULA'),
     certificado: t.col('CERTIFICADO'), fechaIngreso: t.col('FECHA DE INGRESO'), empresa: t.col('EMPRESA'),
     grupo: sigbeColCampo_(t, 'grupo'), clase1: sigbeColCampo_(t, 'clase1'), fechaRetiro: sigbeColCampo_(t, 'fechaRetiro'),
-    obsRetiro: sigbeColCampo_(t, 'obsRetiro'),
+    obsRetiro: sigbeColCampo_(t, 'obsRetiro'), otras: sigbeColCampo_(t, 'otrasPlantas'),
   };
   const titulos = {};
   const sesiones = [];
@@ -2643,6 +2695,7 @@ function sigbeLeerHolcim_(sh) {
       clase1: cols.clase1 ? sigbeTexto_(v[cols.clase1 - 1]) : '',
       fechaRetiro: cols.fechaRetiro ? sigbeTexto_(v[cols.fechaRetiro - 1]) : '',
       obsRetiro: cols.obsRetiro ? String(v[cols.obsRetiro - 1] || '').trim() : '',
+      otras: cols.otras ? String(v[cols.otras - 1] || '').trim() : '',
     });
   });
   return { hoja: sh, filaEncabezado: t.filaEncabezado, cols: cols, sesiones: sesiones, personas: personas };
@@ -2654,7 +2707,7 @@ function sigbeLeerInhouse_(sh, completo) {
   const c = { planta: t.col('PLANTA'), contratista: t.col('CONTRATISTA') || t.col('EMPRESA'),
     nombre: t.col('NOMBRE Y APELLIDO'), cedula: t.col('CEDULA'), cert: t.col('CERTIFICADO'), estado: t.col('ESTADO'),
     fi: sigbeColCampo_(t, 'fechaIngreso'), gs: sigbeColCampo_(t, 'grupo'), c1: sigbeColCampo_(t, 'clase1'), fr: sigbeColCampo_(t, 'fechaRetiro'),
-    or: sigbeColCampo_(t, 'obsRetiro', true) };
+    or: sigbeColCampo_(t, 'obsRetiro', true), op: sigbeColCampo_(t, 'otrasPlantas', true) };
   const txt = (v, col) => col ? sigbeTexto_(v[col - 1]) : '';
   return t.filas
     .filter(f => c.nombre && String(f.valores[c.nombre - 1] || '').trim() && sigbeNorm_(f.valores[c.planta - 1]).indexOf('TOTAL') !== 0)
@@ -2665,6 +2718,7 @@ function sigbeLeerInhouse_(sh, completo) {
         n: String(v[c.nombre - 1]).trim(), c: sigbeTexto_(v[c.cedula - 1]), ce: c.cert ? sigbeTexto_(v[c.cert - 1]) : '',
         e: c.estado ? String(v[c.estado - 1] || '').trim() : '',
         fi: txt(v, c.fi), gs: txt(v, c.gs), c1: txt(v, c.c1), fr: txt(v, c.fr), or: c.or ? String(v[c.or - 1] || '').trim() : '',
+        op: c.op ? String(v[c.op - 1] || '').trim() : '',
       };
       if (completo) Object.assign(p, { fila: f.fila, valores: v, cols: c, nombre: p.n, cedula: p.c, planta: p.p });
       return p;

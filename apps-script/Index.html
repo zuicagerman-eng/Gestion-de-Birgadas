@@ -345,6 +345,7 @@
             <div class="tarjeta p-3 mb-2">
               <div class="filtros">
                 <input type="search" class="form-control form-control-sm" id="mat-buscar" placeholder="Buscar planta o sede…" aria-label="Buscar planta">
+                <div class="dropdown"><button type="button" id="mat-planta" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Plantas (varias a la vez)">Todas las plantas</button><div class="dropdown-menu shadow py-2 multi-menu" id="mat-planta-menu"></div></div>
                 <select class="form-select form-select-sm" id="mat-ver" aria-label="Mostrar"><option value="">Todas las plantas</option><option value="atrasadas">Con módulos sin completar</option><option value="aldia">Al día (100 %)</option></select>
                 <button class="btn btn-sm btn-outline-secondary ms-auto" data-accion="csv-matriz"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
               </div>
@@ -426,6 +427,7 @@
               </div>
               <div class="filtros">
                 <input type="search" id="crono-buscar" class="form-control form-control-sm" placeholder="Buscar tema, planta u observación…" aria-label="Buscar en el cronograma">
+                <div class="dropdown"><button type="button" id="crono-planta" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Plantas (varias a la vez)">Todas las plantas</button><div class="dropdown-menu shadow py-2 multi-menu" id="crono-planta-menu"></div></div>
                 <select id="crono-mes" class="form-select form-select-sm" aria-label="Mes"></select>
                 <select id="crono-modulo" class="form-select form-select-sm" aria-label="Tema"></select>
                 <select id="crono-estado" class="form-select form-select-sm" aria-label="Estado"></select>

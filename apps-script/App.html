@@ -23,9 +23,10 @@
     /** true (y avisa) si el usuario es Ambipar y la acción es solo de Holcim. */
     function soloHolcim() { if (!esProveedor()) return false; avisar('Esto lo hace un usuario de Holcim. Con tu usuario de Ambipar tomas asistencia y en el Cronograma pones la Fecha Ambipar, programas sesiones y creas módulos.', 'info', 8000); return true; }
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
-    const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', planta: '', inactivos: false, filtro: '' };
+    const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', plantas: [], inactivos: false, filtro: '' };
     const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {}, plantas: [], empresas: [] };
-    const crono = { cuando: 'proximas' };
+    const crono = { cuando: 'proximas', plantas: [] };
+    const mat = { plantas: [] };
     const rev = { g: '', tipo: '' };
     const cam = { o: '', limite: 200, visibles: [] };
     const hoja = { datos: null, visibles: [] };
@@ -145,6 +146,8 @@
       ['brig-estado', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
       escucharMultiSel('brig-planta', brig.plantas, 'Todas las plantas', 'plantas', pintarBrigadistas);
       escucharMultiSel('brig-empresa', brig.empresas, 'Todas las empresas', 'empresas', pintarBrigadistas);
+      escucharMultiSel('crono-planta', crono.plantas, 'Todas las plantas', 'plantas', pintarCronograma);
+      escucharMultiSel('mat-planta', mat.plantas, 'Todas las plantas', 'plantas', pintarMatriz);
       $('brig-tabla').addEventListener('change', cambioEnTabla);
       $('brig-tabla').addEventListener('input', cambioEnTabla);
       $('mat-buscar').oninput = conEspera(pintarMatriz); $('mat-ver').oninput = pintarMatriz;
@@ -260,6 +263,7 @@
       D.sesiones.forEach(s => { let u = D.unidades.find(x => x.clave === s.clave); if (!u) D.unidades.push(u = { clave: s.clave, modulo: s.modulo, parte: s.parte, titulo: s.titulo, ses: [] }); u.ses.push(s.i); });
       P = D.holcim.map((p, j) => { const o = Object.assign({}, p, { j: j, tipo: 'HOLCIM', sede: (D.plantas[p.p] || {}).sede || p.p, activo: !/desvinculado/i.test(p.e), emp: 'Holcim' }); o.cump = cumplimiento(o); return o; });
       I = D.inhouse.map((p, j) => Object.assign({}, p, { j: j, tipo: 'INHOUSE', activo: !/desvinculado/i.test(p.e), emp: p.k || 'Contratista', cump: { c: 0, t: 0, pct: null } }));
+      P.concat(I).forEach(ponerOtrasPlantas);
       asis.cambios = {}; brig.cambios = {};
       P.forEach(p => { const id = quien(p); if (id in idAsis) asis.cambios[p.j] = idAsis[id]; if (id in idBrig) brig.cambios['HOLCIM:' + p.j] = idBrig[id]; });
       I.forEach(p => { const id = quien(p); if (id in idBrig) brig.cambios['INHOUSE:' + p.j] = idBrig[id]; });
@@ -334,7 +338,7 @@
       if (typeof lista === 'string') lista = lista ? [lista] : [];
       if (hayCambios() && !confirm('Tienes cambios de asistencia sin guardar. ¿Cambiar de sede y descartarlos?')) { pintarSelectorSede(); return; }
       E.sedes = lista; guardar('localStorage', 'sigbe_sede', JSON.stringify(lista)); pintarSelectorSede();
-      asis.paso = 'sesiones'; asis.cambios = {}; asis.planta = '';
+      asis.paso = 'sesiones'; asis.cambios = {}; asis.plantas = [];
       cargarVista();
     }
 
@@ -396,10 +400,11 @@
         'asis-filtro': () => { asis.filtro = d.f; pintarAsistencia(); },
         'asis-alternar': () => alternar(+d.j),
         'asis-todos': () => marcarTodos(d.v === '1'),
+        'asis-planta': () => { const k = asis.plantas.indexOf(d.pl); if (k === -1) asis.plantas.push(d.pl); else asis.plantas.splice(k, 1); pintarLista(); },
         'asis-descartar': () => { asis.cambios = {}; pintarAsistencia(); },
         'asis-guardar': confirmarAsistencia,
         'asis-imprimir': imprimirLista, 'asis-csv': csvAsistencia,
-        'ir-asistencia': () => { if (d.sede) { E.sedes = [d.sede]; guardar('localStorage', 'sigbe_sede', JSON.stringify(E.sedes)); pintarSelectorSede(); } asis.key = null; asis.paso = 'sesiones'; asis.planta = d.planta || ''; ir('asistencia'); if (d.key) elegirSesion(d.key); },
+        'ir-asistencia': () => { if (d.sede) { E.sedes = [d.sede]; guardar('localStorage', 'sigbe_sede', JSON.stringify(E.sedes)); pintarSelectorSede(); } asis.key = null; asis.paso = 'sesiones'; asis.plantas = d.planta ? [d.planta] : []; ir('asistencia'); if (d.key) elegirSesion(d.key); },
         'rev-tipo': () => { rev.tipo = rev.tipo === d.t ? '' : d.t; pintarRevision(); },
         'recargar-cambios': () => { CAMBIOS = null; cargarCambios(); },
         'cambios-mas': () => { cam.limite += 300; pintarCambios(); },
@@ -552,12 +557,26 @@
     /** Sesiones de la sede (por planta) que ya pasaron, aplican y no tienen ninguna asistencia. */
     // ══════════ TOMAR ASISTENCIA ══════════
     function hayCambios() { return Object.keys(asis.cambios).length > 0; }
-    function personasSede(sede) { return P.filter(p => p.sede === sede); }
+    // Un brigadista puede estar en varias plantas: su planta (la principal, la que cuenta para la meta) y otras
+    // («OTRAS PLANTAS»), en cuyas listas de asistencia también aparece.
+    function sedeDePlanta(pl) { return (D.sedePlanta || {})[pl] || (D.plantas[pl] || {}).sede || pl; }
+    function ponerOtrasPlantas(p) {
+      p.otras = String(p.op || '').split(',').map(x => x.trim()).filter(x => x && x !== p.p);
+      p.sedesOtras = unicos(p.otras.map(sedeDePlanta)).filter(x => x !== p.sede);
+    }
+    function deSede(p, sede) { return p.sede === sede || (p.sedesOtras || []).indexOf(sede) !== -1; }
+    function enSedeAlguna(p) { return enSede(p) || (p.sedesOtras || []).some(sedeOk); }
+    function dePlantas(p, pls) { return !pls.length || pls.indexOf(p.p) !== -1 || (p.otras || []).some(x => pls.indexOf(x) !== -1); }
+    /** Plantas de una sede: las de quienes son de ahí y las «otras plantas» que quedan en esa sede. */
+    function plantasDeSede(pers, sede) { return unicos(pers.filter(p => p.sede === sede).map(p => p.p).concat(...pers.map(p => (p.otras || []).filter(x => sedeDePlanta(x) === sede)))); }
+    function personasSede(sede) { return P.filter(p => deSede(p, sede)); }
     function sesionesSede(sede) {
-      const pers = personasSede(sede).filter(p => p.activo);
+      const pers = personasSede(sede).filter(p => p.activo), propios = pers.filter(p => p.sede === sede);
       return D.sesiones.map(s => {
         const con = pers.filter(p => ses(p, s.i).aplica);
-        const plantas = unicos(pers.map(p => p.p));
+        // Qué sesiones hay en la sede lo dicen las plantas de la sede (no las de quien viene de otra)
+        if (propios.length && !propios.some(p => ses(p, s.i).aplica)) con.length = 0;
+        const plantas = unicos(propios.map(p => p.p));
         const info = plantas.map(pl => ({ pl: pl, x: D.plantas[pl].s[s.i] }));
         const fechas = unicos(con.map(p => ses(p, s.i).f).filter(Boolean));
         const isos = con.map(p => ses(p, s.i).iso).filter(Boolean).sort();
@@ -592,8 +611,8 @@
       lista.forEach(x => cuenta[tipo(x)]++);
       const filtros = [['', 'Todas las que aplican', lista.length - cuenta.na], ['atrasada', 'Pasadas sin registrar', cuenta.atrasada], ['proxima', 'Próximas', cuenta.proxima], ['hecha', 'Con asistencia', cuenta.hecha], ['sinfecha', 'Sin fecha', cuenta.sinfecha], ['na', 'No aplican', cuenta.na]];
       const ver = lista.filter(x => asis.filtro === 'na' ? !x.aplica : x.aplica && (!asis.filtro || tipo(x) === asis.filtro));
-      const plantas = unicos(personasSede(E.sede).map(p => p.p));
-      const info = plantas.map(pl => D.plantas[pl]);
+      const plantas = unicos(personasSede(E.sede).filter(p => p.sede === E.sede).map(p => p.p));
+      const info = plantas.map(pl => D.plantas[pl]).filter(Boolean);
       const icono = { atrasada: '<span class="pildora e-no">✗ sin registrar</span>', proxima: '<span class="pildora e-pend">· próxima</span>', hecha: '<span class="pildora e-si">✓ con asistencia</span>', sinfecha: '<span class="pildora e-na">sin fecha</span>', na: '<span class="pildora e-na">— no aplica</span>' };
       const porModulo = [];
       ver.forEach(x => { let m = porModulo.find(y => y.modulo === x.s.modulo); if (!m) porModulo.push(m = { modulo: x.s.modulo, titulo: x.s.titulo, items: [] }); m.items.push(x); });
@@ -616,10 +635,11 @@
       migas();
       const s = sesionActual();
       const todas = personasSede(E.sede);
-      const plantas = unicos(todas.map(p => p.p));
+      const plantas = plantasDeSede(todas, E.sede);
+      asis.plantas = asis.plantas.filter(x => plantas.indexOf(x) !== -1);
       // A quien no le aplica la sesión (p. ej. entró a la brigada después) no se le muestra, salvo que ya tenga la marca o
       // se pida "Ver desvinculados y a quienes no les aplica". El buscador filtra sin repintar.
-      const enPlanta = todas.filter(p => !asis.planta || p.p === asis.planta).map(p => ({ p: p, x: ses(p, s.i) }));
+      const enPlanta = todas.filter(p => dePlantas(p, asis.plantas)).map(p => ({ p: p, x: ses(p, s.i) }));
       const seVe = o => asis.inactivos || (o.p.activo && (o.x.aplica || o.x.marcada || o.p.j in asis.cambios));
       const conInfo = enPlanta.filter(seVe);
       const noAplican = enPlanta.filter(o => o.p.activo && !seVe(o)), porIngreso = noAplican.filter(o => o.x.antesIngreso).length;
@@ -640,7 +660,7 @@
           </div>
           <div class="filtros mt-2">
             <input type="search" class="form-control form-control-sm" id="asis-buscar" placeholder="Buscar nombre o cédula…" value="${esc(asis.buscar)}" aria-label="Buscar en la lista">
-            ${plantas.length > 1 ? `<select class="form-select form-select-sm" id="asis-planta" aria-label="Planta">${opciones(plantas, asis.planta, 'Todas las plantas')}</select>` : ''}
+            ${plantas.length > 1 ? `<span class="small text-muted">Plantas:</span><span class="d-flex flex-wrap gap-1" role="group" aria-label="Plantas (varias a la vez; ninguna = todas)">${plantas.map(pl => `<button class="chip" data-accion="asis-planta" data-pl="${esc(pl)}" aria-pressed="${asis.plantas.indexOf(pl) !== -1}">${esc(pl)}</button>`).join('')}</span>` : ''}
             <button class="btn btn-sm btn-outline-success" data-accion="asis-todos" data-v="1" ${puede ? '' : 'disabled'}>Marcar todos</button>
             <button class="btn btn-sm btn-outline-secondary" data-accion="asis-todos" data-v="0" ${puede ? '' : 'disabled'}>Quitar todos</button>
             <div class="form-check ms-2"><input class="form-check-input" type="checkbox" id="asis-inact" ${asis.inactivos ? 'checked' : ''}><label class="form-check-label small" for="asis-inact">Ver desvinculados y a quienes no les aplica</label></div>
@@ -653,7 +673,7 @@
           const v = valorActual(p), cambiada = p.j in asis.cambios;
           const habil = puede && p.activo && (x.aplica || v);
           return `<div class="fila-persona d-flex flex-wrap align-items-center gap-2 ${cambiada ? 'cambiada' : ''} ${p.activo && x.aplica ? '' : 'inactiva'}" data-busca="${esc(norm(p.n + ' ' + p.c))}">
-            <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? '' : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
+            <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.sede !== E.sede ? ' <span class="badge bg-info-subtle text-info-emphasis" title="Su planta principal es ' + esc(p.p) + '; también va a las sesiones de esta sede">de otra planta</span>' : ''}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? '' : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
             <button class="btn ${v ? 'btn-success' : 'btn-outline-secondary'} btn-asistio" data-accion="asis-alternar" data-j="${p.j}" aria-pressed="${v}" ${habil ? '' : 'disabled'}>${v ? '<i class="fa-solid fa-check me-1"></i>Asistió' : '<i class="fa-regular fa-square me-1"></i>No asistió'}</button></div>`;
         }).join('') + `<p class="text-muted" id="asis-vacio" style="${conInfo.length ? 'display:none' : ''}">No hay brigadistas para mostrar.</p></div>` +
         (n ? `<div class="barra-guardar p-3 d-flex flex-wrap align-items-center gap-2 rounded-top" role="region" aria-label="Cambios sin guardar">
@@ -663,7 +683,6 @@
       const b = $('asis-buscar');
       b.oninput = () => { asis.buscar = b.value; filtrarLista(); };
       filtrarLista();
-      if ($('asis-planta')) $('asis-planta').oninput = ev => { asis.planta = ev.target.value; pintarLista(); };
       $('asis-inact').onchange = ev => { asis.inactivos = ev.target.checked; pintarLista(); };
     }
     function filtrarLista() {
@@ -681,7 +700,7 @@
     }
     function marcarTodos(v) {
       const s = sesionActual();
-      personasSede(E.sede).filter(p => p.activo && (!asis.planta || p.p === asis.planta) && ses(p, s.i).aplica).forEach(p => {
+      personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && ses(p, s.i).aplica).forEach(p => {
         if (v === (p.m.charAt(s.i) === '1')) delete asis.cambios[p.j]; else asis.cambios[p.j] = v;
       });
       pintarLista();
@@ -739,7 +758,7 @@
     }
     function imprimirLista() {
       const s = sesionActual();
-      const pers = personasSede(E.sede).filter(p => p.activo && (!asis.planta || p.p === asis.planta) && ses(p, s.i).aplica);
+      const pers = personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && ses(p, s.i).aplica);
       const fechas = unicos(pers.map(p => ses(p, s.i).f).filter(Boolean));
       $('print-area').innerHTML = `<h2 style="margin:0 0 4px">Lista de asistencia · ${esc(E.sede)}</h2><div><b>${esc(nombreSesion(s))}</b> — ${esc(s.titulo)}</div>
         <div style="margin-bottom:10px">Fecha programada: ${esc(fechas.join(' / ') || '____/____/______')} &nbsp; Fecha real: ____/____/______ &nbsp; Instructor: ______________________</div>
@@ -780,10 +799,10 @@
         return { p: pl, sede: (D.plantas[pl] || {}).sede || pl, personas: pers.length, celdas: celdas, c: c, t: t, pct: t ? Math.round(c / t * 100) : null };
       });
     }
-    function prepararMatriz() { pintarMatriz(); }
+    function prepararMatriz() { pintarMultiSel('mat-planta', avancePlantas().map(x => x.p).sort((a, b) => a.localeCompare(b, 'es')), mat.plantas, 'Todas las plantas', 'plantas'); pintarMatriz(); }
     function filasMatriz() {
       const q = norm($('mat-buscar').value), ver = $('mat-ver').value;
-      return avancePlantas().filter(x => (!q || norm(x.p + ' ' + x.sede).includes(q)) &&
+      return avancePlantas().filter(x => (!q || norm(x.p + ' ' + x.sede).includes(q)) && (!mat.plantas.length || mat.plantas.indexOf(x.p) !== -1) &&
         (!ver || (ver === 'atrasadas' && x.celdas.some(c => c.pct !== null && c.pct < 100)) || (ver === 'aldia' && x.t > 0 && x.c === x.t)))
         .sort((a, b) => a.sede.localeCompare(b.sede, 'es') || a.p.localeCompare(b.p, 'es'));
     }
@@ -814,7 +833,7 @@
     const CAMPOS_B = {
       cedula: 'Cédula', grupo: 'Grupo sanguíneo', fechaIngreso: 'Fecha de ingreso', empresa: 'Empresa',
       clase1: 'Brigadista Clase I', estado: 'Estado', fechaRetiro: 'Fecha de retiro', certificado: 'Certificado 0256',
-      obsRetiro: 'Observaciones del retiro',
+      obsRetiro: 'Observaciones del retiro', planta: 'Planta', otrasPlantas: 'Otras plantas',
     };
     function datosDe(p) {
       return p.tipo === 'HOLCIM'
@@ -833,10 +852,11 @@
     /** Pasa lo guardado a los datos en memoria (sin volver a leer todo). */
     function aplicarDatos(p, cambios) {
       const iso2txt = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split('-').reverse().join('/') : v;
-      const mapa = p.tipo === 'HOLCIM' ? { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'em', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce', obsRetiro: 'or' }
-        : { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'k', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce', obsRetiro: 'or' };
+      const mapa = p.tipo === 'HOLCIM' ? { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'em', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce', obsRetiro: 'or', otrasPlantas: 'op' }
+        : { cedula: 'c', grupo: 'gs', fechaIngreso: 'fi', empresa: 'k', clase1: 'c1', estado: 'e', fechaRetiro: 'fr', certificado: 'ce', obsRetiro: 'or', otrasPlantas: 'op' };
       Object.keys(cambios).forEach(k => { if (mapa[k]) p[mapa[k]] = k === 'empresa' && p.tipo === 'INHOUSE' ? String(cambios[k]).toUpperCase() : iso2txt(String(cambios[k])); });
       p.activo = !/desvinculado/i.test(p.e);
+      ponerOtrasPlantas(p);
       if (p.tipo === 'INHOUSE') p.emp = p.k || 'Contratista';
       else p.cump = cumplimiento(p); // la fecha de ingreso cambia qué sesiones le aplican
       REV = null;
@@ -881,15 +901,15 @@
       });
     }
     function prepararBrigadistas() {
-      const base = todosBrigadistas().filter(enSede);
-      pintarMultiSel('brig-planta', unicos(base.map(p => p.p)), brig.plantas, 'Todas las plantas', 'plantas');
+      const base = todosBrigadistas().filter(enSedeAlguna);
+      pintarMultiSel('brig-planta', unicos(base.map(p => p.p).concat(...base.map(p => p.otras || []))), brig.plantas, 'Todas las plantas', 'plantas');
       pintarMultiSel('brig-empresa', unicos(base.map(p => datosDe(p).empresa)), brig.empresas, 'Todas las empresas', 'empresas');
       pintarBrigadistas();
     }
     function listaBrigadistas() {
       const q = norm($('brig-buscar').value), est = $('brig-estado').value, dat = $('brig-datos').value;
       const pls = brig.plantas, ems = brig.empresas; // vacío = todas
-      const lista = todosBrigadistas().filter(p => enSede(p) && (!brig.tipo || grupoDe(p) === brig.tipo) && (!pls.length || pls.indexOf(p.p) !== -1) &&
+      const lista = todosBrigadistas().filter(p => enSedeAlguna(p) && (!brig.tipo || grupoDe(p) === brig.tipo) && dePlantas(p, pls) &&
         (est === '' || (est === 'act') === p.activo) && (!ems.length || ems.indexOf(datosDe(p).empresa) !== -1) &&
         (!dat || (dat === 'incompletos') === (faltantes(p).length > 0)) &&
         (!q || norm([p.n, p.c, p.p, datosDe(p).empresa].join(' ')).includes(q)));
@@ -932,7 +952,7 @@
             ${ctl('fechaRetiro', inactivo ? `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaRetiro" value="${esc(isoDe(valor('fechaRetiro')) || valor('fechaRetiro'))}" style="width:135px" aria-label="Fecha de retiro (obligatoria)" title="Obligatoria para desvincular"><input class="form-control form-control-sm ed mt-1" ${base} data-campo="obsRetiro" maxlength="300" value="${esc(valor('obsRetiro'))}" placeholder="Observaciones (opcional)" style="width:135px" aria-label="Observaciones del retiro">` : '<span class="text-muted small">—</span>')}</tr>`;
         }
         return `<tr class="fila-click ${p.activo ? '' : 'text-muted'}" data-accion="ficha" data-tipo="${p.tipo}" data-j="${p.j}" tabindex="0">
-          <td class="small">${esc(p.p)}</td><td class="fw-semibold">${esc(p.n)}</td><td>${ver('cedula')}</td><td>${ver('grupo')}</td><td class="text-nowrap">${ver('fechaIngreso')}</td>
+          <td class="small">${esc(p.p)}${p.otras && p.otras.length ? `<div class="text-muted" title="También en estas plantas (cuenta para la meta solo en la primera)">+ ${esc(p.otras.join(', '))}</div>` : ''}</td><td class="fw-semibold">${esc(p.n)}</td><td>${ver('cedula')}</td><td>${ver('grupo')}</td><td class="text-nowrap">${ver('fechaIngreso')}</td>
           <td>${falta.indexOf('empresa') !== -1 ? completar('empresa') : `<span class="badge ${p.tipo === 'HOLCIM' ? 'text-bg-primary' : 'bg-info-subtle text-info-emphasis'}">${esc(x.empresa)}</span>`}</td>
           <td>${ver('clase1')}</td>
           <td>${falta.indexOf('estado') !== -1 ? completar('estado') : `<span class="badge ${p.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>`}</td>
@@ -1012,8 +1032,8 @@
     }
     function csvBrigadistas() {
       if (!brig.visibles.length) return avisar('No hay brigadistas para descargar.', 'warning');
-      descargarCsv('brigadistas' + sufijoSede() + '.csv', [['Planta', 'Nombres y apellidos', 'Cédula', 'Grupo sanguíneo', 'Fecha de ingreso', 'Empresa', 'Brigadista Clase I', 'Estado', 'Fecha de retiro', 'Observaciones del retiro', 'Tipo', 'Sede', 'Certificado 0256', 'Cumplimiento', 'Datos por completar']]
-        .concat(brig.visibles.map(p => { const x = datosDe(p); return [p.p, p.n, x.cedula, x.grupo, x.fechaIngreso, x.empresa, x.clase1, x.estado || 'Activo', x.fechaRetiro, x.obsRetiro, p.tipo, p.sede, x.certificado, p.cump.pct === null ? '' : p.cump.pct + '%', faltantes(p).map(k => CAMPOS_B[k]).join(', ')]; })));
+      descargarCsv('brigadistas' + sufijoSede() + '.csv', [['Planta', 'Otras plantas', 'Nombres y apellidos', 'Cédula', 'Grupo sanguíneo', 'Fecha de ingreso', 'Empresa', 'Brigadista Clase I', 'Estado', 'Fecha de retiro', 'Observaciones del retiro', 'Tipo', 'Sede', 'Certificado 0256', 'Cumplimiento', 'Datos por completar']]
+        .concat(brig.visibles.map(p => { const x = datosDe(p); return [p.p, (p.otras || []).join(', '), p.n, x.cedula, x.grupo, x.fechaIngreso, x.empresa, x.clase1, x.estado || 'Activo', x.fechaRetiro, x.obsRetiro, p.tipo, p.sede, x.certificado, p.cump.pct === null ? '' : p.cump.pct + '%', faltantes(p).map(k => CAMPOS_B[k]).join(', ')]; })));
     }
 
     // ══════════ FICHA ══════════
@@ -1031,7 +1051,7 @@
       $('ficha-titulo').textContent = f.n;
       const dato = (k, v) => `<div class="col-sm-6 col-md-4"><div class="small text-muted">${k}</div><div class="fw-semibold">${v || '<span class="badge bg-warning-subtle text-warning-emphasis">Por completar</span>'}</div></div>`;
       let html = (falta.length && !editando ? `<div class="alert alert-warning small py-2"><i class="fa-solid fa-triangle-exclamation me-1"></i>Faltan: <b>${falta.map(k => CAMPOS_B[k]).join(', ')}</b>. Pulsa <b>Completar datos</b>.</div>` : '') +
-        `<div class="row g-3 mb-3">${dato('Planta', esc(f.p))}${dato('Cédula', falta.indexOf('cedula') !== -1 ? '' : esc(x.cedula))}${dato('Grupo sanguíneo', esc(x.grupo))}
+        `<div class="row g-3 mb-3">${dato('Planta', esc(f.p) + (f.otras && f.otras.length ? '<div class="small text-muted fw-normal">También en: ' + esc(f.otras.join(', ')) + '</div>' : ''))}${dato('Cédula', falta.indexOf('cedula') !== -1 ? '' : esc(x.cedula))}${dato('Grupo sanguíneo', esc(x.grupo))}
         ${dato('Fecha de ingreso', esc(x.fechaIngreso))}${dato('Empresa', esc(x.empresa))}${dato('Brigadista Clase I', esc(x.clase1))}
         ${dato('Estado', x.estado || f.tipo === 'INHOUSE' ? `<span class="badge ${f.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>` : '')}
         ${f.activo ? '' : dato('Fecha de retiro', esc(x.fechaRetiro))}${f.activo || !x.obsRetiro ? '' : dato('Observaciones del retiro', esc(x.obsRetiro))}${x.certificado ? dato('Certificado 0256', esc(x.certificado)) : ''}
@@ -1039,7 +1059,12 @@
       if (editando) {
         const op = (lista, v, vacio) => (vacio ? `<option value="">${vacio}</option>` : '') + (v && lista.indexOf(v) === -1 ? [v].concat(lista) : lista).map(o => `<option value="${esc(o)}" ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('');
         const inactivo = !f.activo;
+        const plantasFicha = unicos(((f.tipo === 'HOLCIM' ? catalogos.plantasHolcim : catalogos.plantasInhouse) || []).concat([f.p], f.otras || []));
         html += `<div class="border rounded p-3 bg-light"><h3 class="h6 fw-bold mb-3"><i class="fa-solid fa-pen me-1"></i>Completar o editar datos</h3><div class="row g-3">
+          <div class="col-md-4"><label class="form-label small" for="ed-planta">Planta <span class="text-muted">(cambiarla es un traslado)</span></label><select id="ed-planta" class="form-select form-select-sm">${plantasFicha.map(pl => `<option ${pl === f.p ? 'selected' : ''}>${esc(pl)}</option>`).join('')}<option value="__nueva">+ Nueva planta…</option></select>
+            <input id="ed-planta-nueva" class="form-control form-control-sm mt-1" maxlength="40" placeholder="Nombre de la planta nueva (LÍNEA - NOMBRE)" style="display:none"></div>
+          <div class="col-md-8"><div class="form-label small mb-1">Otras plantas <span class="text-muted">(también va a sus sesiones; para la meta cuenta solo en su planta)</span></div>
+            <div id="ed-otras" class="d-flex flex-wrap gap-2 small">${plantasFicha.filter(pl => pl !== f.p).map(pl => `<label class="form-check m-0 d-inline-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" data-otra="${esc(pl)}" ${(f.otras || []).indexOf(pl) !== -1 ? 'checked' : ''}>${esc(pl)}</label>`).join('')}</div></div>
           ${falta.indexOf('cedula') !== -1 ? `<div class="col-md-4"><label class="form-label small" for="ed-cedula">Cédula</label><input id="ed-cedula" class="form-control form-control-sm" inputmode="numeric" value="${esc(x.cedula)}"></div>` : ''}
           <div class="col-md-4"><label class="form-label small" for="ed-grupo">Grupo sanguíneo</label><select id="ed-grupo" class="form-select form-select-sm">${op(catalogos.grupos, x.grupo, '—')}</select></div>
           <div class="col-md-4"><label class="form-label small" for="ed-fechaIngreso">Fecha de ingreso</label><input type="date" id="ed-fechaIngreso" class="form-control form-control-sm" value="${esc(isoDe(x.fechaIngreso))}"></div>
@@ -1049,7 +1074,7 @@
           <div class="col-md-4 ed-retiro" id="ed-retiro-box" style="${inactivo ? '' : 'display:none'}"><label class="form-label small" for="ed-fechaRetiro">Fecha de retiro <span class="text-danger">*</span></label><input type="date" id="ed-fechaRetiro" class="form-control form-control-sm" value="${esc(isoDe(x.fechaRetiro))}"></div>
           <div class="col-md-8 ed-retiro" style="${inactivo ? '' : 'display:none'}"><label class="form-label small" for="ed-obsRetiro">Observaciones del retiro <span class="text-muted">(opcional)</span></label><input id="ed-obsRetiro" class="form-control form-control-sm" maxlength="300" placeholder="Motivo, a dónde se fue…" value="${esc(x.obsRetiro)}"></div>
           ${f.tipo === 'INHOUSE' || catalogos.holcimTieneCertificado ? `<div class="col-md-4"><label class="form-label small" for="ed-certificado">Certificado 0256</label><select id="ed-certificado" class="form-select form-select-sm">${op(catalogos.certificados, x.certificado, x.certificado ? '' : '—')}</select></div>` : ''}
-          </div><p class="small text-muted mt-2 mb-0">La planta y el nombre no se editan desde la app para no desordenar la hoja. Si la hoja no tiene la columna de un dato, se crea al guardar.</p></div>`;
+          </div><p class="small text-muted mt-2 mb-0">El nombre no se edita desde la app. Si cambias la planta, la persona pasa al grupo de esa planta en la hoja y conserva su asistencia. Si la hoja no tiene la columna de un dato, se crea al guardar.</p></div>`;
       }
       if (f.tipo === 'HOLCIM' && !editando) {
         const filas = D.sesiones.map(s => Object.assign({ s: s }, ses(f, s.i)));
@@ -1069,6 +1094,7 @@
       if (editando) $('ficha-pie').innerHTML = '<button class="btn btn-outline-secondary" data-accion="ficha-cancelar">Cancelar</button><button class="btn btn-success" data-accion="ficha-revisar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>';
       else pieFicha();
       if (editando) {
+        $('ed-planta').onchange = () => { const n = $('ed-planta').value === '__nueva'; $('ed-planta-nueva').style.display = n ? '' : 'none'; if (n) $('ed-planta-nueva').focus(); };
         $('ed-estado').onchange = () => { const d = /desvinculado/i.test($('ed-estado').value); document.querySelectorAll('#ficha-cuerpo .ed-retiro').forEach(e => { e.style.display = d ? '' : 'none'; }); if (d && !$('ed-fechaRetiro').value) $('ed-fechaRetiro').focus(); };
         const foco = campoFoco && $('ed-' + campoFoco);
         if (foco) setTimeout(() => foco.focus(), 350);
@@ -1172,25 +1198,42 @@
         const actual = esFecha ? isoDe(x[k]) || x[k] : x[k];
         if (v !== String(actual || '')) { cambios[k] = v; anteriores[k] = x[k] || ''; }
       });
+      // Planta (traslado) y otras plantas
+      let plantaNueva = false;
+      if ($('ed-planta')) {
+        let pl = $('ed-planta').value;
+        if (pl === '__nueva') {
+          pl = $('ed-planta-nueva').value.trim().replace(/\s+/g, ' ').toUpperCase();
+          if (pl.length < 2) { $('ed-planta-nueva').focus(); return avisar('Escribe el nombre de la planta nueva.', 'warning'); }
+          const ya = [...$('ed-planta').options].map(o => o.value).find(x => x !== '__nueva' && norm(x) === norm(pl));
+          if (ya) pl = ya; else plantaNueva = true;
+        }
+        if (pl && pl !== f.p) { cambios.planta = pl; anteriores.planta = f.p; }
+        const principal = cambios.planta || f.p;
+        const otras = [...document.querySelectorAll('#ed-otras input[data-otra]:checked')].map(x => x.dataset.otra).filter(x => x !== principal);
+        if (otras.slice().sort().join(', ') !== (f.otras || []).filter(x => x !== principal).sort().join(', ')) { cambios.otrasPlantas = otras.join(', '); anteriores.otrasPlantas = f.op || ''; }
+      }
       if (!Object.keys(cambios).length) return avisar('No cambiaste nada.', 'info');
       const fmt = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split('-').reverse().join('/') : v;
       $('conf-titulo').textContent = 'Confirmar cambios de ' + f.n;
       $('conf-cuerpo').innerHTML = '<table class="table table-sm mb-2"><thead><tr><th>Dato</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
         Object.keys(cambios).map(k => `<tr><td>${CAMPOS_B[k]}</td><td class="text-muted">${esc(anteriores[k] || '—')}</td><td class="fw-semibold">${esc(fmt(cambios[k]) || '—')}</td></tr>`).join('') + '</tbody></table>';
       $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar cambios';
-      $('conf-ok').onclick = () => guardarEdicion(cambios, anteriores);
+      if (cambios.planta) $('conf-cuerpo').innerHTML += `<p class="small mb-0"><i class="fa-solid fa-right-left me-1 text-primary"></i>Traslado: ${esc(f.n)} pasa a <b>${esc(cambios.planta)}</b>${plantaNueva ? ' (planta nueva)' : ''} y conserva su asistencia. Las sesiones que le aplican pasan a ser las de esa planta.</p>`;
+      $('conf-ok').onclick = () => guardarEdicion(cambios, anteriores, plantaNueva);
       modal('modal-ficha').hide(); modal('modal-confirmar').show();
     }
-    async function guardarEdicion(cambios, anteriores) {
+    async function guardarEdicion(cambios, anteriores, plantaNueva) {
       modal('modal-confirmar').hide(); ocupado(true);
       try {
-        const r = await api('actualizarBrigadista', E.token, { tipo: ficha.tipo, cedula: ficha.c, nombre: ficha.n, fila: ficha.r, cambios: cambios, anteriores: anteriores });
+        const r = await api('actualizarBrigadista', E.token, { tipo: ficha.tipo, cedula: ficha.c, nombre: ficha.n, fila: ficha.r, cambios: cambios, anteriores: anteriores, plantaNueva: !!plantaNueva });
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? (r.rechazos && r.rechazos.length ? 'warning' : 'success') : 'danger', 10000);
         if (!r.exito) { modal('modal-ficha').show(); return; }
         const fallidos = (r.rechazos || []).map(t => Object.keys(CAMPOS_B).find(c => t.indexOf(CAMPOS_B[c] + ':') === 0)).filter(Boolean);
         const ok = {}; Object.keys(cambios).forEach(c => { if (fallidos.indexOf(c) === -1) ok[c] = cambios[c]; });
+        if (ok.planta) { await cargarDatos(false); cargarVista(); return; } // el traslado mueve la fila en la hoja: se vuelve a leer
         aplicarDatos(ficha, ok);
         contarRevision();
         cargarVista();
@@ -1275,12 +1318,13 @@
       $('crono-mes').innerHTML = '<option value="">Todos los meses</option>' + meses.map(m => `<option value="${m}" ${m === mesAct ? 'selected' : ''}>${MESES_L[+m.slice(5) - 1]} ${m.slice(0, 4)}</option>`).join('');
       $('crono-modulo').innerHTML = opciones(unicos(D.cronoTodo.filter(enSede).map(c => c.ent)), modAct, 'Todos los temas');
       $('crono-estado').innerHTML = opciones(unicos(base.map(c => c.e)), estAct, 'Todos los estados');
+      pintarMultiSel('crono-planta', unicos(D.cronoTodo.filter(enSede).map(c => c.pl)), crono.plantas, 'Todas las plantas', 'plantas');
       pintarCronograma();
     }
     function pintarCronograma() {
       const q = norm($('crono-buscar').value), mes = $('crono-mes').value, mod = $('crono-modulo').value, est = $('crono-estado').value;
       const na = crono.cuando === 'noaplica';
-      const lista = D.cronoTodo.filter(c => enSede(c) && (na ? c.na : !c.na) && (!mes || (c.i || '').startsWith(mes)) && (!mod || c.ent === mod) && (!est || c.e === est) &&
+      const lista = D.cronoTodo.filter(c => enSede(c) && (na ? c.na : !c.na) && (!crono.plantas.length || crono.plantas.indexOf(c.pl) !== -1) && (!mes || (c.i || '').startsWith(mes)) && (!mod || c.ent === mod) && (!est || c.e === est) &&
         (!crono.cuando || na || (crono.cuando === 'proximas' && c.i && c.i >= D.hoy) || (crono.cuando === 'pasadas' && c.i && c.i < D.hoy) || (crono.cuando === 'sinfecha' && !c.i)) &&
         (!q || norm([c.ent, c.pl, c.obs, c.e, c.pre, c.cl].join(' ')).includes(q)))
         .sort((a, b) => crono.cuando === 'pasadas' ? ((a.i || '') < (b.i || '') ? 1 : -1) : ((a.i || '9') < (b.i || '9') ? -1 : (a.i || '9') > (b.i || '9') ? 1 : a.fila - b.fila || a.b - b.b));
