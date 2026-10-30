@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.13.0';
+const SIGBE_VERSION = '4.14.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -174,7 +174,7 @@ function sigbeClaveModelo_() { return 'sigbe_m_' + SIGBE_VERSION + '_' + sigbeGe
  *  seguimiento: [{ cap, pl, f, i, ah, ac, tot, ej, inf, cl }]  (pestaña "2026 Seguimiento": sesiones realizadas y asistentes)
  */
 function sigbeConstruirModelo_() {
-  const F = sigbeFuentes_();
+  const F = sigbeFuentesAbiertas_(); // el modelo usa los dos archivos (y así ya están sus avisos)
   const avisos = F.avisos.slice();
   const h = sigbeLeerHolcim_(sigbeHoja_(F.asistencia, SIGBE_HOJA_HOLCIM));
   let crono = { bloques: [], filas: [] };
@@ -245,7 +245,7 @@ function sigbeConstruirModelo_() {
     })(),
     indicadorSinFila: indicadorSinFila,
     seguimiento: seguimiento,
-    restr: (() => { try { return sigbeRestricciones_(); } catch (e) { avisos.push('Restricciones médicas: ' + e.message); return {}; } })(),
+    restr: (() => { try { return sigbeRestriccionesEfectivas_(h.personas.map(p => p.cedula).concat(inhouse.map(p => p.c))); } catch (e) { avisos.push('Restricciones médicas: ' + e.message); return {}; } })(),
     evid: (() => { try { return sigbeEvidenciasResumen_(); } catch (e) { return {}; } })(), // 'Sede|M1|1' → [listas firmadas, fotos]
     sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1).concat(sedes.filter(s => !SIGBE_SEDES.some(x => x[0] === s))),
   };
@@ -300,15 +300,20 @@ function sigbeHojaRestricciones_(crear) {
   let sh = ss.getSheetByName(SIGBE_HOJA_RESTRICCIONES);
   if (!sh && crear) {
     sh = ss.insertSheet(SIGBE_HOJA_RESTRICCIONES);
-    sh.getRange(1, 1, 1, 7).setValues([['Fecha', 'Registró', 'Cédula', 'Nombre', 'Planta', 'Restricción', 'Vigente hasta']])
+    sh.getRange(1, 1, 1, 8).setValues([['Fecha', 'Registró', 'Cédula', 'Nombre', 'Planta', 'Restricción', 'Vigente hasta', 'Origen']])
       .setFontWeight('bold').setBackground('#1a252f').setFontColor('#ffffff');
     sh.setFrozenRows(1);
     try { sh.protect().setDescription('Restricciones médicas (dato de salud): solo la app escribe aquí').setWarningOnly(true); } catch (e) { /* sin permiso */ }
+  } else if (sh && crear && !String(sh.getRange(1, 8).getValue()).trim()) {
+    sh.getRange(1, 8).setValue('Origen').setFontWeight('bold').setBackground('#1a252f').setFontColor('#ffffff'); // hoja de la 4.13
   }
   return sh;
 }
 
-/** Restricciones vigentes por cédula: { cedula: { r: texto, h: 'yyyy-MM-dd' | '', f: fecha de registro, u: quién } }. */
+/**
+ * Lo ajustado en SIGBE, por cédula: { cedula: { r: texto ('' = sin restricción, a propósito), h: 'yyyy-MM-dd' | '',
+ * f: fecha, u: quién } }. Una fila con Origen «GSTOR» quita el ajuste: vuelve a valer lo de GSTOR.
+ */
 function sigbeRestricciones_() {
   const clave = 'sigbe_restr_' + (prop_('SIGBE_RESTR_GEN') || '0');
   const enCache = sigbeCacheLeer_(clave);
@@ -317,11 +322,11 @@ function sigbeRestricciones_() {
   const dia = v => v instanceof Date ? Utilities.formatDate(v, zona, 'yyyy-MM-dd') : String(v || '').trim();
   const sh = sigbeHojaRestricciones_(false);
   if (sh && sh.getLastRow() > 1) {
-    sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues().forEach(f => {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().forEach(f => {
       const ced = String(f[2]).replace(/\D/g, '');
       if (!ced) return;
-      const r = String(f[5] || '').trim();
-      if (r) o[ced] = { r: r, h: dia(f[6]), f: dia(f[0]), u: String(f[1] || '').trim() }; else delete o[ced];
+      if (/^GSTOR$/i.test(String(f[7] || '').trim())) { delete o[ced]; return; }
+      o[ced] = { r: String(f[5] || '').trim(), h: dia(f[6]), f: dia(f[0]), u: String(f[1] || '').trim() };
     });
   }
   sigbeCacheGuardar_(clave, o, 360); // solo cambia desde la app (y entonces cambia la clave)
@@ -332,31 +337,96 @@ function sigbeRestricciones_() {
 function guardarRestriccion(token, d) {
   const lock = LockService.getScriptLock();
   try {
-    if (sigbeRol_(sigbeExigirSesion_(token)) === 'holcim') return { exito: false, mensaje: 'Las restricciones médicas las registra Ambipar (o un gestor).' };
-    const usuario = sigbeExigirRol_(token, ['gestor', 'proveedor']);
-    const ced = String((d && d.cedula) || '').replace(/\D/g, '');
-    const texto = String((d && d.restriccion) || '').replace(/\s+/g, ' ').trim().slice(0, 300);
-    const hasta = String((d && d.hasta) || '').trim();
-    if (!ced) return { exito: false, mensaje: 'Elige el brigadista.' };
-    if (hasta && !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) return { exito: false, mensaje: 'La fecha «vigente hasta» no es válida.' };
+    const usuario = sigbeExigirRol_(token, ['gestor', 'holcim', 'proveedor']);
     if (!sigbeBloquear_(lock, 20000)) return { exito: false, mensaje: 'El sistema está ocupado, intenta de nuevo en unos segundos.' };
-    const F = sigbeFuentes_();
-    const quien = sigbeQuienTieneCedula_(F, ced, {});
-    if (!quien) return { exito: false, mensaje: 'La cédula ' + ced + ' no está en las listas de brigadistas.' };
-    const antes = sigbeRestricciones_()[ced];
-    if (!texto && !antes) return { exito: true, mensaje: quien.n + ' no tenía restricción médica.', restr: sigbeRestricciones_() };
-    const sh = sigbeHojaRestricciones_(true);
-    sh.appendRow([new Date(), sigbeTxt_(sigbeEtiquetaUsuario_(usuario)), ced, sigbeTxt_(quien.n), sigbeTxt_(quien.p), sigbeTxt_(texto), hasta ? sigbeFecha_(hasta) : '']);
-    props_().setProperty('SIGBE_RESTR_GEN', String(Date.now()));
-    const que = !texto ? 'Levantada' : antes ? 'Actualizada' : 'Registrada';
-    sigbeBitacora_(usuario, [['Restricción médica', SIGBE_HOJA_RESTRICCIONES, sh.getLastRow(), ced, quien.n, 'Restricción médica', antes ? 'Registrada' : '', que]]);
-    sigbeInvalidar_();
-    return { exito: true, mensaje: 'Restricción médica de ' + quien.n + ': ' + que.toLowerCase() + '.', restr: sigbeRestricciones_() };
+    const r = sigbeRestriccion_(usuario, sigbeFuentes_(), d && d.cedula, d && d.restriccion, d && d.hasta, d && d.volverGstor);
+    r.restrCambios = sigbeRestrCambio_(d && d.cedula);
+    return r;
   } catch (e) {
     return { exito: false, mensaje: e.message };
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * La guarda (con el bloqueo ya tomado): desde su pantalla o desde la ficha del brigadista (actualizarBrigadistasLote).
+ * Lo que se guarda en SIGBE manda sobre lo de GSTOR (también «sin restricción»); volverGstor quita ese ajuste.
+ */
+function sigbeRestriccion_(usuario, F, cedula, restriccion, hastaIso, volverGstor) {
+  const ced = String(cedula || '').replace(/\D/g, '');
+  const texto = volverGstor ? '' : String(restriccion || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const hasta = texto ? String(hastaIso || '').trim() : '';
+  if (!ced) return { exito: false, mensaje: 'Para la restricción médica hace falta la cédula del brigadista.' };
+  if (hasta && !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) return { exito: false, mensaje: 'La fecha «vigente hasta» no es válida.' };
+  const quien = sigbeQuienTieneCedula_(F, ced, {});
+  if (!quien) return { exito: false, mensaje: 'La cédula ' + ced + ' no está en las listas de brigadistas.' };
+  const ajuste = sigbeRestricciones_()[ced], ahora = sigbeRestriccionesEfectivas_([ced])[ced] || { r: '', h: '' };
+  let que;
+  if (volverGstor) {
+    if (!ajuste) return { exito: true, cambio: false, mensaje: 'La restricción de ' + quien.n + ' ya es la de GSTOR.' };
+    que = 'Vuelve a la de GSTOR';
+  } else {
+    if (ahora.r === texto && (ahora.h || '') === hasta) return { exito: true, cambio: false, mensaje: 'La restricción médica de ' + quien.n + ' no cambió.' };
+    que = !texto ? 'Sin restricción' : ahora.r ? 'Actualizada' : 'Registrada';
+  }
+  const sh = sigbeHojaRestricciones_(true);
+  sh.appendRow([new Date(), sigbeTxt_(sigbeEtiquetaUsuario_(usuario)), ced, sigbeTxt_(quien.n), sigbeTxt_(quien.p), sigbeTxt_(texto), hasta ? sigbeFecha_(hasta) : '', volverGstor ? 'GSTOR' : 'SIGBE']);
+  props_().setProperty('SIGBE_RESTR_GEN', String(Date.now()));
+  sigbeBitacora_(usuario, [['Restricción médica', SIGBE_HOJA_RESTRICCIONES, sh.getLastRow(), ced, quien.n, 'Restricción médica', ahora.r ? 'Tenía' : 'Sin restricción', que]]);
+  sigbeInvalidar_();
+  return { exito: true, cambio: true, que: que, mensaje: 'Restricción médica de ' + quien.n + ': ' + que.toLowerCase() + '.' };
+}
+
+/**
+ * Restricción médica y examen médico que trae GSTOR (los toma del D6; GSTOR solo los lee de su copia):
+ * { cedula: { r: 'Alturas', v: vencimiento del examen } }. Caché de 6 horas, que la tarea de cada hora renueva.
+ * {} si GSTOR no está conectado, no responde o todavía no tiene la acción «restricciones».
+ */
+function sigbeRestriccionesGstor_(renovar) {
+  if (!sigbeGstorConectado_()) return {};
+  const clave = 'sigbe_restr_gstor';
+  if (!renovar) { const c = sigbeCacheLeer_(clave); if (c) return c; }
+  const o = {};
+  let bien = false;
+  try {
+    const j = sigbeGstor_({ accion: 'restricciones' });
+    if (j.ok) {
+      bien = true;
+      (j.lista || []).forEach(x => {
+        const c = String(x.cedula || '').replace(/\D/g, '');
+        if (c) o[c] = { r: String(x.restriccion || '').replace(/\s+/g, ' ').trim().slice(0, 120), v: String(x.vence || '').trim().slice(0, 30) };
+      });
+    } else console.log('GSTOR (restricciones): ' + (j.error || 'sin respuesta'));
+  } catch (e) { console.log('GSTOR no responde (restricciones): ' + e.message); }
+  sigbeCacheGuardar_(clave, o, bien ? 360 : 10); // si falló, se vuelve a intentar en 10 minutos
+  return o;
+}
+
+/** «Sin restricción», «Ninguna», «No», vacío… = no tiene. */
+function sigbeSinRestriccion_(t) { return !String(t || '').trim() || /^(sin|ningun|no\b|n\/a|na$)/i.test(sigbeNorm_(t)); }
+
+/**
+ * Lo que vale para cada cédula: lo ajustado en SIGBE o, si no hay, lo de GSTOR. cedulas: solo esas (las de las listas).
+ * { cedula: { r: texto ('' = sin restricción), h, o: 'sigbe' | 'gstor', f, u, g: lo de GSTOR, ev: vence el examen } }
+ */
+function sigbeRestriccionesEfectivas_(cedulas) {
+  const s = sigbeRestricciones_(), g = sigbeRestriccionesGstor_(), o = {};
+  const quiero = cedulas ? cedulas.map(c => String(c || '').replace(/\D/g, '')).filter(Boolean) : Object.keys(s).concat(Object.keys(g));
+  quiero.forEach(c => {
+    if (o[c]) return;
+    const gs = g[c] && !sigbeSinRestriccion_(g[c].r) ? g[c].r : '', ev = g[c] ? g[c].v : '';
+    if (s[c]) o[c] = { r: s[c].r, h: s[c].h, o: 'sigbe', f: s[c].f, u: s[c].u, g: gs, ev: ev };
+    else if (gs || ev) o[c] = { r: gs, h: '', o: 'gstor', g: gs, ev: ev };
+  });
+  return o;
+}
+
+/** Para la pantalla, después de guardar: { cedula: lo que vale ahora (o null) }. */
+function sigbeRestrCambio_(cedula) {
+  const c = String(cedula || '').replace(/\D/g, ''), o = {};
+  if (c) o[c] = sigbeRestriccionesEfectivas_([c])[c] || null;
+  return o;
 }
 
 // ═════════════════════════════ EVIDENCIAS: LISTA FIRMADA Y FOTOS DE CADA SESIÓN ═════════════════════════════
@@ -669,23 +739,23 @@ function sigbeGuardarAsistencia_(token, cambios) {
     const sesiones = claves.map(k => h.sesiones.find(x => x.key === k));
     const perdidas = claves.filter((k, i) => !sesiones[i]);
     if (perdidas.length) return { exito: false, mensaje: 'No se encontró la columna de asistencia (' + perdidas.join(', ') + '). ¿Cambió el encabezado?' };
-    // El cronograma solo se lee si se va a marcar (quitar siempre se puede)
+    // ¿La sesión aplica? Se responde con el modelo en caché (ya calculado con el cronograma, igual que en la pantalla):
+    // así no se abre el 1.0 ni se lee el cronograma en cada guardado. Si no hay modelo en caché, o es de otra lista
+    // (otras sesiones), se lee el cronograma. Quitar una marca siempre se puede.
+    const modelo = sigbeCacheLeer_(sigbeClaveModelo_()), keys = h.sesiones.map(s => s.key);
+    const modeloSirve = !!(modelo && modelo.plantas && modelo.sesiones && modelo.sesiones.length === keys.length && modelo.sesiones.every((s, i) => s.key === keys[i]));
     let crono = null;
-    if (cambios.some(c => c.valor === true)) { try { crono = sigbeLeerCronograma_(sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA)); } catch (e) { crono = null; } }
+    if (!modeloSirve && cambios.some(c => c.valor === true)) { try { crono = sigbeLeerCronograma_(sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA)); } catch (e) { crono = null; } }
     const info = {};
-    const aplica = (p, s) => {
-      if (!crono) return true;
+    const infoSesion = (p, s) => { // { a: aplica, i: fecha yyyy-MM-dd } de esa sesión en la planta de la persona
+      if (modeloSirve) { const pl = modelo.plantas[p.planta]; return (pl && pl.s[keys.indexOf(s.key)]) || null; }
+      if (!crono) return null;
       if (!info[p.planta]) info[p.planta] = sigbeInfoPlanta_(crono, p.planta, sesiones, h.personas.filter(x => x.planta === p.planta));
-      return info[p.planta].s[sesiones.indexOf(s)].a === 1;
+      return info[p.planta].s[sesiones.indexOf(s)];
     };
+    const aplica = (p, s) => { const x = infoSesion(p, s); return !x || x.a === 1; };
     // Una sesión anterior a la fecha de ingreso a la brigada no le correspondía (igual que en la pantalla)
-    const antesDelIngreso = (p, s) => {
-      const ing = sigbeIso_(p.fechaIngreso);
-      if (!ing || !crono) return false;
-      aplica(p, s);
-      const iso = info[p.planta].s[sesiones.indexOf(s)].i;
-      return !!iso && iso < ing;
-    };
+    const antesDelIngreso = (p, s) => { const ing = sigbeIso_(p.fechaIngreso), x = infoSesion(p, s); return !!(ing && x && x.i && x.i < ing); };
 
     sigbeRespaldoHoy_(F.asistencia, true);
     const conflictos = [], bitacora = [], aplicados = [], porSede = {}, escribir = [];
@@ -715,9 +785,8 @@ function sigbeGuardarAsistencia_(token, cambios) {
     });
     sigbeEscribirCeldas_(sh, escribir);
     if (guardados) {
-      const viejo = sigbeCacheLeer_(sigbeClaveModelo_()); // el modelo de antes de guardar (si estaba en caché)
       sigbeTrasGuardar_(F, usuario, bitacora);
-      sigbeParcharModelo_(viejo, h, escribir);
+      sigbeParcharModelo_(modelo, h, escribir); // el modelo de antes de guardar (si estaba en caché), con las casillas nuevas
       const eventos = [];
       Object.keys(porSede).forEach(sd => Object.keys(porSede[sd]).forEach(k => {
         const x = porSede[sd][k];
@@ -853,7 +922,7 @@ function actualizarBrigadista(token, data) {
   const r = actualizarBrigadistasLote(token, [data]);
   if (!r.exito) return r;
   const x = r.resultados[0] || {};
-  return { exito: x.exito, mensaje: x.mensaje, rechazos: x.rechazos || [] };
+  return { exito: x.exito, mensaje: x.mensaje, rechazos: x.rechazos || [], restrCambios: r.restrCambios };
 }
 
 /** Varios a la vez (edición en la tabla). lista: [data como en actualizarBrigadista] */
@@ -885,6 +954,7 @@ function actualizarBrigadistasLote(token, lista) {
       return dv && dv.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST ? dv.getCriteriaValues()[0].map(String) : null;
     };
     const bitacora = [], resultados = [], celdas = { HOLCIM: [], INHOUSE: [] }, cedulasNuevas = {}, traslados = [];
+    const restrCambios = {};
     let total = 0;
     lista.forEach(data => {
       const H = hoja(data.tipo === 'INHOUSE' ? 'INHOUSE' : 'HOLCIM');
@@ -892,6 +962,14 @@ function actualizarBrigadistasLote(token, lista) {
       if (!p) { resultados.push({ exito: false, nombre: data.nombre, mensaje: 'No se encontró a ' + data.nombre + ' en la hoja.', rechazos: [] }); return; }
       const cambios = Object.assign({}, data.cambios || {}), anteriores = data.anteriores || {};
       const escrituras = [], rechazos = [];
+      // La restricción médica no va en la lista: se guarda aparte (pestaña de restricciones), como desde su pantalla
+      let restr = null;
+      if ('restriccion' in cambios || cambios.restriccionGstor) {
+        restr = sigbeRestriccion_(usuario, F, p.cedula, cambios.restriccion, cambios.restriccionHasta, !!cambios.restriccionGstor);
+        if (!restr.exito) rechazos.push('Restricción médica: ' + restr.mensaje);
+        else if (restr.cambio) Object.assign(restrCambios, sigbeRestrCambio_(p.cedula));
+      }
+      delete cambios.restriccion; delete cambios.restriccionHasta; delete cambios.restriccionGstor;
       // Desvincular pide la fecha de retiro (las observaciones del retiro son opcionales)
       if ('estado' in cambios || 'fechaRetiro' in cambios) {
         const cE = sigbeColCampo_(H.t, 'estado', H.inhouse), cF = sigbeColCampo_(H.t, 'fechaRetiro', H.inhouse);
@@ -969,9 +1047,11 @@ function actualizarBrigadistasLote(token, lista) {
         const tr = escrituras.find(e => e.campo === 'planta');
         if (tr) traslados.push({ H: H, cedula: p.cedula, nombre: p.nombre, planta: tr.valor });
       }
-      resultados.push({ exito: !!escrituras.length || !rechazos.length, nombre: p.nombre, rechazos: rechazos,
-        mensaje: escrituras.length ? escrituras.length + ' dato(s) actualizado(s) de ' + p.nombre + (rechazos.length ? '. No se aplicó: ' + rechazos.join('; ') : '.')
+      const hechos = escrituras.length + (restr && restr.cambio ? 1 : 0);
+      resultados.push({ exito: !!hechos || !rechazos.length, nombre: p.nombre, rechazos: rechazos,
+        mensaje: hechos ? hechos + ' dato(s) actualizado(s) de ' + p.nombre + (rechazos.length ? '. No se aplicó: ' + rechazos.join('; ') : '.')
           : (rechazos.length ? 'No se guardó: ' + rechazos.join('; ') : 'No había cambios.') });
+      if (restr && restr.cambio) total++;
     });
     Object.keys(celdas).forEach(k => { if (celdas[k].length) sigbeEscribirCeldas_(hojas[k].sh, celdas[k]); });
     // Traslados: después de escribir todo (mover filas cambia los números de fila)
@@ -982,7 +1062,7 @@ function actualizarBrigadistasLote(token, lista) {
     if (trasladoHolcim) { try { props_().deleteProperty('LIBRO_NUEVO_HUELLA_CRONO_CORTE'); } catch (e) { /* corre con la tarea de cada hora */ } }
     if (bitacora.length) sigbeTrasGuardar_(F, usuario, bitacora, trasladoHolcim);
     const conRechazos = resultados.filter(r => r.rechazos && r.rechazos.length);
-    return { exito: true, guardados: total, resultados: resultados,
+    return { exito: true, guardados: total, resultados: resultados, restrCambios: Object.keys(restrCambios).length ? restrCambios : undefined,
       mensaje: total + ' dato(s) guardado(s)' + (conRechazos.length ? '; ' + conRechazos.length + ' persona(s) con datos que no se aplicaron.' : '.') };
   } catch (e) {
     return { exito: false, mensaje: e.message };
@@ -1955,7 +2035,7 @@ function diagnosticoSistema(token) {
   add('info', 'Corte', corte ? 'Hecho el ' + corte + ': la app lee y guarda en el libro nuevo.' : 'Todavía no: la asistencia se lee y guarda en el 2.0 y lo demás en el 1.0; el libro nuevo es un espejo.');
 
   let F = null;
-  try { F = sigbeFuentes_(); F.avisos.forEach(a => add('aviso', 'Fuente de datos', a, 'Revisa el acceso al archivo en Configuración.')); }
+  try { F = sigbeFuentesAbiertas_(); F.avisos.forEach(a => add('aviso', 'Fuente de datos', a, 'Revisa el acceso al archivo en Configuración.')); }
   catch (e) { add('error', 'Fuente de datos', e.message); }
 
   if (F) {
@@ -2566,10 +2646,11 @@ function sigbeEstadoSetup_() {
   let datosOk = false, datosError = '';
   const configurado = !!(idDestino_() || lnIdLibro_());
   if (configurado) {
-    // Abrir los archivos solo para comprobar el acceso tarda: si abrieron bien hace menos de 10 minutos, no se repite
+    // Abrir los archivos solo para comprobar el acceso tarda: si abrieron bien hace menos de una hora, no se repite
+    // (si después fallan, el error sale al leer los datos)
     const cache = CacheService.getScriptCache();
     if (cache.get('sigbe_fuentes_ok') === '1') datosOk = true;
-    else { try { sigbeFuentes_(); datosOk = true; cache.put('sigbe_fuentes_ok', '1', 600); } catch (e) { datosError = e.message; } }
+    else { try { sigbeFuentesAbiertas_(); datosOk = true; cache.put('sigbe_fuentes_ok', '1', 3600); } catch (e) { datosError = e.message; } }
   }
   return {
     listo: credenciales && datosOk,
@@ -2797,28 +2878,48 @@ function sigbeAbrir_(id) {
 function sigbeFuentes_() {
   if (sigbeFuentesCache_) return sigbeFuentesCache_;
   const corte = !!prop_('LIBRO_NUEVO_CORTE');
-  // El libro nuevo solo se abre si hace falta (abrir un archivo tarda): después del corte, como respaldo
-  // de lectura, o para el historial.
-  let libroAbierto = false, libroCache = null;
-  const libro = () => { if (!libroAbierto) { libroAbierto = true; libroCache = sigbeAbrir_(lnIdLibro_()); } return libroCache; };
+  // Cada archivo se abre recién cuando se usa (abrir uno tarda casi un segundo): guardar asistencia no abre el 1.0,
+  // guardar el cronograma no abre el 2.0, y el libro nuevo solo se abre para el historial o como respaldo de lectura.
+  const abiertos = {};
+  const abrir = (k, f) => (k in abiertos ? abiertos[k] : (abiertos[k] = f()));
   const cfg = configOrigen_();
-  const v1 = corte ? null : sigbeAbrir_(cfg.modo === 'configurado' ? cfg.id : '');
-  const v2 = corte ? null : sigbeAbrir_(idDestino_());
-  const avisos = [];
-  const soloLectura = {};
-  let asistencia = corte ? libro() : v2, datos = corte ? libro() : v1;
-  if (!asistencia && !corte && libro()) { asistencia = libro(); soloLectura.asistencia = true; avisos.push('El 2.0 no se puede abrir: se muestra la copia del libro nuevo y no se puede guardar asistencia.'); }
-  if (!datos && !corte && libro()) { datos = libro(); soloLectura.datos = true; if (cfg.modo === 'configurado') avisos.push('El 1.0 no se puede abrir: se muestra la copia del libro nuevo y no se pueden guardar contratistas.'); }
-  if (!datos && !corte && v2) { datos = v2; avisos.push('No hay 1.0 ni libro nuevo: el cronograma y lo demás se leen del 2.0 (puede estar desactualizado).'); }
-  if (!asistencia) throw new Error(corte ? 'No se puede abrir el libro nuevo (LIBRO_NUEVO_ID).' : 'No se puede abrir el 2.0 (lista de asistencia). Revisa su URL en Configuración y que la cuenta ' + cuentaScript_() + ' tenga acceso.');
-  if (!datos) throw new Error('No se puede abrir el 1.0 (archivo original). Revisa su URL en Configuración.');
-  sigbeFuentesCache_ = { corte: corte, v1: v1, v2: v2, asistencia: asistencia, datos: datos, avisos: avisos, soloLectura: soloLectura };
-  Object.defineProperty(sigbeFuentesCache_, 'libro', { get: libro });
-  Object.defineProperty(sigbeFuentesCache_, 'registro', { get: () => libro() || v2 || v1 || asistencia });
-  return sigbeFuentesCache_;
+  const libro = () => abrir('libro', () => sigbeAbrir_(lnIdLibro_()));
+  const v1 = () => (corte ? null : abrir('v1', () => sigbeAbrir_(cfg.modo === 'configurado' ? cfg.id : '')));
+  const v2 = () => (corte ? null : abrir('v2', () => sigbeAbrir_(idDestino_())));
+  const avisos = [], soloLectura = {};
+  const delLibro = () => { const l = libro(); if (!l) throw new Error('No se puede abrir el libro nuevo (LIBRO_NUEVO_ID).'); return l; };
+  const asistencia = () => abrir('asistencia', () => {
+    if (corte) return delLibro();
+    if (v2()) return v2();
+    if (libro()) { soloLectura.asistencia = true; avisos.push('El 2.0 no se puede abrir: se muestra la copia del libro nuevo y no se puede guardar asistencia.'); return libro(); }
+    throw new Error('No se puede abrir el 2.0 (lista de asistencia). Revisa su URL en Configuración y que la cuenta ' + cuentaScript_() + ' tenga acceso.');
+  });
+  const datos = () => abrir('datos', () => {
+    if (corte) return delLibro();
+    if (v1()) return v1();
+    if (libro()) { soloLectura.datos = true; if (cfg.modo === 'configurado') avisos.push('El 1.0 no se puede abrir: se muestra la copia del libro nuevo y no se pueden guardar contratistas.'); return libro(); }
+    if (v2()) { avisos.push('No hay 1.0 ni libro nuevo: el cronograma y lo demás se leen del 2.0 (puede estar desactualizado).'); return v2(); }
+    throw new Error('No se puede abrir el 1.0 (archivo original). Revisa su URL en Configuración.');
+  });
+  const F = { corte: corte, avisos: avisos, soloLectura: soloLectura };
+  Object.defineProperty(F, 'v1', { get: v1 });
+  Object.defineProperty(F, 'v2', { get: v2 });
+  Object.defineProperty(F, 'asistencia', { get: asistencia });
+  Object.defineProperty(F, 'datos', { get: datos });
+  Object.defineProperty(F, 'libro', { get: libro });
+  Object.defineProperty(F, 'registro', { get: () => libro() || v2() || v1() || asistencia() });
+  return (sigbeFuentesCache_ = F);
+}
+
+/** Abre los dos archivos de trabajo (para los avisos de acceso o para comprobar que se pueden abrir). */
+function sigbeFuentesAbiertas_() {
+  const F = sigbeFuentes_();
+  if (!F.asistencia || !F.datos) throw new Error('No se pudieron abrir los archivos.');
+  return F;
 }
 
 function sigbeExigirEscritura_(F, que) {
+  if (!F[que]) throw new Error('No se pudo abrir el archivo.'); // abre el archivo (y deja dicho si quedó de solo lectura)
   if (F.soloLectura[que]) {
     throw new Error(que === 'asistencia'
       ? 'Ahora mismo el 2.0 no se puede abrir: la app muestra una copia y no puede guardar asistencia. Revisa el acceso al 2.0 en Estado del sistema.'

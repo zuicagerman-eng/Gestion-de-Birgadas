@@ -126,6 +126,7 @@ function libroNuevoActualizar(e) {
   if (props_().getProperty('LIBRO_NUEVO_CORTE')) {
     try { const t = lnReorganizarTrasCorte_(); if (t) r.resumen += '\n' + t; } catch (e) { r.resumen += '\n✖ Reorganizar la lista con el cronograma: ' + e.message; r.error = true; }
   }
+  try { sigbeRestriccionesGstor_(true); } catch (e) { console.log('Restricciones de GSTOR: ' + e.message); } // antes de rehacer los datos
   try { vig = sigbeVigilar_(); } catch (e) { vig = '✖ Revisión de cambios en el Excel: ' + e.message; }
   try { sigbeRespaldosDelDia_(); } catch (e) { console.log('Respaldo del día: ' + e.message); }
   const texto = r.resumen + (vig ? '\n' + vig : '');

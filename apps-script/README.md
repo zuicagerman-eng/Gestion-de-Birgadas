@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.13.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.14.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -84,10 +84,17 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   no está en el Indicador se avisa. **Traer faltantes** (en Brigadistas) busca en otras pestañas del 1.0 y el 2.0 personas
   que no están en las listas, para registrarlas en la app. El Dashboard muestra la misma vista de Cobertura.
 - **Sede** (arriba): se pueden elegir varias a la vez (o "solo" una); todas las vistas filtran por esas sedes.
-- **Restricciones médicas** (Asistencia y capacitaciones): aparte de los datos del brigadista, en la pestaña
-  `Restricciones médicas SIGBE` del libro de registro. Las registra, cambia o levanta **Ambipar** (o un gestor); Holcim
-  las consulta. Cada cambio es una fila nueva (queda la historia); vale la última de cada cédula. Pueden tener «vigente
-  hasta». El historial de cambios solo dice «registrada / actualizada / levantada», sin el detalle (es un dato de salud).
+- **Restricciones médicas**: vienen de **GSTOR** (que las toma del D6, columna «RESTRICCION MEDICA», junto con el
+  vencimiento del examen médico) por el puente (`accion: 'restricciones'`; ver `PROMPT_GSTOR_RESTRICCIONES.md`), con caché
+  de 6 horas que la tarea de cada hora renueva. «Sin restricción» cuenta como que no tiene. Lo que se ajuste en SIGBE
+  **manda** sobre lo de GSTOR (también «sin restricción» a propósito) y se ve «ajustada en SIGBE» junto a lo que dice
+  GSTOR; **Volver a la de GSTOR** quita el ajuste. El D6 no se toca. Se editan **en la ficha del brigadista** (Editar → «Restricción médica» y «vigente hasta»,
+  con los demás datos; vacío = se levanta). Ambipar, que no edita los demás datos, tiene en la ficha el botón
+  **Restricción médica**. También hay una pantalla con la lista (Asistencia y capacitaciones → Restricciones médicas).
+  La registran Ambipar, Holcim o un gestor. Se guardan aparte de la lista de brigadistas, en la pestaña
+  `Restricciones médicas SIGBE` del libro de registro: cada cambio es una fila nueva (queda la historia) y vale la última
+  de cada cédula. Salen en rojo en la lista de asistencia y en la ficha. El historial de cambios solo dice «registrada /
+  actualizada / levantada», sin el detalle (es un dato de salud).
 - **Revisión de datos**: posibles errores con filtros por gravedad y tipo (ver abajo).
 - **Historial de cambios**: lo hecho desde la app y lo detectado en el Excel, con filtros y CSV.
 - **Temarios** y **Otras hojas** (Seguimiento, Datos de contacto, Evacuadores…): consulta con buscador y filtros.
@@ -227,7 +234,10 @@ navegador, sin volver a leer las hojas. Arriba se ve la hora de los datos y el b
 
 - Registrar, trasladar, programar el cronograma, agregar sesiones, crear módulos y traer faltantes usan `guardarYLeer`:
   guardan y devuelven los datos ya actualizados en la misma llamada (antes eran dos idas al servidor).
-- Guardar asistencia corrige la copia en caché con las casillas escritas, en vez de obligar a releer todo.
+- Guardar asistencia corrige la copia en caché con las casillas escritas, en vez de obligar a releer todo, y para saber
+  si una sesión aplica usa esa misma copia (ya calculada con el cronograma): no abre el 1.0 ni lee el cronograma.
+- Cada archivo se abre recién cuando se usa (`sigbeFuentes_`): guardar asistencia o datos de un brigadista Holcim no
+  abre el 1.0, y guardar el cronograma no abre el 2.0.
 - Hasta el corte, la copia al libro nuevo (~1 minuto después de guardar y cada hora) ya no frena los guardados de los
   demás: no toma el bloqueo mientras copia (una marca evita que corran dos copias a la vez; el corte espera a que
   termine). Lo más rápido igual es hacer el corte: desde entonces la app abre un solo archivo.

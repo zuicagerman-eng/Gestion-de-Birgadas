@@ -191,7 +191,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.13.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.14.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -565,11 +565,12 @@
               <h1 class="titulo-vista mb-0 me-auto" id="t-restr">Restricciones médicas</h1>
               <button class="btn btn-sm btn-danger" id="restr-nueva-btn" data-accion="restr-nueva"><i class="fa-solid fa-plus me-1"></i>Registrar restricción</button>
             </div>
-            <p class="sub-vista">Lo que un brigadista no puede hacer en las prácticas por su salud. Las registra Ambipar y salen con <i class="fa-solid fa-notes-medical text-danger"></i> junto al nombre en la lista de asistencia. Es un dato de salud: úsalo solo para cuidar a la persona.</p>
+            <p class="sub-vista">Lo que un brigadista no puede hacer en las prácticas por su salud. Vienen de GSTOR (del D6) y se pueden ajustar en SIGBE, en la ficha de cada brigadista o aquí; salen con <i class="fa-solid fa-notes-medical text-danger"></i> en la lista de asistencia. Es un dato de salud: úsalo solo para cuidar a la persona.</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros">
                 <input type="search" id="restr-buscar" class="form-control form-control-sm" placeholder="Buscar nombre, cédula, planta o restricción…" aria-label="Buscar restricciones">
                 <select id="restr-ver" class="form-select form-select-sm" aria-label="Mostrar"><option value="">Vigentes</option><option value="vencidas">Vencidas</option><option value="todas">Todas</option></select>
+                <select id="restr-origen" class="form-select form-select-sm" aria-label="De dónde viene"><option value="">GSTOR y SIGBE</option><option value="gstor">Solo de GSTOR</option><option value="sigbe">Solo ajustadas en SIGBE</option></select>
                 <span class="contador ms-auto" id="restr-conteo"></span>
               </div>
             </div>
@@ -836,7 +837,7 @@
         <label class="form-label mt-3" for="restr-hasta">Vigente hasta <span class="text-muted small">(opcional; vacío = hasta que se levante)</span></label>
         <input type="date" id="restr-hasta" class="form-control">
       </div>
-      <div class="modal-footer"><button type="button" class="btn btn-outline-danger me-auto" id="restr-levantar" data-accion="restr-levantar" style="display:none;">Levantar restricción</button><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-danger">Guardar</button></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-danger" id="restr-levantar" data-accion="restr-levantar" style="display:none;">Sin restricción</button><button type="button" class="btn btn-outline-secondary me-auto" id="restr-gstor" data-accion="restr-gstor" style="display:none;">Volver a la de GSTOR</button><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-danger">Guardar</button></div>
     </form></div>
   </div>
   <!-- MODAL: registro -->

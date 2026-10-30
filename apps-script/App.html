@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.13.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.14.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -143,7 +143,7 @@
       $('reg-cedula').oninput = avisarCedulaRepetida;
       document.querySelectorAll('input[name="reg-tipo"]').forEach(r => r.onchange = ajustarRegistro);
       $('reg-planta').onchange = ajustarPlantaNueva;
-      $('restr-buscar').oninput = conEspera(pintarRestricciones); $('restr-ver').oninput = pintarRestricciones;
+      $('restr-buscar').oninput = conEspera(pintarRestricciones); $('restr-ver').oninput = pintarRestricciones; $('restr-origen').oninput = pintarRestricciones;
       $('form-restr').onsubmit = guardarRestriccionApp;
       $('restr-persona').oninput = mostrarPersonaRestr;
       $('evid-in-lista').onchange = ev => subirEvidencias([...ev.target.files], 'lista');
@@ -418,6 +418,7 @@
         'restr-nueva': () => abrirRestriccion(''),
         'restr-editar': () => abrirRestriccion(d.c),
         'restr-levantar': levantarRestriccion,
+        'restr-gstor': restriccionDeGstor,
         'asis-planta': () => { const k = asis.plantas.indexOf(d.pl); if (k === -1) asis.plantas.push(d.pl); else asis.plantas.splice(k, 1); pintarLista(); },
         'asis-descartar': () => { asis.cambios = {}; pintarAsistencia(); },
         'asis-guardar': confirmarAsistencia,
@@ -859,6 +860,7 @@
       cedula: 'Cédula', grupo: 'Grupo sanguíneo', fechaIngreso: 'Fecha de ingreso', empresa: 'Empresa',
       clase1: 'Brigadista Clase I', estado: 'Estado', fechaRetiro: 'Fecha de retiro', certificado: 'Certificado 0256',
       obsRetiro: 'Observaciones del retiro', planta: 'Planta', otrasPlantas: 'Otras plantas',
+      restriccion: 'Restricción médica', restriccionHasta: 'Restricción vigente hasta', restriccionGstor: 'Restricción médica',
     };
     function datosDe(p) {
       return p.tipo === 'HOLCIM'
@@ -1081,7 +1083,10 @@
         ${dato('Fecha de ingreso', esc(x.fechaIngreso))}${dato('Empresa', esc(x.empresa))}${dato('Brigadista Clase I', esc(x.clase1))}
         ${dato('Estado', x.estado || f.tipo === 'INHOUSE' ? `<span class="badge ${f.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>` : '')}
         ${f.activo ? '' : dato('Fecha de retiro', esc(x.fechaRetiro))}${f.activo || !x.obsRetiro ? '' : dato('Observaciones del retiro', esc(x.obsRetiro))}${x.certificado ? dato('Certificado 0256', esc(x.certificado)) : ''}
-        ${f.tipo === 'HOLCIM' ? dato('Cumplimiento', f.cump.pct === null ? 'sin módulos vencidos' : f.cump.pct + ' % (' + f.cump.c + ' de ' + f.cump.t + ' módulos)') : ''}</div>`;
+        ${f.tipo === 'HOLCIM' ? dato('Cumplimiento', f.cump.pct === null ? 'sin módulos vencidos' : f.cump.pct + ' % (' + f.cump.c + ' de ' + f.cump.t + ' módulos)') : ''}
+        ${dato('Restricción médica', f.restr ? `<span class="${f.restr.vigente ? 'text-danger' : 'text-muted'}">${esc(f.restr.r)}</span>${f.restr.h ? ` <span class="small text-muted fw-normal">(hasta el ${esc(fechaCorta(f.restr.h))}${f.restr.vigente ? '' : ', vencida'})</span>` : ''}${origenRestr(f.restr)}${f.restr.o === 'sigbe' && f.restr.g && f.restr.g !== f.restr.r ? `<div class="small text-muted fw-normal">GSTOR dice: ${esc(f.restr.g)}</div>` : ''}`
+          : `<span class="text-muted fw-normal">Ninguna</span>${f.medico && f.medico.o === 'sigbe' && f.medico.g ? `<div class="small text-muted fw-normal">Se quitó en SIGBE; GSTOR dice: ${esc(f.medico.g)}</div>` : ''}`)}
+        ${f.medico && f.medico.ev ? dato('Examen médico (GSTOR)', /^\d{4}-\d{2}-\d{2}$/.test(f.medico.ev) ? `<span class="${f.medico.ev < D.hoy ? 'text-danger' : ''}">${f.medico.ev < D.hoy ? 'Venció' : 'Vence'} el ${esc(fechaCorta(f.medico.ev))}</span>` : esc(f.medico.ev)) : ''}</div>`;
       if (editando) {
         const op = (lista, v, vacio) => (vacio ? `<option value="">${vacio}</option>` : '') + (v && lista.indexOf(v) === -1 ? [v].concat(lista) : lista).map(o => `<option value="${esc(o)}" ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('');
         const inactivo = !f.activo;
@@ -1100,6 +1105,10 @@
           <div class="col-md-4 ed-retiro" id="ed-retiro-box" style="${inactivo ? '' : 'display:none'}"><label class="form-label small" for="ed-fechaRetiro">Fecha de retiro <span class="text-danger">*</span></label><input type="date" id="ed-fechaRetiro" class="form-control form-control-sm" value="${esc(isoDe(x.fechaRetiro))}"></div>
           <div class="col-md-8 ed-retiro" style="${inactivo ? '' : 'display:none'}"><label class="form-label small" for="ed-obsRetiro">Observaciones del retiro <span class="text-muted">(opcional)</span></label><input id="ed-obsRetiro" class="form-control form-control-sm" maxlength="300" placeholder="Motivo, a dónde se fue…" value="${esc(x.obsRetiro)}"></div>
           ${f.tipo === 'INHOUSE' || catalogos.holcimTieneCertificado ? `<div class="col-md-4"><label class="form-label small" for="ed-certificado">Certificado 0256</label><select id="ed-certificado" class="form-select form-select-sm">${op(catalogos.certificados, x.certificado, x.certificado ? '' : '—')}</select></div>` : ''}
+          <div class="col-md-8"><label class="form-label small" for="ed-restr"><i class="fa-solid fa-notes-medical text-danger me-1"></i>Restricción médica <span class="text-muted">(qué no puede hacer en las prácticas; vacío = ninguna)</span></label>
+            <textarea id="ed-restr" class="form-control form-control-sm" rows="2" maxlength="300" placeholder="Por ejemplo: no puede trabajar en alturas">${esc(f.restr ? f.restr.r : '')}</textarea></div>
+          <div class="col-md-4"><label class="form-label small" for="ed-restr-hasta">Restricción vigente hasta <span class="text-muted">(opcional)</span></label><input type="date" id="ed-restr-hasta" class="form-control form-control-sm" value="${esc(f.restr ? f.restr.h || '' : '')}"></div>
+          <div class="col-12 small text-muted mt-0">${f.medico && f.medico.o === 'gstor' ? 'Viene de GSTOR (D6). Si la cambias aquí, queda ajustada en SIGBE (el D6 no se toca).' : f.medico && f.medico.o === 'sigbe' ? `Ajustada en SIGBE${f.medico.u ? ' por ' + esc(f.medico.u) : ''}. <label class="form-check d-inline-flex align-items-center gap-1 m-0 ms-1"><input type="checkbox" class="form-check-input mt-0" id="ed-restr-gstor"> volver a la de GSTOR${f.medico.g ? ' («' + esc(f.medico.g) + '»)' : ' (sin restricción)'}</label>` : 'Lo que escribas aquí se guarda en SIGBE (aparte de la lista).'}</div>
           </div><p class="small text-muted mt-2 mb-0">El nombre no se edita desde la app. Si cambias la planta, la persona pasa al grupo de esa planta en la hoja y conserva su asistencia. Si la hoja no tiene la columna de un dato, se crea al guardar.</p></div>`;
       }
       if (f.tipo === 'HOLCIM' && !editando) {
@@ -1141,7 +1150,7 @@
       const n = Object.keys(fichaPend).length;
       $('ficha-pie').innerHTML = n
         ? `<span class="me-auto small fw-semibold text-primary">${n} cambio(s) de asistencia sin guardar</span><button class="btn btn-outline-secondary" data-accion="ficha-descartar">Descartar</button><button class="btn btn-success" data-accion="ficha-guardar-asis"><i class="fa-solid fa-floppy-disk me-1"></i>Guardar asistencia (${n})</button>`
-        : `<button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button class="no-proveedor btn ${faltantes(ficha).length ? 'btn-warning' : 'btn-primary'}" data-accion="ficha-editar"><i class="fa-solid fa-pen me-1"></i>${faltantes(ficha).length ? 'Completar datos' : 'Editar'}</button>`;
+        : `<button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button><button class="solo-proveedor btn btn-outline-danger" data-accion="restr-editar" data-c="${esc(String(ficha.c))}"><i class="fa-solid fa-notes-medical me-1"></i>Restricción médica</button><button class="no-proveedor btn ${faltantes(ficha).length ? 'btn-warning' : 'btn-primary'}" data-accion="ficha-editar"><i class="fa-solid fa-pen me-1"></i>${faltantes(ficha).length ? 'Completar datos' : 'Editar'}</button>`;
     }
     function cambiarCasillaFicha(i, v) {
       if (v === (ficha.m.charAt(i) === '1')) delete fichaPend[i]; else fichaPend[i] = v;
@@ -1239,11 +1248,22 @@
         const otras = [...document.querySelectorAll('#ed-otras input[data-otra]:checked')].map(x => x.dataset.otra).filter(x => x !== principal);
         if (otras.slice().sort().join(', ') !== (f.otras || []).filter(x => x !== principal).sort().join(', ')) { cambios.otrasPlantas = otras.join(', '); anteriores.otrasPlantas = f.op || ''; }
       }
+      // Restricción médica: se guarda aparte (su pestaña), pero se edita aquí con lo demás
+      if ($('ed-restr-gstor') && $('ed-restr-gstor').checked) { cambios.restriccionGstor = true; anteriores.restriccionGstor = f.restr ? f.restr.r : 'Sin restricción'; }
+      else if ($('ed-restr')) {
+        const rN = $('ed-restr').value.replace(/\s+/g, ' ').trim(), hN = rN ? $('ed-restr-hasta').value : '';
+        const rA = f.restr ? f.restr.r : '', hA = f.restr ? f.restr.h || '' : '';
+        if (rN !== rA || hN !== hA) {
+          if (!/^\d{5,12}$/.test(String(f.c).replace(/\D/g, ''))) return avisar('Para registrar la restricción médica primero hace falta la cédula de ' + esc(f.n) + '.', 'warning', 8000);
+          cambios.restriccion = rN; anteriores.restriccion = rA;
+          if (hN !== hA) { cambios.restriccionHasta = hN; anteriores.restriccionHasta = hA; } else cambios.restriccionHasta = hN;
+        }
+      }
       if (!Object.keys(cambios).length) return avisar('No cambiaste nada.', 'info');
       const fmt = v => /^\d{4}-\d{2}-\d{2}$/.test(v) ? v.split('-').reverse().join('/') : v;
       $('conf-titulo').textContent = 'Confirmar cambios de ' + f.n;
       $('conf-cuerpo').innerHTML = '<table class="table table-sm mb-2"><thead><tr><th>Dato</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
-        Object.keys(cambios).map(k => `<tr><td>${CAMPOS_B[k]}</td><td class="text-muted">${esc(anteriores[k] || '—')}</td><td class="fw-semibold">${esc(fmt(cambios[k]) || '—')}</td></tr>`).join('') + '</tbody></table>';
+        Object.keys(cambios).filter(k => !(k === 'restriccionHasta' && !(k in anteriores))).map(k => `<tr><td>${CAMPOS_B[k]}</td><td class="text-muted">${esc(fmt(anteriores[k] || '') || '—')}</td><td class="fw-semibold">${k === 'restriccionGstor' ? 'Vuelve a la de GSTOR' : esc(fmt(cambios[k]) || (k === 'restriccion' ? 'Sin restricción' : '—'))}</td></tr>`).join('') + '</tbody></table>';
       $('conf-ok').innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar cambios';
       if (cambios.planta) $('conf-cuerpo').innerHTML += `<p class="small mb-0"><i class="fa-solid fa-right-left me-1 text-primary"></i>Traslado: ${esc(f.n)} pasa a <b>${esc(cambios.planta)}</b>${plantaNueva ? ' (planta nueva)' : ''} y conserva su asistencia. Las sesiones que le aplican pasan a ser las de esa planta.</p>`;
       $('conf-ok').onclick = () => guardarEdicion(cambios, anteriores, plantaNueva);
@@ -1261,6 +1281,7 @@
         if (!r.exito) { modal('modal-ficha').show(); return; }
         const fallidos = (r.rechazos || []).map(t => Object.keys(CAMPOS_B).find(c => t.indexOf(CAMPOS_B[c] + ':') === 0)).filter(Boolean);
         const ok = {}; Object.keys(cambios).forEach(c => { if (fallidos.indexOf(c) === -1) ok[c] = cambios[c]; });
+        mezclarRestricciones(r.restrCambios);
         if (ok.planta) { await datosNuevos(r); cargarVista(); return; }
         aplicarDatos(ficha, ok);
         contarRevision();
@@ -2309,37 +2330,52 @@
     // ══════════ RESTRICCIONES MÉDICAS ══════════
     // Aparte de los datos del brigadista (dato de salud). Las registra Ambipar (o un gestor); todos las ven.
     function fechaCorta(iso) { return /^\d{4}-\d{2}-\d{2}$/.test(iso || '') ? iso.split('-').reverse().join('/') : iso || ''; }
-    function puedeRestr() { return !!E.perfil && (E.perfil.rol === 'gestor' || E.perfil.rol === 'proveedor'); }
+    function puedeRestr() { return !!E.perfil; } // Ambipar, Holcim y los gestores
+    // D.restr[cedula] = { r: lo que vale ('' = sin restricción), h: vigente hasta, o: 'gstor' | 'sigbe', g: lo de GSTOR,
+    // ev: vence el examen médico, f/u: cuándo y quién lo ajustó en SIGBE }. Lo ajustado en SIGBE manda sobre lo de GSTOR.
     function ponerRestricciones() {
       D.restr = D.restr || {};
       P.concat(I).forEach(p => {
-        const r = D.restr[String(p.c).replace(/\D/g, '')];
-        p.restr = r ? Object.assign({ vigente: !r.h || r.h >= D.hoy }, r) : null;
+        const e = D.restr[String(p.c).replace(/\D/g, '')] || null;
+        p.medico = e;
+        p.restr = e && e.r ? Object.assign({ vigente: !e.h || e.h >= D.hoy }, e) : null;
       });
+    }
+    function mezclarRestricciones(cambios) {
+      if (!cambios) return;
+      Object.keys(cambios).forEach(c => { if (cambios[c]) D.restr[c] = cambios[c]; else delete D.restr[c]; });
+      ponerRestricciones();
+    }
+    function origenRestr(m) {
+      if (!m) return '';
+      return m.o === 'gstor' ? '<span class="badge bg-light text-secondary border fw-normal ms-1" title="Viene de GSTOR (D6)">GSTOR</span>'
+        : `<span class="badge bg-light text-secondary border fw-normal ms-1" title="Ajustada en SIGBE${m.u ? ' por ' + esc(m.u) : ''}${m.f ? ' el ' + esc(fechaCorta(m.f)) : ''}${m.g ? '. GSTOR dice: ' + esc(m.g) : ''}">ajustada en SIGBE</span>`;
     }
     function avisoRestr(p) {
       if (!p.restr || !p.restr.vigente) return '';
-      return `<div class="text-danger mt-1"><i class="fa-solid fa-notes-medical me-1" aria-hidden="true"></i><b>Restricción médica:</b> ${esc(p.restr.r)}${p.restr.h ? ' <span class="text-muted">(hasta el ' + esc(fechaCorta(p.restr.h)) + ')</span>' : ''}</div>`;
+      return `<div class="text-danger mt-1"><i class="fa-solid fa-notes-medical me-1" aria-hidden="true"></i><b>Restricción médica:</b> ${esc(p.restr.r)}${p.restr.h ? ' <span class="text-muted">(hasta el ' + esc(fechaCorta(p.restr.h)) + ')</span>' : ''}${origenRestr(p.restr)}</div>`;
     }
     function pintarRestricciones() {
       if (!D) return;
       $('restr-nueva-btn').style.display = puedeRestr() ? '' : 'none';
-      const q = norm($('restr-buscar').value), ver = $('restr-ver').value;
-      const lista = todosBrigadistas().filter(p => p.restr && enSedeAlguna(p) && (ver === 'todas' || (ver === 'vencidas') === !p.restr.vigente) &&
+      const q = norm($('restr-buscar').value), ver = $('restr-ver').value, origen = $('restr-origen').value;
+      const lista = todosBrigadistas().filter(p => p.restr && enSedeAlguna(p) && (ver === 'todas' || (ver === 'vencidas') === !p.restr.vigente) && (!origen || p.restr.o === origen) &&
         (!q || norm([p.n, p.c, p.p, p.restr.r].join(' ')).includes(q))).sort((a, b) => a.n.localeCompare(b.n, 'es'));
       $('restr-conteo').textContent = lista.length + ' brigadista(s)';
       $('restr-lista').innerHTML = lista.length ? '<div class="tarjeta">' + lista.map(p => `<div class="d-flex flex-wrap align-items-start gap-3 p-3 border-bottom ${p.restr.vigente ? '' : 'opacity-75'}">
           <i class="fa-solid fa-notes-medical fa-lg mt-1 ${p.restr.vigente ? 'text-danger' : 'text-secondary'}" aria-hidden="true"></i>
           <div class="flex-grow-1" style="min-width:220px"><div class="fw-semibold">${esc(p.n)} <span class="small text-muted fw-normal">· C.C. ${esc(p.c)} · ${esc(p.p)}</span></div>
-            <div>${esc(p.restr.r)}</div>
-            <div class="small text-muted">${p.restr.h ? (p.restr.vigente ? 'Vigente hasta el ' : 'Venció el ') + esc(fechaCorta(p.restr.h)) : 'Sin fecha de fin'} · registró ${esc(p.restr.u || '—')}${p.restr.f ? ' el ' + esc(fechaCorta(p.restr.f)) : ''}</div></div>
+            <div>${esc(p.restr.r)}${origenRestr(p.restr)}</div>
+            <div class="small text-muted">${p.restr.o === 'gstor' ? 'De GSTOR (D6)' + (p.restr.ev ? ' · examen médico: vence el ' + esc(fechaCorta(p.restr.ev)) : '')
+              : (p.restr.h ? (p.restr.vigente ? 'Vigente hasta el ' : 'Venció el ') + esc(fechaCorta(p.restr.h)) : 'Sin fecha de fin') + ' · ajustada en SIGBE por ' + esc(p.restr.u || '—') + (p.restr.f ? ' el ' + esc(fechaCorta(p.restr.f)) : '') + (p.restr.g && p.restr.g !== p.restr.r ? ' · GSTOR dice: ' + esc(p.restr.g) : '')}</div></div>
           ${puedeRestr() ? `<button class="btn btn-sm btn-outline-secondary" data-accion="restr-editar" data-c="${esc(String(p.c))}"><i class="fa-solid fa-pen me-1"></i>Editar</button>` : ''}
         </div>`).join('') + '</div>'
         : `<div class="tarjeta p-4 text-center text-muted"><i class="fa-solid fa-notes-medical fa-2x mb-2 d-block" aria-hidden="true"></i>${ver === 'vencidas' ? 'No hay restricciones vencidas.' : 'No hay restricciones médicas registradas' + (E.sedes.length ? ' en estas sedes' : '') + '.'}${puedeRestr() && ver !== 'vencidas' ? '<div class="mt-2"><button class="btn btn-sm btn-danger" data-accion="restr-nueva"><i class="fa-solid fa-plus me-1"></i>Registrar restricción</button></div>' : ''}</div>`;
     }
     let restrCedula = '';
     function abrirRestriccion(cedula) {
-      if (!puedeRestr()) return avisar('Las restricciones médicas las registra Ambipar.', 'info');
+      if (!puedeRestr()) return pedirSesion(() => abrirRestriccion(cedula));
+      const mf = bootstrap.Modal.getInstance($('modal-ficha')); if (mf) mf.hide(); // desde la ficha: una ventana a la vez
       restrCedula = cedula || '';
       const p = cedula ? todosBrigadistas().find(x => String(x.c) === String(cedula)) : null;
       $('restr-personas').innerHTML = todosBrigadistas().filter(x => x.activo && enSedeAlguna(x)).sort((a, b) => a.n.localeCompare(b.n, 'es'))
@@ -2349,6 +2385,7 @@
       $('restr-texto').value = p && p.restr ? p.restr.r : '';
       $('restr-hasta').value = p && p.restr ? p.restr.h || '' : '';
       $('restr-levantar').style.display = p && p.restr ? '' : 'none';
+      $('restr-gstor').style.display = p && p.medico && p.medico.o === 'sigbe' ? '' : 'none';
       mostrarPersonaRestr();
       $('modal-restr').addEventListener('shown.bs.modal', () => (p ? $('restr-texto') : $('restr-persona')).focus(), { once: true });
       modal('modal-restr').show();
@@ -2362,7 +2399,9 @@
     }
     function mostrarPersonaRestr() {
       const p = personaRestr();
-      $('restr-persona-txt').innerHTML = p ? (p.restr && !restrCedula ? `<span class="text-danger">Ya tiene una restricción: ${esc(p.restr.r)}. Al guardar se reemplaza.</span>` : '')
+      $('restr-persona-txt').innerHTML = p ? (p.restr && !restrCedula ? `<span class="text-danger">Ya tiene una restricción${p.restr.o === 'gstor' ? ' (de GSTOR)' : ''}: ${esc(p.restr.r)}. Al guardar queda la que escribas, ajustada en SIGBE.</span>`
+          : p.medico && p.medico.o === 'gstor' ? '<span class="text-muted">Viene de GSTOR (D6). Si la cambias, queda ajustada en SIGBE.</span>'
+          : p.medico && p.medico.o === 'sigbe' && p.medico.g ? `<span class="text-muted">Ajustada en SIGBE. GSTOR dice: ${esc(p.medico.g)}.</span>` : '')
         : ($('restr-persona').value ? '<span class="text-warning-emphasis">Elige a la persona de la lista.</span>' : '');
     }
     async function guardarRestriccionApp(ev) {
@@ -2373,19 +2412,24 @@
     }
     async function levantarRestriccion() {
       const p = personaRestr();
-      if (!p || !confirm('¿Levantar la restricción médica de ' + p.n + '? Quedará en el historial.')) return;
+      if (!p || !confirm('¿Dejar a ' + p.n + ' sin restricción médica?' + (p.medico && p.medico.g ? ' (GSTOR dice: ' + p.medico.g + '; en SIGBE quedará sin restricción.)' : '') + ' Quedará en el historial.')) return;
       await enviarRestriccion(p, '', '');
     }
-    async function enviarRestriccion(p, texto, hasta) {
+    async function restriccionDeGstor() {
+      const p = personaRestr();
+      if (!p || !confirm('¿Quitar lo ajustado en SIGBE para ' + p.n + ' y usar lo que dice GSTOR' + (p.medico && p.medico.g ? ' («' + p.medico.g + '»)' : ' (sin restricción)') + '?')) return;
+      await enviarRestriccion(p, '', '', true);
+    }
+    async function enviarRestriccion(p, texto, hasta, volverGstor) {
       ocupado(true);
       try {
-        const r = await api('guardarRestriccion', E.token, { cedula: String(p.c), restriccion: texto, hasta: hasta });
+        const r = await api('guardarRestriccion', E.token, { cedula: String(p.c), restriccion: texto, hasta: hasta, volverGstor: !!volverGstor });
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 8000);
         if (!r.exito) return;
         modal('modal-restr').hide();
-        D.restr = r.restr || D.restr; ponerRestricciones();
+        mezclarRestricciones(r.restrCambios);
         cargarVista();
       } catch (e) { error(e); }
     }
@@ -2443,7 +2487,7 @@
           '<b>+ Completar</b>: llena un dato que falta.',
           '<b>Editar en la tabla</b>: corrige a muchos de una vez y luego <b>Revisar y guardar</b>.',
           '<b>Registrar brigadista</b>: agrega a alguien nuevo (si su planta no está, «+ Nueva planta…»).',
-          'En la ficha, <b>Editar</b>: cambiar su <b>planta</b> (traslado: conserva su asistencia) y marcar <b>otras plantas</b> a cuyas sesiones también va (para la meta cuenta solo en su planta).',
+          'En la ficha, <b>Editar</b>: cambiar su <b>planta</b> (traslado: conserva su asistencia), marcar <b>otras plantas</b> a cuyas sesiones también va (para la meta cuenta solo en su planta) y su <b>restricción médica</b>.',
           'Los chips <b>Holcim, Geocycle, Transcem, Fundación</b> y <b>Contratistas</b> separan a cada grupo según su empresa.',
           '<b>Traer faltantes</b>: busca brigadistas que están en otras pestañas del Excel pero no en las listas, y los trae.',
           '<b>Descargar</b> la lista tal como la estás viendo.',
@@ -2496,19 +2540,21 @@
         ],
       },
       restricciones: {
-        para: 'Lo que un brigadista no puede hacer en las prácticas por su salud. Es un dato de salud: úsalo solo para cuidar a la persona.',
+        para: 'Lo que un brigadista no puede hacer en las prácticas por su salud. Vienen de GSTOR (del D6) y se pueden ajustar en SIGBE. Es un dato de salud: úsalo solo para cuidar a la persona.',
         pasos: [
-          ['ga', 'Pulsa <b>Registrar restricción</b>.'],
-          ['ga', 'Escribe el nombre o la cédula y elige a la persona de la lista.'],
-          ['ga', 'Escribe qué no puede hacer y, si es temporal, hasta cuándo. Pulsa <b>Guardar</b>.'],
+          ['gh', 'Lo más directo: en la ficha del brigadista, <b>Editar</b> → <b>Restricción médica</b> (y, si es temporal, hasta cuándo) → <b>Revisar y guardar</b>.'],
+          ['a', 'Lo más directo: en la ficha del brigadista (desde la lista de asistencia, clic en su nombre) → botón <b>Restricción médica</b>.'],
+          'O aquí: <b>Registrar restricción</b>, escribe el nombre o la cédula, elige a la persona, escribe qué no puede hacer y pulsa <b>Guardar</b>.',
         ],
         puede: [
           'Ver quiénes tienen restricción, buscar y ver también las vencidas.',
-          ['ga', '<b>Editar</b> una restricción, o <b>levantarla</b> cuando ya no aplique.'],
+          '<b>Editar</b> una restricción, o <b>levantarla</b> cuando ya no aplique (en la ficha: dejar el campo vacío).',
           'En la lista de asistencia la restricción sale en rojo debajo del nombre, y en la ficha del brigadista arriba.',
         ],
-        otro: [['h', 'Las restricciones médicas las registra Ambipar.']],
-        ojo: ['Se guardan aparte, en la pestaña «Restricciones médicas SIGBE» del libro (no en la lista de brigadistas). El historial de cambios solo dice que se registró, actualizó o levantó, sin el detalle.'],
+        ojo: [
+          'Lo que viene de GSTOR sale con la marca <b>GSTOR</b>. Si la cambias en SIGBE, manda lo de SIGBE (sale «ajustada en SIGBE» y se ve lo que dice GSTOR); con <b>volver a la de GSTOR</b> se quita el ajuste. El D6 no se toca.',
+          'Lo ajustado en SIGBE se guarda aparte, en la pestaña «Restricciones médicas SIGBE» del libro. El historial de cambios no guarda el detalle.',
+        ],
       },
       temarios: {
         para: 'El contenido de cada capacitación: los temas de cada módulo.',
@@ -2545,7 +2591,7 @@
     const ROLES = {
       gestor: { nombre: 'Gestor', ico: 'fa-user-shield', txt: 'Ves y haces todo: asistencia, cronograma y brigadistas, y además administras los usuarios y la configuración de la app.' },
       holcim: { nombre: 'Holcim', ico: 'fa-user-tie', txt: 'Tomas asistencia, programas el cronograma y mantienes al día los datos de los brigadistas. Los usuarios y la configuración los maneja un gestor.' },
-      proveedor: { nombre: 'Ambipar', ico: 'fa-truck-medical', txt: 'Tomas asistencia de los módulos, pones la Fecha Ambipar en el cronograma, programas sesiones, creas módulos y registras las restricciones médicas. Los demás datos de los brigadistas los maneja Holcim.' },
+      proveedor: { nombre: 'Ambipar', ico: 'fa-truck-medical', txt: 'Tomas asistencia de los módulos, pones la Fecha Ambipar en el cronograma, programas sesiones, creas módulos y registras las restricciones médicas (en la ficha de cada brigadista). Los demás datos de los brigadistas los maneja Holcim.' },
     };
     // [qué, gestor, Holcim, Ambipar]
     const PERMISOS = [
@@ -2556,7 +2602,7 @@
       ['Subir la lista firmada y las fotos de cada sesión', 1, 1, 1],
       ['Poner la Fecha Holcim y marcar que una sesión no aplica', 1, 1, 0],
       ['Ver las restricciones médicas (y en la lista de asistencia)', 1, 1, 1],
-      ['Registrar, cambiar o levantar restricciones médicas', 1, 0, 1],
+      ['Registrar, cambiar o levantar restricciones médicas (en la ficha o en su pantalla)', 1, 1, 1],
       ['Ver los brigadistas, registrarlos y completar o corregir sus datos', 1, 1, 0],
       ['Trasladar a un brigadista de planta, ponerle otras plantas o crear una planta nueva', 1, 1, 0],
       ['Ver la cobertura, la revisión de datos, el historial, otras hojas y los ingresos', 1, 1, 0],
@@ -2570,7 +2616,8 @@
       ['gha', 'fa-calendar-plus', 'Agregar una sesión que no está', 'cronograma', ['Menú → <b>Cronograma</b> → <b>Programar / Agregar sesión</b>.', 'Elige el módulo y la planta.', 'Pon la fecha (Ambipar pone la Fecha Ambipar), el estado si hace falta, y guarda.']],
       ['gh', 'fa-user-plus', 'Registrar un brigadista nuevo', 'brigadistas', ['Menú → <b>Brigadistas</b> → <b>Registrar brigadista</b>.', 'Elige si es personal Holcim o contratista, la planta, y escribe nombre y cédula.', 'Llena lo que sepas (grupo sanguíneo, fecha de ingreso, Clase I…) y pulsa <b>Revisar y guardar</b>.']],
       ['gh', 'fa-pen-to-square', 'Completar los datos que faltan', 'brigadistas', ['Menú → <b>Brigadistas</b>.', 'Pulsa el enlace «<b>… con datos por completar</b>» (arriba a la derecha).', 'En cada fila, <b>+ Completar</b>; o <b>Editar en la tabla</b> para hacer muchos de una vez y luego <b>Revisar y guardar</b>.']],
-      ['ga', 'fa-notes-medical', 'Registrar una restricción médica', 'restricciones', ['Menú → <b>Restricciones médicas</b> → <b>Registrar restricción</b>.', 'Escribe el nombre o la cédula y elige a la persona.', 'Escribe qué no puede hacer y, si es temporal, hasta cuándo. Pulsa <b>Guardar</b>.']],
+      ['gh', 'fa-notes-medical', 'Registrar una restricción médica', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre → <b>Editar</b>.', 'En <b>Restricción médica</b> escribe qué no puede hacer en las prácticas y, si es temporal, hasta cuándo.', 'Pulsa <b>Revisar y guardar</b>. Para quitarla, deja el campo vacío.']],
+      ['a', 'fa-notes-medical', 'Registrar una restricción médica', 'restricciones', ['En la lista de asistencia, clic en el nombre del brigadista → botón <b>Restricción médica</b>.', 'O: menú → <b>Restricciones médicas</b> → <b>Registrar restricción</b> y elige a la persona.', 'Escribe qué no puede hacer y, si es temporal, hasta cuándo. Pulsa <b>Guardar</b>.']],
       ['gh', 'fa-right-left', 'Trasladar a un brigadista de planta', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre → <b>Editar</b>.', 'En <b>Planta</b> elige la nueva (o «+ Nueva planta…» para crearla).', 'Si también va a sesiones de otras plantas, márcalas en <b>Otras plantas</b>. Revisa y guarda: conserva su asistencia.']],
       ['gh', 'fa-user-minus', 'Retirar a un brigadista', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre.', 'En la ficha, <b>Editar</b> (o <b>Completar datos</b>).', 'Estado <b>Desvinculado</b>, su <b>fecha de retiro</b> (obligatoria) y, si quieres, observaciones; guarda. No se borra: queda su historial.']],
       ['g', 'fa-user-gear', 'Darle acceso a alguien', 'configuracion', ['Menú → <b>Configuración</b> → <b>Usuarios</b>.', 'Llena usuario, nombre, correo, tipo (Holcim o Ambipar) y sus sedes.', 'Pulsa <b>Agregar</b>. Si dejas marcado «Enviar el acceso por correo ahora», le llega de una vez; si no, se lo envías después.']],
