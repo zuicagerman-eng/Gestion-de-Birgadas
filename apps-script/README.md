@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.12.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.13.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -37,14 +37,24 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
 - **Inicio**: brigadistas activos, cumplimiento, contratistas con certificado, cobertura frente a la meta, sesiones
   pasadas sin asistencia, próximas capacitaciones y resumen de la revisión.
 - **Tomar asistencia**: sede → sesión (filtros: pasadas sin registrar, próximas, con asistencia, sin fecha, no aplican)
-  → lista con buscador, planta, marcar todos, imprimir para firmar, CSV y deshacer.
-- **Avance por planta**: planta × módulo con el % de brigadistas Holcim activos que asistieron entre los que ya debían
+  → lista con buscador, plantas (una o varias), marcar todos, imprimir para firmar, CSV y deshacer. Quien tiene una
+  restricción médica vigente la muestra en rojo debajo del nombre; quien viene de otra planta («otras plantas») sale
+  marcado. **Evidencias de la sesión**: subir la lista firmada (PDF o foto) y fotos; se ven en una galería y se pueden
+  descargar o quitar (ver «Evidencias» abajo). Las tarjetas de sesión dicen si ya tiene lista firmada y cuántas fotos.
+- **Avance por planta**: planta × módulo (filtro de una o varias plantas) con el % de brigadistas propios activos que asistieron entre los que ya debían
   tomarlo (la sesión aplica y su fecha pasó); "·" con la próxima fecha si aún no le toca y "—" si no aplica. Clic en un %
   abre esa lista de asistencia. Sin detalle por persona (eso está en la ficha de cada brigadista). CSV.
 - **Menú** agrupado: Dashboard · *Brigada* (Cobertura, Brigadistas) · *Asistencia y capacitaciones* (Tomar asistencia,
   Avance por planta, Cronograma, Temarios, Otras hojas) · *Control* (Historial de cambios, Revisión de datos, Registro de
   ingresos) · *Sistema* (Estado del sistema, Configuración, Ayuda).
-- **Brigadistas**: columnas Planta, Nombres y apellidos, Cédula, Grupo sanguíneo, Fecha de ingreso, Empresa,
+- **Brigadistas**: chips **Holcim / Geocycle / Transcem / Fundación / Contratistas** (los propios se separan por su
+  empresa; los cuatro cuentan como personal propio en Cobertura). En la ficha, **Editar** permite **trasladar** de planta
+  (la fila pasa al final del grupo de su nueva planta, antes de su TOTAL; conserva su asistencia; queda en el historial
+  como «Traslado de planta»; se puede crear una planta nueva) y marcar **otras plantas** (columna `OTRAS PLANTAS`):
+  aparece también en sus listas de asistencia, pero para la meta y el avance cuenta solo en su planta. **Desvincular**
+  exige la fecha de retiro (en la ficha, en la tabla y en el servidor); las observaciones del retiro (columna
+  `OBSERVACIONES DEL RETIRO`) son opcionales. Al **registrar**, «+ Nueva planta…» crea una planta (p. ej. COR - FUNDACIÓN
+  SOCIAL); su sede sale de su nombre. Columnas: Planta, Nombres y apellidos, Cédula, Grupo sanguíneo, Fecha de ingreso, Empresa,
   Brigadista Clase I, Estado y Fecha de retiro (solo si no está activo). Filtros por tipo, planta, estado, empresa y
   "datos por completar" (en **Planta** y **Empresa** se pueden marcar varias a la vez); lo que falta aparece como **Completar**. **Editar en la tabla** convierte las celdas en
   desplegables y fechas y guarda todo junto (con confirmación). Si la hoja no tiene la columna de un dato, la app la
@@ -54,7 +64,7 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   futura muestran **Aún no**. Si se cierra la ficha con cambios sin guardar, pregunta. Lo usan los tres tipos de usuario.
   Grupo sanguíneo: O+, O-, A+, A-, B+, B-, AB+, AB-. Clase I: 41 horas / 21 horas / Pendiente (los datos viejos, como «Sí» o «46 horas», se ven
   tal cual hasta que se cambien).
-- **Cronograma**: próximas / pasadas / por definir / no aplican, filtros por mes, tema y estado; botón para abrir la asistencia.
+- **Cronograma**: próximas / pasadas / por definir / no aplican, filtros por planta (varias), mes, tema y estado; botón para abrir la asistencia.
   **Programar / Editar** cambia la fecha (Holcim), la fecha Ambipar, el estado, # brigadistas y observaciones de una planta,
   y puede pasar la fecha y el estado a otras plantas de la misma fila. "No aplica" pone `-`; desde **No aplican** se habilita.
   **Nuevo módulo** crea 4 columnas en la lista de asistencia (Sesión 1 y 2 con casilla, antes del cumplimiento) y su fila en
@@ -74,6 +84,10 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   no está en el Indicador se avisa. **Traer faltantes** (en Brigadistas) busca en otras pestañas del 1.0 y el 2.0 personas
   que no están en las listas, para registrarlas en la app. El Dashboard muestra la misma vista de Cobertura.
 - **Sede** (arriba): se pueden elegir varias a la vez (o "solo" una); todas las vistas filtran por esas sedes.
+- **Restricciones médicas** (Asistencia y capacitaciones): aparte de los datos del brigadista, en la pestaña
+  `Restricciones médicas SIGBE` del libro de registro. Las registra, cambia o levanta **Ambipar** (o un gestor); Holcim
+  las consulta. Cada cambio es una fila nueva (queda la historia); vale la última de cada cédula. Pueden tener «vigente
+  hasta». El historial de cambios solo dice «registrada / actualizada / levantada», sin el detalle (es un dato de salud).
 - **Revisión de datos**: posibles errores con filtros por gravedad y tipo (ver abajo).
 - **Historial de cambios**: lo hecho desde la app y lo detectado en el Excel, con filtros y CSV.
 - **Temarios** y **Otras hojas** (Seguimiento, Datos de contacto, Evacuadores…): consulta con buscador y filtros.
@@ -146,6 +160,16 @@ en SIGBE, poner las propiedades del script `GSTOR_URL` (URL /exec de GSTOR) y `G
 `prepararPuenteSigbe`), correr `probarGstor` en el editor (pide permiso para llamar a otra URL) y publicar versión nueva.
 *Estado del sistema* muestra si la conexión funciona.
 
+## Evidencias (lista firmada y fotos de cada sesión)
+
+- Desde **Tomar asistencia**, en cada sesión: **Subir lista firmada** (PDF de hasta 5 MB, o foto) y **Subir fotos** (varias
+  a la vez). Las fotos se reducen en el navegador (máx. 1600 px) y se guarda una miniatura.
+- Los archivos van a la carpeta de Drive **«SIGBE Evidencias (listas firmadas y fotos)»** de la cuenta dueña (privada: se
+  ven desde la app) y quedan anotados en la pestaña `Evidencias SIGBE` del libro de registro (sede, sesión, quién, cuándo,
+  miniatura). La app solo abre archivos que están en esa pestaña.
+- Las suben los tres tipos de usuario; **quitar** solo quien la subió o un gestor (el archivo va a la papelera de Drive,
+  30 días, y la fila queda marcada como quitada).
+
 ## Hoja PANEL (para el Panel del Centro de formación)
 
 SIGBE deja la cobertura de brigadistas escrita en una hoja **`PANEL`**, igual que GSTOR deja la suya. El Panel la lee con su
@@ -196,10 +220,17 @@ hay una segunda base de datos que pueda quedar distinta. La tarea de cada hora g
 
 ## Rapidez
 
-La app pide **una sola vez** todos los datos (`getDatos`): el servidor lee cada pestaña una vez y guarda el resultado
-en la caché de Apps Script por 10 minutos. Los filtros, la ficha, el avance y la revisión se calculan en el navegador,
-sin volver a leer las hojas. Al guardar desde la app o con la tarea automática la caché se renueva. Arriba se ve la
-hora de los datos y el botón ↻ los vuelve a leer.
+La app pide **una sola vez** todos los datos: vienen con la primera llamada al abrir (`getContexto(token, true)`). El
+servidor lee cada pestaña una vez y guarda el resultado en la caché de Apps Script por una hora (la tarea de cada hora
+lo renueva con lo cambiado directo en el Excel). Los filtros, la ficha, el avance y la revisión se calculan en el
+navegador, sin volver a leer las hojas. Arriba se ve la hora de los datos y el botón ↻ los vuelve a leer.
+
+- Registrar, trasladar, programar el cronograma, agregar sesiones, crear módulos y traer faltantes usan `guardarYLeer`:
+  guardan y devuelven los datos ya actualizados en la misma llamada (antes eran dos idas al servidor).
+- Guardar asistencia corrige la copia en caché con las casillas escritas, en vez de obligar a releer todo.
+- Hasta el corte, la copia al libro nuevo (~1 minuto después de guardar y cada hora) ya no frena los guardados de los
+  demás: no toma el bloqueo mientras copia (una marca evita que corran dos copias a la vez; el corte espera a que
+  termine). Lo más rápido igual es hacer el corte: desde entonces la app abre un solo archivo.
 
 Cada guardado abre solo los archivos que necesita (el corte lo deja en uno), escribe las filas seguidas de una vez,
 lee las propiedades del script una sola vez y no copia el archivo de respaldo con el bloqueo tomado (eso lo hace la

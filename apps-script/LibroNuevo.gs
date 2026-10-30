@@ -214,6 +214,9 @@ function libroNuevoCorte() {
   try {
     const props = propsFrescas_();
     if (props.getProperty('LIBRO_NUEVO_CORTE')) return lnMostrar_('El corte ya estaba hecho: ' + props.getProperty('LIBRO_NUEVO_CORTE'));
+    // Una copia que ya estaba corriendo (no toma el bloqueo) termina primero; mientras, nadie más empieza otra
+    for (let i = 0; i < 45 && lnCopiaEnCurso_(); i++) Utilities.sleep(2000);
+    if (lnCopiaEnCurso_()) throw new Error('Hay una actualización del libro nuevo en curso: intenta el corte en unos minutos.');
     try { sigbeVigilar_(true); } catch (e) { /* anota lo cambiado directo en el Excel hasta ahora; si falla, sigue */ }
     // Actualización normal (no forzada): si hay un borrado masivo o un error, el corte no se hace
     r = lnActualizar_(false, true);
@@ -229,6 +232,11 @@ function libroNuevoCorte() {
   return lnMostrar_('Corte hecho (' + fecha + '). Desde ahora la app y el equipo trabajan solo en el libro nuevo; ' +
     'el 1.0 y el 2.0 quedan como histórico. La tarea automática sigue: ahora solo anota los cambios hechos directamente ' +
     'en el libro nuevo (los que no pasen por la app).\n\n' + r.resumen);
+}
+
+/** ¿Hay una copia al libro nuevo corriendo? (la marca vence a los 15 minutos, por si una ejecución se cortó) */
+function lnCopiaEnCurso_(props) {
+  return Date.now() - (Number((props || propsFrescas_()).getProperty('LN_COPIA_EN_CURSO')) || 0) < 15 * 60 * 1000;
 }
 
 function libroNuevoQuitarCorte() {
@@ -255,15 +263,25 @@ function libroNuevoQuitarCorte() {
 // ───────────────────────────── PROCESO ─────────────────────────────
 
 function lnActualizar_(forzar, yaBloqueado) {
-  const lock = LockService.getScriptLock();
-  if (!yaBloqueado && !lock.tryLock(30000)) return { resumen: 'Ya había una actualización en curso.', error: false, ocupado: true };
-  // Leído después de tomar el bloqueo: si mientras se esperaba se hizo el corte, ya no se copia nada
-  const props = propsFrescas_();
-  const corte = props.getProperty('LIBRO_NUEVO_CORTE');
-  if (corte) {
-    if (!yaBloqueado) lock.releaseLock();
-    return { resumen: 'Corte hecho el ' + corte + ': el libro nuevo ya no se actualiza desde el 1.0 y el 2.0.', error: false };
+  // La copia dura hasta un minuto y no frena los guardados de la app: hasta el corte el libro nuevo solo refleja el 1.0
+  // y el 2.0, y si alguien guarda mientras se copia, la próxima pasada lo trae (cambió la huella de esa pestaña). Para
+  // que no corran dos copias a la vez se pone una marca (con el bloqueo tomado solo un momento). El corte sí toma el
+  // bloqueo todo el tiempo (yaBloqueado) y espera a que termine una copia en curso.
+  if (!yaBloqueado) {
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) return { resumen: 'El sistema estaba ocupado; se actualiza en la próxima pasada.', error: false, ocupado: true };
+    try {
+      const p0 = propsFrescas_();
+      if (p0.getProperty('LIBRO_NUEVO_CORTE')) return { resumen: 'Corte hecho el ' + p0.getProperty('LIBRO_NUEVO_CORTE') + ': el libro nuevo ya no se actualiza desde el 1.0 y el 2.0.', error: false };
+      if (lnCopiaEnCurso_(p0)) return { resumen: 'Ya había una actualización en curso.', error: false, ocupado: true };
+      p0.setProperty('LN_COPIA_EN_CURSO', String(Date.now()));
+    } finally {
+      lock.releaseLock();
+    }
   }
+  const props = yaBloqueado ? propsFrescas_() : props_();
+  const corte = props.getProperty('LIBRO_NUEVO_CORTE');
+  if (corte) return { resumen: 'Corte hecho el ' + corte + ': el libro nuevo ya no se actualiza desde el 1.0 y el 2.0.', error: false };
   const log = [];
   let error = false;
   try {
@@ -334,7 +352,7 @@ function lnActualizar_(forzar, yaBloqueado) {
     error = true;
     log.unshift('✖ No se actualizó el libro nuevo: ' + e.message);
   } finally {
-    if (!yaBloqueado) lock.releaseLock();
+    if (!yaBloqueado) { try { props_().deleteProperty('LN_COPIA_EN_CURSO'); } catch (e) { /* vence sola en 15 minutos */ } }
   }
   const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
   const resumen = fecha + '\n' + log.join('\n');

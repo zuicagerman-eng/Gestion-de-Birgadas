@@ -136,6 +136,15 @@
     .solo-proveedor { display: none !important; } body.rol-proveedor .solo-proveedor { display: revert !important; }
     .solo-gestor { display: none !important; } body.rol-gestor .solo-gestor { display: block !important; }
 
+    /* Evidencias de la sesión */
+    .evid-item { position: relative; }
+    .evid-mini { width: 100px; height: 100px; border: 1px solid var(--s-borde); border-radius: 10px; background: #fff; padding: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #6c757d; }
+    .evid-mini img { width: 100%; height: 76px; object-fit: cover; }
+    .evid-mini:hover, .evid-mini:focus-visible { border-color: var(--s-azul); }
+    .evid-tipo { font-size: .7rem; padding: 2px 4px; color: #495057; }
+    .evid-x { position: absolute; top: -7px; right: -7px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: #b02a37; color: #fff; font-size: 15px; line-height: 1; }
+    #evid-cuerpo img { max-width: 100%; max-height: 70vh; border-radius: 8px; }
+
     /* Ayuda */
     .btn-ayuda-vista { font-size: .78rem; font-weight: 600; vertical-align: middle; margin-left: .5rem; padding: 3px 10px; border-radius: 999px; border: 1px solid #c9d6f5; background: #eef3ff; color: #0b4fc2; white-space: nowrap; }
     .btn-ayuda-vista:hover { background: #dfe8ff; }
@@ -182,7 +191,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.12.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.13.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -750,7 +759,7 @@
                   <tr><td>"alguien la cambió mientras tanto"</td><td>Otra persona marcó esa casilla después de que abriste la lista. Vuelve a abrir la sesión.</td></tr>
                   <tr><td>"según el cronograma esa sesión no aplica"</td><td>Si de verdad se dictó, pon la fecha en el cronograma y vuelve a intentar.</td></tr>
                   <tr><td>"no se puede guardar… se muestra una copia"</td><td>La cuenta que ejecuta la app perdió acceso al 1.0 o al 2.0. Revisa Estado del sistema.</td></tr>
-                  <tr><td>Los datos no muestran un cambio reciente del Excel</td><td>Pulsa <i class="fa-solid fa-rotate"></i> arriba (la copia dura hasta 10 minutos).</td></tr>
+                  <tr><td>Los datos no muestran un cambio reciente del Excel</td><td>Pulsa <i class="fa-solid fa-rotate"></i> arriba. Lo guardado desde la app se ve al momento; lo cambiado directo en el Excel llega con la tarea de cada hora (o al pulsar ese botón).</td></tr>
                   <tr><td>La app se ve vieja</td><td>Apps Script → Implementar → Administrar implementaciones → ✏️ → Nueva versión.</td></tr>
                 </tbody>
               </table>
@@ -762,6 +771,16 @@
   </div>
 
   <div id="print-area"></div>
+  <!-- Evidencias de la sesión: los archivos se eligen aquí (la lista de asistencia se vuelve a dibujar a cada rato) -->
+  <input type="file" id="evid-in-lista" accept="application/pdf,image/*" hidden>
+  <input type="file" id="evid-in-foto" accept="image/*" multiple hidden>
+  <div class="modal fade" id="modal-evid" tabindex="-1" aria-labelledby="evid-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
+      <div class="modal-header"><h2 class="modal-title h5" id="evid-titulo">Evidencia</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body text-center" id="evid-cuerpo"></div>
+      <div class="modal-footer" id="evid-pie"></div>
+    </div></div>
+  </div>
 
   <!-- MODAL: ficha -->
   <div class="modal fade" id="modal-ficha" tabindex="-1" aria-labelledby="ficha-titulo" aria-hidden="true">

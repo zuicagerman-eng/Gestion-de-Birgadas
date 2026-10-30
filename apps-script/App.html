@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.12.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.13.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -27,6 +27,7 @@
     const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {}, plantas: [], empresas: [] };
     const crono = { cuando: 'proximas', plantas: [] };
     const mat = { plantas: [] };
+    const evid = { k: '', lista: null };
     const rev = { g: '', tipo: '' };
     const cam = { o: '', limite: 200, visibles: [] };
     const hoja = { datos: null, visibles: [] };
@@ -145,6 +146,8 @@
       $('restr-buscar').oninput = conEspera(pintarRestricciones); $('restr-ver').oninput = pintarRestricciones;
       $('form-restr').onsubmit = guardarRestriccionApp;
       $('restr-persona').oninput = mostrarPersonaRestr;
+      $('evid-in-lista').onchange = ev => subirEvidencias([...ev.target.files], 'lista');
+      $('evid-in-foto').onchange = ev => subirEvidencias([...ev.target.files], 'foto');
       $('brig-buscar').oninput = conEspera(pintarBrigadistas);
       ['brig-estado', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
       escucharMultiSel('brig-planta', brig.plantas, 'Todas las plantas', 'plantas', pintarBrigadistas);
@@ -213,7 +216,7 @@
       leyendo(true);
       pasoArranque('Conectando con el servidor…');
       try {
-        const ctx = await api('getContexto', E.token);
+        const ctx = await api('getContexto', E.token, true); // con sesión, trae también los datos
         E.usuario = ctx.usuario; E.perfil = ctx.perfil || null; E.listo = !!(ctx.setup && ctx.setup.listo); E.setup = ctx.setup;
         $('txt-version').textContent = 'SIGBE v' + (ctx.version || '?');
         $('ayuda-version').textContent = 'v' + (ctx.version || '?');
@@ -227,7 +230,7 @@
         document.body.classList.remove('modo-ingreso');
         if (E.vista === 'ingreso') E.vista = 'inicio';
         pasoArranque('Leyendo las hojas de cálculo… (la primera vez puede tardar hasta un minuto)');
-        D = await api('getDatos', E.token, false);
+        D = ctx.datos || await api('getDatos', E.token, false);
         preparar();
         window.__sigbeDatos = true;
         finArranque();
@@ -238,6 +241,11 @@
       } finally { leyendo(false); E.arrancando = false; }
     }
 
+    /** Tras un guardado que devuelve los datos ya actualizados (guardarYLeer): se usan esos; si no vinieron, se piden. */
+    async function datosNuevos(r) {
+      if (r && r.datos) { D = r.datos; preparar(); return; }
+      await cargarDatos(false);
+    }
     async function cargarDatos(forzar) {
       leyendo(true);
       try {
@@ -404,6 +412,9 @@
         'asis-filtro': () => { asis.filtro = d.f; pintarAsistencia(); },
         'asis-alternar': () => alternar(+d.j),
         'asis-todos': () => marcarTodos(d.v === '1'),
+        'evid-subir': () => { if (!E.usuario) return pedirSesion(); $('evid-in-' + d.tipo).value = ''; $('evid-in-' + d.tipo).click(); },
+        'evid-ver': () => verEvidencia(d.id),
+        'evid-quitar': () => quitarEvidenciaApp(d.id),
         'restr-nueva': () => abrirRestriccion(''),
         'restr-editar': () => abrirRestriccion(d.c),
         'restr-levantar': levantarRestriccion,
@@ -631,7 +642,7 @@
           m.items.map(x => `<div class="col-sm-6 col-lg-4 col-xxl-3"><button class="tarjeta-sesion" data-accion="asis-sesion" data-key="${esc(x.s.key)}" ${x.aplica ? '' : 'disabled'} title="${esc(x.motivo)}">
             <div class="d-flex justify-content-between align-items-start"><b>${esc(x.s.clave)} · Sesión ${x.s.n}</b>${icono[tipo(x)]}</div>
             <div class="small mt-1"><i class="fa-regular fa-calendar me-1"></i>${esc(x.fecha || (x.aplica ? 'sin fecha aún' : x.motivo))}${x.estado ? ' · ' + esc(x.estado) : ''}</div>
-            ${x.aplica ? `<div class="small mt-1 ${x.marcadas ? 'text-success' : 'text-muted'}"><i class="fa-solid fa-user-check me-1"></i>${x.marcadas} de ${x.total} con asistencia</div>` : ''}</button></div>`).join('') + '</div></div>').join('')
+            ${x.aplica ? `<div class="small mt-1 ${x.marcadas ? 'text-success' : 'text-muted'}"><i class="fa-solid fa-user-check me-1"></i>${x.marcadas} de ${x.total} con asistencia</div>` : ''}${resumenEvid(x)}</button></div>`).join('') + '</div></div>').join('')
         : '<p class="text-muted">No hay sesiones con ese filtro.</p>');
     }
     function elegirSesion(key) { asis.key = key; asis.cambios = {}; asis.buscar = ''; asis.paso = 'lista'; pintarAsistencia(); window.scrollTo(0, 0); }
@@ -672,6 +683,12 @@
             <button class="btn btn-sm btn-outline-secondary" data-accion="asis-todos" data-v="0" ${puede ? '' : 'disabled'}>Quitar todos</button>
             <div class="form-check ms-2"><input class="form-check-input" type="checkbox" id="asis-inact" ${asis.inactivos ? 'checked' : ''}><label class="form-check-label small" for="asis-inact">Ver desvinculados y a quienes no les aplica</label></div>
           </div>
+          <div class="mt-3 pt-2 border-top">
+            <div class="d-flex flex-wrap align-items-center gap-2"><span class="small fw-semibold me-1"><i class="fa-solid fa-paperclip me-1"></i>Evidencias de la sesión</span>
+              ${E.usuario ? `<button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="lista"><i class="fa-solid fa-file-signature me-1"></i>Subir lista firmada</button>
+              <button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="foto"><i class="fa-solid fa-camera me-1"></i>Subir fotos</button>` : ''}</div>
+            <div id="evid-galeria" class="d-flex flex-wrap gap-2 mt-2">${galeriaEvid()}</div>
+          </div>
           ${noAplican.length ? `<div class="small text-muted mt-2"><i class="fa-solid fa-circle-info me-1"></i>${noAplican.length} persona(s) no aparecen porque esta sesión no les aplica${porIngreso ? ` (${porIngreso} ingresaron a la brigada después de la fecha de la sesión)` : ''}; no cuentan como "no asistió".</div>` : ''}
           ${E.usuario ? '' : '<div class="alert alert-info small mt-3 mb-0"><i class="fa-solid fa-lock me-1"></i>Estás en <b>solo lectura</b>. <a href="#" data-accion="login">Inicia sesión</a> para marcar asistencia.</div>'}
         </div>
@@ -691,6 +708,7 @@
       b.oninput = () => { asis.buscar = b.value; filtrarLista(); };
       filtrarLista();
       $('asis-inact').onchange = ev => { asis.inactivos = ev.target.checked; pintarLista(); };
+      cargarEvidencias();
     }
     function filtrarLista() {
       const q = norm(asis.buscar);
@@ -1234,14 +1252,16 @@
     async function guardarEdicion(cambios, anteriores, plantaNueva) {
       modal('modal-confirmar').hide(); ocupado(true);
       try {
-        const r = await api('actualizarBrigadista', E.token, { tipo: ficha.tipo, cedula: ficha.c, nombre: ficha.n, fila: ficha.r, cambios: cambios, anteriores: anteriores, plantaNueva: !!plantaNueva });
+        const datos = { tipo: ficha.tipo, cedula: ficha.c, nombre: ficha.n, fila: ficha.r, cambios: cambios, anteriores: anteriores, plantaNueva: !!plantaNueva };
+        // El traslado mueve la fila en la hoja: se guarda y se vuelven a leer los datos en la misma llamada
+        const r = await (cambios.planta ? api('guardarYLeer', E.token, 'actualizarBrigadista', [datos]) : api('actualizarBrigadista', E.token, datos));
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? (r.rechazos && r.rechazos.length ? 'warning' : 'success') : 'danger', 10000);
         if (!r.exito) { modal('modal-ficha').show(); return; }
         const fallidos = (r.rechazos || []).map(t => Object.keys(CAMPOS_B).find(c => t.indexOf(CAMPOS_B[c] + ':') === 0)).filter(Boolean);
         const ok = {}; Object.keys(cambios).forEach(c => { if (fallidos.indexOf(c) === -1) ok[c] = cambios[c]; });
-        if (ok.planta) { await cargarDatos(false); cargarVista(); return; } // el traslado mueve la fila en la hoja: se vuelve a leer
+        if (ok.planta) { await datosNuevos(r); cargarVista(); return; }
         aplicarDatos(ficha, ok);
         contarRevision();
         cargarVista();
@@ -1309,12 +1329,12 @@
     async function guardarRegistro(d) {
       modal('modal-confirmar').hide(); ocupado(true);
       try {
-        const r = await api('registrarBrigadistaNuevo', E.token, d);
+        const r = await api('guardarYLeer', E.token, 'registrarBrigadistaNuevo', [d]);
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 10000);
         if (!r.exito) { modal('modal-registro').show(); return; }
-        await cargarDatos(false); cargarVista();
+        await datosNuevos(r); cargarVista();
       } catch (e) { error(e); }
     }
 
@@ -1409,13 +1429,13 @@
     async function guardarCrono(lote) {
       modal('modal-confirmar').hide(); ocupado(true);
       try {
-        const r = await api('guardarCronograma', E.token, lote);
+        const r = await api('guardarYLeer', E.token, 'guardarCronograma', [lote]);
         ocupado(false);
         if (revisarSesion(r)) return;
         if (!r.exito) return avisar(esc(r.mensaje), 'danger', 12000);
         const malos = r.resultados.filter(x => !x.exito || (x.rechazos && x.rechazos.length));
         avisar('<b>' + esc(r.mensaje) + '</b>' + (malos.length ? '<ul class="small mb-0 mt-1">' + malos.map(x => '<li>' + esc(x.mensaje) + '</li>').join('') + '</ul>' : ''), malos.length ? 'warning' : 'success', 12000);
-        await cargarDatos(false); cargarVista();
+        await datosNuevos(r); cargarVista();
       } catch (e) { error(e); }
     }
 
@@ -1469,12 +1489,12 @@
       }
       modal('modal-confirmar').hide(); ocupado(true);
       try {
-        const r = await api('agregarSesion', E.token, Object.assign({ fila: x.f.fila, ent: x.f.nombre, pl: x.pl }, d));
+        const r = await api('guardarYLeer', E.token, 'agregarSesion', [Object.assign({ fila: x.f.fila, ent: x.f.nombre, pl: x.pl }, d)]);
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? (r.avisos && r.avisos.length ? 'warning' : 'success') : 'danger', 12000);
         if (!r.exito) return;
-        await cargarDatos(false);
+        await datosNuevos(r);
         if (E.vista === 'cronograma') { $('crono-modulo').value = x.f.nombre; crono.cuando = ''; document.querySelectorAll('#crono-cuando .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cuando === ''))); }
         cargarVista();
         if (E.vista === 'cronograma' && $('crono-modulo').value !== x.f.nombre) { $('crono-modulo').value = x.f.nombre; pintarCronograma(); }
@@ -1523,12 +1543,12 @@
     async function crearModuloApp(d) {
       modal('modal-confirmar').hide(); ocupado(true);
       try {
-        const r = await api('crearModulo', E.token, d);
+        const r = await api('guardarYLeer', E.token, 'crearModulo', [d]);
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? (r.avisos && r.avisos.length ? 'warning' : 'success') : 'danger', 15000);
         if (!r.exito) return;
-        await cargarDatos(false);
+        await datosNuevos(r);
         crono.cuando = ''; document.querySelectorAll('#crono-cuando .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cuando === '')));
         ir('cronograma');
         const tema = D.cronoTodo.find(c => c.cl === r.clave);
@@ -1657,11 +1677,11 @@
     async function traerFaltantes(lista) {
       modal('modal-confirmar').hide(); ocupado(true);
       try {
-        const r = await api('importarBrigadistas', E.token, lista);
+        const r = await api('guardarYLeer', E.token, 'importarBrigadistas', [lista]);
         ocupado(false); if (revisarSesion(r)) return;
         const malos = (r.resultados || []).filter(x => !x.exito);
         avisar('<b>' + esc(r.mensaje) + '</b>' + (malos.length ? '<ul class="small mb-0 mt-1">' + malos.map(x => '<li>' + esc(x.nombre + ': ' + x.mensaje) + '</li>').join('') + '</ul>' : ''), malos.length ? 'warning' : 'success', 15000);
-        await cargarDatos(false); cargarVista();
+        await datosNuevos(r); cargarVista();
       } catch (e) { error(e); }
     }
 
@@ -2189,6 +2209,102 @@
       catch (e) { error(e); }
     }
 
+    // ══════════ EVIDENCIAS DE LA SESIÓN (lista firmada y fotos) ══════════
+    // Se guardan en Drive (carpeta de la cuenta dueña) y se anotan en el libro con una miniatura. La lista de asistencia
+    // se repinta a cada clic: la galería se lee una vez por sesión y se guarda aquí.
+    function resumenEvid(x) {
+      if (!x.aplica) return '';
+      const ev = (D.evid || {})[E.sede + '|' + x.s.key] || [0, 0];
+      if (!ev[0] && !ev[1]) return x.marcadas ? '<div class="small mt-1 text-warning-emphasis"><i class="fa-solid fa-paperclip me-1"></i>Falta subir la lista firmada</div>' : '';
+      return `<div class="small mt-1 text-muted"><i class="fa-solid fa-paperclip me-1"></i>${ev[0] ? 'Lista firmada' : '<span class="text-warning-emphasis">Sin lista firmada</span>'}${ev[1] ? ' · ' + ev[1] + ' foto(s)' : ''}</div>`;
+    }
+    function galeriaEvid() {
+      if (evid.k !== E.sede + '|' + asis.key || !evid.lista) return '<span class="small text-muted">Cargando…</span>';
+      if (!evid.lista.length) return '<span class="small text-muted">Todavía no hay lista firmada ni fotos de esta sesión.</span>';
+      const mio = x => E.perfil && (E.perfil.rol === 'gestor' || x.u.split(' (')[0] === E.usuario);
+      return evid.lista.map(x => `<div class="evid-item"><button type="button" class="evid-mini" data-accion="evid-ver" data-id="${esc(x.id)}" title="${esc(x.archivo + ' · ' + x.f + ' · ' + x.u)}">
+          ${x.mini ? `<img src="${esc(x.mini)}" alt="">` : `<i class="fa-solid ${x.tipo === 'lista' ? 'fa-file-signature' : 'fa-image'} fa-2x mt-2" aria-hidden="true"></i>`}
+          <span class="evid-tipo">${x.tipo === 'lista' ? 'Lista firmada' : 'Foto'} · ${esc(x.f.slice(0, 5))}</span></button>
+        ${mio(x) ? `<button type="button" class="evid-x" data-accion="evid-quitar" data-id="${esc(x.id)}" aria-label="Quitar ${x.tipo === 'lista' ? 'la lista firmada' : 'la foto'} del ${esc(x.f)}" title="Quitar">×</button>` : ''}</div>`).join('');
+    }
+    function pintarGaleria() { if ($('evid-galeria')) $('evid-galeria').innerHTML = galeriaEvid(); }
+    async function cargarEvidencias(forzar) {
+      const k = E.sede + '|' + asis.key;
+      if (!forzar && evid.k === k && evid.lista) return;
+      evid.k = k; evid.lista = null; pintarGaleria();
+      try { const l = await api('getEvidencias', E.token, E.sede, asis.key); if (evid.k === k) { evid.lista = l || []; pintarGaleria(); } }
+      catch (e) { if (evid.k === k) { evid.lista = []; pintarGaleria(); } }
+    }
+    /** Foto → JPEG de máximo 1600 px (pesa poco y se ve bien) y su miniatura de 240 px. */
+    function reducirFoto(archivo) {
+      return new Promise((ok, mal) => {
+        const url = URL.createObjectURL(archivo), img = new Image();
+        img.onload = () => {
+          const a = (max, calidad) => { const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas');
+            c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', calidad); };
+          const grande = a(1600, 0.85), mini = a(240, 0.7);
+          URL.revokeObjectURL(url); ok({ mime: 'image/jpeg', datos: grande.split(',')[1], mini: mini });
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); mal(new Error('No se pudo leer la imagen ' + archivo.name + '.')); };
+        img.src = url;
+      });
+    }
+    function leerBase64(archivo) {
+      return new Promise((ok, mal) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = () => mal(new Error('No se pudo leer ' + archivo.name + '.')); r.readAsDataURL(archivo); });
+    }
+    async function subirEvidencias(archivos, tipo) {
+      if (!archivos.length) return;
+      const k = E.sede + '|' + asis.key, sede = E.sede, key = asis.key;
+      let bien = 0;
+      ocupado(true);
+      try {
+        for (let n = 0; n < archivos.length; n++) {
+          const f = archivos[n];
+          avisar(`Subiendo ${archivos.length > 1 ? (n + 1) + ' de ' + archivos.length : 'el archivo'}…`, 'info', 3000);
+          let d;
+          if (f.type === 'application/pdf') {
+            if (tipo !== 'lista') { avisar(esc(f.name) + ': las fotos tienen que ser imágenes.', 'warning', 8000); continue; }
+            if (f.size > 5 * 1024 * 1024) { avisar(esc(f.name) + ' pesa más de 5 MB: escanéalo con menos resolución o súbelo como foto.', 'warning', 10000); continue; }
+            d = { mime: 'application/pdf', datos: await leerBase64(f), mini: '' };
+          } else if (/^image\//.test(f.type) || /\.(jpe?g|png|heic|webp)$/i.test(f.name)) {
+            d = await reducirFoto(f);
+          } else { avisar(esc(f.name) + ': solo fotos o PDF.', 'warning', 8000); continue; }
+          const r = await api('subirEvidencia', E.token, Object.assign({ sede: sede, key: key, tipo: tipo, nombre: f.name }, d));
+          if (revisarSesion(r)) return;
+          if (!r.exito) { avisar(esc(f.name) + ': ' + esc(r.mensaje), 'danger', 10000); continue; }
+          bien++; D.evid = r.resumen || D.evid;
+          if (evid.k === k) { evid.lista = r.lista; pintarGaleria(); }
+        }
+        if (bien) avisar(bien === 1 ? (tipo === 'lista' ? 'Lista firmada guardada.' : 'Foto guardada.') : bien + ' fotos guardadas.', 'success', 5000);
+      } catch (e) { error(e); } finally { ocupado(false); }
+    }
+    async function verEvidencia(id) {
+      const x = (evid.lista || []).find(y => y.id === id) || { tipo: 'foto', archivo: '', f: '', u: '' };
+      ocupado(true);
+      try {
+        const r = await api('getEvidencia', E.token, id);
+        ocupado(false);
+        const bytes = Uint8Array.from(atob(r.datos), c => c.charCodeAt(0)), url = URL.createObjectURL(new Blob([bytes], { type: r.mime }));
+        $('evid-titulo').textContent = (x.tipo === 'lista' ? 'Lista firmada' : 'Foto') + (x.f ? ' · ' + x.f : '');
+        $('evid-cuerpo').innerHTML = /^image\//.test(r.mime) ? `<img src="${url}" alt="${x.tipo === 'lista' ? 'Lista firmada' : 'Foto de la sesión'}">`
+          : `<i class="fa-solid fa-file-pdf fa-4x text-danger mb-2" aria-hidden="true"></i><div>${esc(r.nombre)}</div>`;
+        $('evid-pie').innerHTML = `<span class="small text-muted me-auto">Subió ${esc(x.u || '—')}</span>${/pdf/.test(r.mime) ? `<a class="btn btn-outline-primary" href="${url}" target="_blank" rel="noopener">Abrir</a>` : ''}<a class="btn btn-primary" href="${url}" download="${esc(r.nombre)}"><i class="fa-solid fa-download me-1"></i>Descargar</a>`;
+        modal('modal-evid').show();
+      } catch (e) { error(e); }
+    }
+    async function quitarEvidenciaApp(id) {
+      const x = (evid.lista || []).find(y => y.id === id);
+      if (!x || !confirm('¿Quitar ' + (x.tipo === 'lista' ? 'la lista firmada' : 'esta foto') + ' del ' + x.f + '? Queda 30 días en la papelera de Drive.')) return;
+      ocupado(true);
+      try {
+        const r = await api('quitarEvidencia', E.token, id);
+        ocupado(false);
+        if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 7000);
+        if (r.exito) { evid.lista = r.lista; D.evid = r.resumen || D.evid; pintarGaleria(); }
+      } catch (e) { error(e); }
+    }
+
     // ══════════ RESTRICCIONES MÉDICAS ══════════
     // Aparte de los datos del brigadista (dato de salud). Las registra Ambipar (o un gestor); todos las ven.
     function fechaCorta(iso) { return /^\d{4}-\d{2}-\d{2}$/.test(iso || '') ? iso.split('-').reverse().join('/') : iso || ''; }
@@ -2298,6 +2414,7 @@
         ],
         puede: [
           '<b>Imprimir para firmar</b>: la lista de la sesión para que la firmen en papel.',
+          '<b>Subir lista firmada</b> (PDF o foto) y <b>Subir fotos</b> de la sesión: quedan guardadas y se ven aquí mismo. Las fotos se reducen solas para que suban rápido.',
           'Buscar a una persona por nombre o cédula dentro de la lista.',
           ['gh', 'También desde la ficha de cada brigadista (Brigadistas → clic en su nombre) marcas varias sesiones de una vez.'],
         ],
@@ -2435,6 +2552,7 @@
       ['Tomar asistencia', 1, 1, 1],
       ['Poner la Fecha Ambipar, el estado y las observaciones de una sesión', 1, 1, 1],
       ['Programar o agregar sesiones y crear módulos', 1, 1, 1],
+      ['Subir la lista firmada y las fotos de cada sesión', 1, 1, 1],
       ['Poner la Fecha Holcim y marcar que una sesión no aplica', 1, 1, 0],
       ['Ver las restricciones médicas (y en la lista de asistencia)', 1, 1, 1],
       ['Registrar, cambiar o levantar restricciones médicas', 1, 0, 1],
@@ -2445,6 +2563,7 @@
     ];
     const TAREAS = [
       ['gha', 'fa-clipboard-check', 'Tomar asistencia', 'asistencia', ['Menú → <b>Tomar asistencia</b>.', 'Elige la sede y luego la sesión.', 'Marca a quienes asistieron (o <b>Marcar todos</b>).', 'Pulsa <b>Revisar y guardar</b> y confirma.']],
+      ['gha', 'fa-camera', 'Subir la lista firmada y las fotos de una sesión', 'asistencia', ['Menú → <b>Tomar asistencia</b> → la sede → la sesión.', 'En <b>Evidencias de la sesión</b>, pulsa <b>Subir lista firmada</b> (PDF o foto) o <b>Subir fotos</b> (puedes elegir varias).', 'Quedan en la galería de la sesión. Tócalas para verlas o descargarlas; la × las quita.']],
       ['a', 'fa-calendar-check', 'Poner la Fecha Ambipar de una sesión', 'cronograma', ['Menú → <b>Cronograma</b>.', 'Busca la sesión (por mes, tema o con el buscador).', 'Pulsa <b>Programar</b> o <b>Editar</b>.', 'Pon la <b>Fecha Ambipar</b> (y el estado si cambió) y guarda.']],
       ['gh', 'fa-calendar-check', 'Programar la fecha de una sesión', 'cronograma', ['Menú → <b>Cronograma</b>.', 'Busca la sesión (por mes, tema o con el buscador).', 'Pulsa <b>Programar</b> o <b>Editar</b>.', 'Pon la Fecha Holcim (y la Fecha Ambipar si ya la tienes) y guarda. Si es igual en otras plantas, márcalas para cambiarlas también.']],
       ['gha', 'fa-calendar-plus', 'Agregar una sesión que no está', 'cronograma', ['Menú → <b>Cronograma</b> → <b>Programar / Agregar sesión</b>.', 'Elige el módulo y la planta.', 'Pon la fecha (Ambipar pone la Fecha Ambipar), el estado si hace falta, y guarda.']],

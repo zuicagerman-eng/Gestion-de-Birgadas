@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.12.0';
+const SIGBE_VERSION = '4.13.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -41,8 +41,14 @@ const SIGBE_HOJA_BITACORA = 'Bitácora SIGBE';
 const SIGBE_HOJA_SEGUIMIENTO = '2026 Seguimiento';
 const SIGBE_HOJA_PANEL = 'PANEL'; // la cobertura para el Panel del Centro de formación
 const SIGBE_HOJA_RESTRICCIONES = 'Restricciones médicas SIGBE';
+const SIGBE_HOJA_EVIDENCIAS = 'Evidencias SIGBE';
+const SIGBE_CARPETA_EVIDENCIAS = 'SIGBE Evidencias (listas firmadas y fotos)';
+const SIGBE_EVID_MAX_MB = 5; // por archivo (las fotos llegan reducidas desde el navegador)
 const SIGBE_HORAS_SESION = 6;
 const SIGBE_MINUTOS_CACHE = 10;
+// El modelo dura más: lo guardado desde la app lo renueva al momento y la tarea de cada hora trae lo cambiado en el
+// Excel. Así casi siempre se abre desde la caché (el botón ↻ vuelve a leer las hojas cuando se quiera).
+const SIGBE_MINUTOS_MODELO = 65;
 const SIGBE_MAX_CAMBIOS = 300;       // máximo de cambios del Excel que se anotan uno por uno en cada pasada
 const SIGBE_FILAS_CRONOGRAMA = 120;  // el cronograma tiene ~20 filas de entrenamientos; no se leen las 1.000 vacías
 
@@ -115,10 +121,27 @@ function getCodigoApp() {
 // ═════════════════════════════ ARRANQUE Y DATOS ═════════════════════════════
 
 /** Configuración y sesión (no lee las hojas: es rápido). */
-function getContexto(token) {
+function getContexto(token, conDatos) {
   const setup = sigbeEstadoSetup_(), usuario = sigbeUsuarioSesion_(token);
   if (!usuario && setup.listo) { delete setup.ejecutaComo; delete setup.destinoError; } // sin sesión no se muestra la cuenta dueña
-  return { version: SIGBE_VERSION, setup: setup, usuario: usuario, perfil: sigbePerfil_(usuario), corte: !!prop_('LIBRO_NUEVO_CORTE') };
+  const r = { version: SIGBE_VERSION, setup: setup, usuario: usuario, perfil: sigbePerfil_(usuario), corte: !!prop_('LIBRO_NUEVO_CORTE') };
+  // Al abrir, los datos vienen en la misma llamada (una ida al servidor menos)
+  if (conDatos && usuario && setup.listo) { try { r.datos = getDatos(token, false); } catch (e) { /* la pantalla los pide aparte y muestra el error */ } }
+  return r;
+}
+
+/**
+ * Guardados que cambian lo que se ve en varias pantallas: guarda y devuelve en la misma llamada los datos ya
+ * actualizados (antes eran dos idas al servidor, guardar y volver a leer). Los datos se leen después de soltar el
+ * bloqueo y con los archivos que ya se abrieron para guardar.
+ */
+function guardarYLeer(token, funcion, args) {
+  const f = { registrarBrigadistaNuevo: registrarBrigadistaNuevo, guardarCronograma: guardarCronograma, agregarSesion: agregarSesion,
+    crearModulo: crearModulo, importarBrigadistas: importarBrigadistas, actualizarBrigadista: actualizarBrigadista }[funcion];
+  if (!f) throw new Error('Esa acción no se puede usar así.');
+  const r = f.apply(null, [token].concat(Array.isArray(args) ? args : []));
+  if (r && r.exito) { try { r.datos = getDatos(token, false); } catch (e) { /* la pantalla los vuelve a pedir */ } }
+  return r;
 }
 
 /**
@@ -132,7 +155,7 @@ function getDatos(token, forzar) {
     if (m) { m.desdeCache = true; return m; }
   }
   const m = sigbeConstruirModelo_();
-  sigbeCacheGuardar_(sigbeClaveModelo_(), m);
+  sigbeCacheGuardar_(sigbeClaveModelo_(), m, SIGBE_MINUTOS_MODELO);
   return m;
 }
 
@@ -223,6 +246,7 @@ function sigbeConstruirModelo_() {
     indicadorSinFila: indicadorSinFila,
     seguimiento: seguimiento,
     restr: (() => { try { return sigbeRestricciones_(); } catch (e) { avisos.push('Restricciones médicas: ' + e.message); return {}; } })(),
+    evid: (() => { try { return sigbeEvidenciasResumen_(); } catch (e) { return {}; } })(), // 'Sede|M1|1' → [listas firmadas, fotos]
     sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1).concat(sedes.filter(s => !SIGBE_SEDES.some(x => x[0] === s))),
   };
   // Cada vez que se recalcula la cobertura, la hoja PANEL (solo si cambió algún número)
@@ -300,7 +324,7 @@ function sigbeRestricciones_() {
       if (r) o[ced] = { r: r, h: dia(f[6]), f: dia(f[0]), u: String(f[1] || '').trim() }; else delete o[ced];
     });
   }
-  sigbeCacheGuardar_(clave, o);
+  sigbeCacheGuardar_(clave, o, 360); // solo cambia desde la app (y entonces cambia la clave)
   return o;
 }
 
@@ -335,6 +359,163 @@ function guardarRestriccion(token, d) {
   }
 }
 
+// ═════════════════════════════ EVIDENCIAS: LISTA FIRMADA Y FOTOS DE CADA SESIÓN ═════════════════════════════
+// Cada archivo va a una carpeta de Drive de la cuenta dueña (privada: se ve desde la app) y queda anotado en la pestaña
+// «Evidencias SIGBE» del libro de registro, con una miniatura para mostrar las fotos sin abrir Drive. Una sesión es
+// la sede + el módulo y la sesión (M1|1), como en Tomar asistencia. Quitar una evidencia la manda a la papelera de Drive
+// y la marca en la pestaña (no se borra la fila: queda la historia).
+const SIGBE_EV = { fecha: 1, subio: 2, sede: 3, key: 4, sesion: 5, tipo: 6, archivo: 7, id: 8, kb: 9, mini: 10, quitada: 11 };
+
+function sigbeHojaEvidencias_(crear) {
+  const ss = sigbeRegistro_();
+  if (!ss) throw new Error('No se puede abrir el libro de SIGBE.');
+  let sh = ss.getSheetByName(SIGBE_HOJA_EVIDENCIAS);
+  if (!sh && crear) {
+    sh = ss.insertSheet(SIGBE_HOJA_EVIDENCIAS);
+    sh.getRange(1, 1, 1, 11).setValues([['Fecha', 'Subió', 'Sede', 'Sesión (clave)', 'Sesión', 'Tipo', 'Archivo', 'ID en Drive', 'KB', 'Miniatura', 'Quitada']])
+      .setFontWeight('bold').setBackground('#1a252f').setFontColor('#ffffff');
+    sh.setFrozenRows(1);
+    try { sh.protect().setDescription('Evidencias de SIGBE: solo la app escribe aquí').setWarningOnly(true); } catch (e) { /* sin permiso */ }
+  }
+  return sh;
+}
+
+function sigbeCarpetaEvidencias_() {
+  const it = DriveApp.getFoldersByName(SIGBE_CARPETA_EVIDENCIAS);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(SIGBE_CARPETA_EVIDENCIAS);
+}
+
+/** Cuántas hay de cada sesión: { 'Sede|M1|1': [listas firmadas, fotos] } (con caché; cambia la clave al subir o quitar). */
+function sigbeEvidenciasResumen_() {
+  const clave = 'sigbe_evid_' + (prop_('SIGBE_EVID_GEN') || '0');
+  const enCache = sigbeCacheLeer_(clave);
+  if (enCache) return enCache;
+  const o = {}, sh = sigbeHojaEvidencias_(false);
+  if (sh && sh.getLastRow() > 1) {
+    const n = sh.getLastRow() - 1;
+    const datos = sh.getRange(2, SIGBE_EV.sede, n, 4).getValues(), quitadas = sh.getRange(2, SIGBE_EV.quitada, n, 1).getValues();
+    datos.forEach((f, k) => {
+      if (!f[0] || !f[1] || String(quitadas[k][0]).trim()) return; // sede, clave de la sesión; las quitadas no cuentan
+      const k2 = String(f[0]) + '|' + String(f[1]);
+      o[k2] = o[k2] || [0, 0];
+      o[k2][/lista/i.test(f[3]) ? 0 : 1]++;
+    });
+  }
+  sigbeCacheGuardar_(clave, o, 360);
+  return o;
+}
+
+/** Las de una sesión, sin las quitadas: [{ id, tipo, archivo, f, u, kb, mini }]. */
+function sigbeListaEvidencias_(sede, key) {
+  const sh = sigbeHojaEvidencias_(false);
+  if (!sh || sh.getLastRow() < 2) return [];
+  const n = sh.getLastRow() - 1, zona = Session.getScriptTimeZone();
+  const claves = sh.getRange(2, SIGBE_EV.sede, n, 2).getValues(), quitadas = sh.getRange(2, SIGBE_EV.quitada, n, 1).getValues();
+  const filas = [];
+  claves.forEach((f, k) => { if (String(f[0]) === sede && String(f[1]) === key && !String(quitadas[k][0]).trim()) filas.push(2 + k); });
+  return filas.slice(-40).map(r => {
+    const v = sh.getRange(r, 1, 1, SIGBE_EV.mini).getValues()[0];
+    return { id: String(v[SIGBE_EV.id - 1]), tipo: /lista/i.test(v[SIGBE_EV.tipo - 1]) ? 'lista' : 'foto', archivo: String(v[SIGBE_EV.archivo - 1]),
+      f: v[0] instanceof Date ? Utilities.formatDate(v[0], zona, 'dd/MM/yyyy HH:mm') : '', u: String(v[SIGBE_EV.subio - 1]), kb: Number(v[SIGBE_EV.kb - 1]) || 0,
+      mini: /^data:image\/(jpeg|png|webp);base64,/.test(String(v[SIGBE_EV.mini - 1])) ? String(v[SIGBE_EV.mini - 1]) : '' };
+  });
+}
+
+/**
+ * Después de guardar asistencia: en vez de obligar a releer todas las hojas, el modelo que estaba en caché se corrige
+ * con las casillas que se acaban de escribir y se guarda con la clave nueva (así quien abra la app después no espera).
+ * Solo si ese modelo es de esta misma lista: mismas sesiones y cada persona en la misma fila.
+ */
+function sigbeParcharModelo_(m, h, escritas) {
+  if (!m || !m.holcim || !escritas.length) return;
+  try {
+    const keys = h.sesiones.map(s => s.key);
+    if (!m.sesiones || m.sesiones.length !== keys.length || m.sesiones.some((s, i) => s.key !== keys[i])) return;
+    const enModelo = {}, enHoja = {};
+    m.holcim.forEach(p => { enModelo[p.r] = p; });
+    h.personas.forEach(p => { enHoja[p.fila] = p; });
+    for (let k = 0; k < escritas.length; k++) {
+      const e = escritas[k], i = h.sesiones.findIndex(s => s.colAsis === e.col), p = enModelo[e.fila], q = enHoja[e.fila];
+      if (i === -1 || !p || !q || String(p.c) !== String(q.cedula) || p.n !== q.nombre) return; // algo no cuadra: se relee todo
+      p.m = p.m.slice(0, i) + (e.v ? '1' : '0') + p.m.slice(i + 1);
+    }
+    delete m.desdeCache;
+    sigbeCacheGuardar_(sigbeClaveModelo_(), m, SIGBE_MINUTOS_MODELO);
+  } catch (e) { /* se releerá */ }
+}
+
+/** Fila de la pestaña de una evidencia (por su ID de Drive), o 0. Solo se abren archivos que la app subió. */
+function sigbeFilaEvidencia_(sh, id) {
+  if (!sh || sh.getLastRow() < 2 || !/^[\w-]{10,}$/.test(String(id || ''))) return 0;
+  const ids = sh.getRange(2, SIGBE_EV.id, sh.getLastRow() - 1, 1).getValues();
+  const k = ids.findIndex(f => String(f[0]) === String(id));
+  return k === -1 ? 0 : 2 + k;
+}
+
+function getEvidencias(token, sede, key) {
+  sigbeExigirSesion_(token);
+  return sigbeListaEvidencias_(String(sede || ''), String(key || ''));
+}
+
+/** Sube la lista firmada (PDF o foto) o una foto de la sesión. d: { sede, key, tipo: 'lista'|'foto', nombre, mime, datos (base64), mini } */
+function subirEvidencia(token, d) {
+  try {
+    const usuario = sigbeExigirRol_(token, ['gestor', 'holcim', 'proveedor']);
+    d = d || {};
+    const sede = String(d.sede || '').trim(), key = String(d.key || '').trim(), tipo = d.tipo === 'lista' ? 'lista' : d.tipo === 'foto' ? 'foto' : '';
+    const mime = String(d.mime || '');
+    if (!sede || !/^M\d+(-\d+)?\|\d+$/.test(key) || !tipo) return { exito: false, mensaje: 'Falta la sesión o el tipo de archivo.' };
+    if (!/^(image\/(jpeg|png|webp)|application\/pdf)$/.test(mime) || (tipo === 'foto' && mime === 'application/pdf')) return { exito: false, mensaje: 'Solo fotos (JPG o PNG) o, para la lista firmada, también PDF.' };
+    const datos = String(d.datos || '');
+    if (!datos || datos.length > Math.ceil(SIGBE_EVID_MAX_MB * 1024 * 1024 * 4 / 3) + 8) return { exito: false, mensaje: 'El archivo pesa más de ' + SIGBE_EVID_MAX_MB + ' MB.' };
+    const bytes = Utilities.base64Decode(datos);
+    const etiqueta = key.replace(/\|/, ' · Sesión ');
+    const ext = mime === 'application/pdf' ? '.pdf' : mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.jpg';
+    const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HHmm');
+    const nombre = (hoy + ' ' + sede + ' ' + etiqueta + ' - ' + (tipo === 'lista' ? 'Lista firmada' : 'Foto') + ext).replace(/[\\/:*?"<>|]/g, '-');
+    const archivo = sigbeCarpetaEvidencias_().createFile(Utilities.newBlob(bytes, mime, nombre));
+    const mini = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(String(d.mini || '')) && String(d.mini).length < 45000 ? String(d.mini) : '';
+    const sh = sigbeHojaEvidencias_(true);
+    sh.appendRow([new Date(), sigbeTxt_(sigbeEtiquetaUsuario_(usuario)), sigbeTxt_(sede), key, etiqueta, tipo === 'lista' ? 'Lista firmada' : 'Foto',
+      sigbeTxt_(String(d.nombre || nombre).slice(0, 120)), archivo.getId(), Math.round(bytes.length / 1024), mini, '']);
+    props_().setProperty('SIGBE_EVID_GEN', String(Date.now()));
+    sigbeBitacora_(usuario, [['Evidencia de sesión', SIGBE_HOJA_EVIDENCIAS, sh.getLastRow(), '', '', etiqueta + ' · ' + sede, '', (tipo === 'lista' ? 'Lista firmada' : 'Foto') + ' subida']]);
+    return { exito: true, mensaje: (tipo === 'lista' ? 'Lista firmada' : 'Foto') + ' guardada.', lista: sigbeListaEvidencias_(sede, key), resumen: sigbeEvidenciasResumen_() };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
+}
+
+/** El archivo para verlo o descargarlo: { nombre, mime, datos (base64) }. Solo los que la app subió y no se quitaron. */
+function getEvidencia(token, id) {
+  sigbeExigirSesion_(token);
+  const sh = sigbeHojaEvidencias_(false), fila = sigbeFilaEvidencia_(sh, id);
+  if (!fila || String(sh.getRange(fila, SIGBE_EV.quitada).getValue()).trim()) throw new Error('Esa evidencia ya no está.');
+  const blob = DriveApp.getFileById(String(id)).getBlob();
+  return { nombre: blob.getName(), mime: blob.getContentType(), datos: Utilities.base64Encode(blob.getBytes()) };
+}
+
+/** Quitar: quien la subió o un gestor. El archivo va a la papelera de Drive (se puede recuperar 30 días). */
+function quitarEvidencia(token, id) {
+  try {
+    const usuario = sigbeExigirRol_(token, ['gestor', 'holcim', 'proveedor']);
+    const sh = sigbeHojaEvidencias_(false), fila = sigbeFilaEvidencia_(sh, id);
+    if (!fila) return { exito: false, mensaje: 'Esa evidencia ya no está.' };
+    const v = sh.getRange(fila, 1, 1, SIGBE_EV.quitada).getValues()[0];
+    if (String(v[SIGBE_EV.quitada - 1]).trim()) return { exito: false, mensaje: 'Esa evidencia ya se había quitado.' };
+    const subio = String(v[SIGBE_EV.subio - 1]).split(' (')[0];
+    if (sigbeRol_(usuario) !== 'gestor' && subio !== usuario) return { exito: false, mensaje: 'Solo quien la subió (' + subio + ') o un gestor la puede quitar.' };
+    try { DriveApp.getFileById(String(id)).setTrashed(true); } catch (e) { /* ya no estaba en Drive */ }
+    sh.getRange(fila, SIGBE_EV.quitada).setValue(sigbeTxt_(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') + ' · ' + usuario));
+    props_().setProperty('SIGBE_EVID_GEN', String(Date.now()));
+    const sede = String(v[SIGBE_EV.sede - 1]), key = String(v[SIGBE_EV.key - 1]);
+    sigbeBitacora_(usuario, [['Evidencia de sesión', SIGBE_HOJA_EVIDENCIAS, fila, '', '', String(v[SIGBE_EV.sesion - 1]) + ' · ' + sede, String(v[SIGBE_EV.tipo - 1]), 'Quitada']]);
+    return { exito: true, mensaje: 'Evidencia quitada (queda 30 días en la papelera de Drive).', lista: sigbeListaEvidencias_(sede, key), resumen: sigbeEvidenciasResumen_() };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
+}
+
 // ═════════════════════════════ HOJA PANEL (PANEL DEL CENTRO DE FORMACIÓN) ═════════════════════════════
 // Como la hoja PANEL de GSTOR: nombre en la columna A, valor en la B, una fila por dato, sin encabezados. El Panel la lee
 // con la propiedad ID_SIGBE. Vive en el libro nuevo (el que queda después del corte; si todavía no hay, en el 2.0), así el
@@ -359,7 +540,7 @@ function sigbeEscribirPanel_(m, siempre) {
 function actualizarPanel(e) {
   lnTareaODueno_(e);
   let m = sigbeCacheLeer_(sigbeClaveModelo_());
-  if (!m) { m = sigbeConstruirModelo_(); sigbeCacheGuardar_(sigbeClaveModelo_(), m); }
+  if (!m) { m = sigbeConstruirModelo_(); sigbeCacheGuardar_(sigbeClaveModelo_(), m, SIGBE_MINUTOS_MODELO); }
   const r = sigbeEscribirPanel_(m, true);
   return lnMostrar_('Hoja PANEL de «' + r.libro.getName() + '» actualizada (' + r.ahora + '): ' + (r.t.cobertura === '' ? 'sin meta (¿falta la pestaña Indicador?)' : r.t.cobertura + ' % de la meta') +
     ' · ' + r.t.brigadistas + ' brigadistas · meta ' + r.t.meta + ' · ' + r.t.cumplen + ' de ' + r.t.plantas + ' plantas cumplen.');
@@ -534,7 +715,9 @@ function sigbeGuardarAsistencia_(token, cambios) {
     });
     sigbeEscribirCeldas_(sh, escribir);
     if (guardados) {
+      const viejo = sigbeCacheLeer_(sigbeClaveModelo_()); // el modelo de antes de guardar (si estaba en caché)
       sigbeTrasGuardar_(F, usuario, bitacora);
+      sigbeParcharModelo_(viejo, h, escribir);
       const eventos = [];
       Object.keys(porSede).forEach(sd => Object.keys(porSede[sd]).forEach(k => {
         const x = porSede[sd][k];
@@ -1233,7 +1416,7 @@ function getBrigadistasFaltantes(token) {
   const cfg = configOrigen_();
   [F.v1 || sigbeAbrir_(cfg.modo === 'configurado' ? cfg.id : ''), F.v2 || sigbeAbrir_(idDestino_()), F.corte ? F.libro : null]
     .forEach(ss => { if (ss && !libros.some(x => x.getId() === ss.getId())) libros.push(ss); });
-  const propias = [SIGBE_HOJA_BITACORA, SIGBE_HOJA_INGRESOS, SIGBE_HOJA_RESTRICCIONES].map(sigbeNorm_);
+  const propias = [SIGBE_HOJA_BITACORA, SIGBE_HOJA_INGRESOS, SIGBE_HOJA_RESTRICCIONES, SIGBE_HOJA_EVIDENCIAS].map(sigbeNorm_);
   const candidatos = {}, fuentes = [];
   libros.forEach(ss => {
     ss.getSheets().forEach(sh => {
@@ -1554,7 +1737,7 @@ function getHojaExtra(token, nombre) {
 
 function sigbeEsHojaPropia_(nombre) {
   const n = sigbeNorm_(nombre);
-  return ['2026 BRIGADISTAS HOLCIM', '2026 BRIGADISTAS INHOUSE', '2026 CRONOGRAMA', 'INDICADOR', sigbeNorm_(SIGBE_HOJA_BITACORA), sigbeNorm_(SIGBE_HOJA_INGRESOS), sigbeNorm_(SIGBE_HOJA_RESTRICCIONES)].some(x => n.indexOf(x) === 0) ||
+  return ['2026 BRIGADISTAS HOLCIM', '2026 BRIGADISTAS INHOUSE', '2026 CRONOGRAMA', 'INDICADOR', sigbeNorm_(SIGBE_HOJA_BITACORA), sigbeNorm_(SIGBE_HOJA_INGRESOS), sigbeNorm_(SIGBE_HOJA_RESTRICCIONES), sigbeNorm_(SIGBE_HOJA_EVIDENCIAS)].some(x => n.indexOf(x) === 0) ||
     n.indexOf('TEMARIO') !== -1 || n === SIGBE_HOJA_PANEL;
 }
 
@@ -1590,7 +1773,7 @@ function sigbeVigilarBloqueado_() {
   sigbeLimpiarCaches_();
   const m = sigbeConstruirModelo_();
   sigbeInvalidar_();
-  sigbeCacheGuardar_(sigbeClaveModelo_(), m);
+  sigbeCacheGuardar_(sigbeClaveModelo_(), m, SIGBE_MINUTOS_MODELO);
   const foto = sigbeFoto_(m);
   const props = props_();
   let archivo = null, anterior = null;
@@ -2642,13 +2825,13 @@ function sigbeGen_() { return prop_('SIGBE_GEN') || '0'; }
 function sigbeInvalidar_() { try { props_().setProperty('SIGBE_GEN', String(Date.now())); } catch (e) { /* sin propiedades */ } }
 
 /** CacheService guarda hasta 100 KB por valor: el JSON se parte en trozos. */
-function sigbeCacheGuardar_(clave, obj) {
+function sigbeCacheGuardar_(clave, obj, minutos) {
   try {
     const txt = JSON.stringify(obj);
     const trozo = 40000, n = Math.ceil(txt.length / trozo) || 1, o = {};
     for (let i = 0; i < n; i++) o[clave + '_' + i] = txt.substr(i * trozo, trozo);
     o[clave + '_n'] = String(n);
-    CacheService.getScriptCache().putAll(o, SIGBE_MINUTOS_CACHE * 60);
+    CacheService.getScriptCache().putAll(o, Math.min(minutos || SIGBE_MINUTOS_CACHE, 360) * 60);
   } catch (e) { /* demasiado grande o sin caché: se leerá de las hojas */ }
 }
 
