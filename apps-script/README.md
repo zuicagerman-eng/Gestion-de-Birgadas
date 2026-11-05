@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.15.2)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.15.3)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -183,9 +183,11 @@ avisa por correo **a quien le toca**:
 - Antes de enviar muestra cuántos hay de cada uno, el detalle y **a quién le llega qué**. A cada persona le llega **un
   solo correo** con lo suyo (de sus sedes), **siempre con copia** a los usuarios que el gestor elige en «Siempre con
   copia a» (propiedad `SIGBE_ALERTAS_COPIA`; a nadie se le copia su propio correo). Quien envía no se manda a sí mismo.
+- En el detalle, **cada pendiente tiene su casilla** (y una para todos los de cada grupo): el que se desmarca no va en
+  ningún correo, y a quien no le queda nada no le llega correo.
 - En el detalle, cada sesión dice **a quién le llega** («Le llega a»). En la lista de personas hay una casilla por cada
-  una, todas marcadas (también en cada nombre de la columna «Le llega a» del detalle): si el gestor le quita la marca a
-  alguien, esta vez no se le envía (sale tachado en la lista y en el detalle) y el botón muestra cuántos correos salen
+  una, todas marcadas: si el gestor le quita la marca a alguien, esta vez no se le envía (sale tachado en la lista y en
+  el detalle) y el botón muestra cuántos correos salen
   de verdad.
 - Lo que no tiene a quién llegar de su lado (una sede sin usuario de Holcim con correo, o sin nadie de Ambipar) les
   llega a los de copia en un correo aparte.

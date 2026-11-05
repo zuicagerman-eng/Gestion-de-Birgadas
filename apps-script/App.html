@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.15.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.15.3'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -2240,13 +2240,13 @@
 
     // ══════════ ALERTAS DE PENDIENTES DEL CRONOGRAMA (solo los gestores) ══════════
     // Revisa el cronograma (en el servidor, leído en el momento) y muestra qué se avisaría y a quién antes de enviar.
-    const alertas = { datos: null, editarCopia: false, excluir: [] }; // excluir: usuarios desmarcados (no se les envía)
+    const alertas = { datos: null, editarCopia: false, excluir: [], quitar: [] }; // excluir: personas desmarcadas; quitar: pendientes desmarcados (ids)
     const NOMBRE_ALERTA = { holcim: 'Falta Fecha Holcim', ambipar: 'Falta Fecha Ambipar', discordancia: 'Fechas distintas' };
     function tiposAlerta() { return [...document.querySelectorAll('#al-tipos input:checked')].map(x => x.value); }
     async function abrirAlertas() {
       if (!E.perfil || !E.perfil.admin) return;
       $('al-mes').value = D.hoy.slice(0, 7); // solo el mes en curso (se puede elegir otro)
-      alertas.editarCopia = false; alertas.excluir = [];
+      alertas.editarCopia = false; alertas.excluir = []; alertas.quitar = [];
       modal('modal-alertas').show();
       await revisarAlertas();
     }
@@ -2260,31 +2260,37 @@
     function pintarAlertas() {
       const a = alertas.datos; if (!a) return;
       const n = { holcim: 0, ambipar: 0, discordancia: 0 }; a.items.forEach(x => { n[x.tipo]++; });
+      const sale = x => alertas.quitar.indexOf(x.id) === -1, vivos = a.items.filter(sale); // los pendientes marcados
+      const nv = { holcim: 0, ambipar: 0, discordancia: 0 }; vivos.forEach(x => { nv[x.tipo]++; });
       const color = { holcim: 'var(--s-azul)', ambipar: '#b35c00', discordancia: 'var(--s-mal)' };
       const quien = { holcim: 'se avisa a Holcim de la sede', ambipar: 'se avisa solo a Ambipar', discordancia: 'se avisa a los dos' };
-      const kpis = Object.keys(n).map(t => `<div class="col-sm-4"><div class="kpi"><div class="eti">${NOMBRE_ALERTA[t]}</div><div class="num" style="color:${color[t]}">${n[t]}</div><div class="small text-muted">${quien[t]}</div></div></div>`).join('');
+      const kpis = Object.keys(n).map(t => `<div class="col-sm-4"><div class="kpi"><div class="eti">${NOMBRE_ALERTA[t]}</div><div class="num" style="color:${color[t]}">${nv[t]}${nv[t] !== n[t] ? '<span class="fs-6 text-muted fw-normal"> de ' + n[t] + '</span>' : ''}</div><div class="small text-muted">${quien[t]}</div></div></div>`).join('');
       const fuera = u => alertas.excluir.indexOf(u) !== -1, nombreDe = u => (a.envios.find(d => d.usuario === u) || {}).nombre || u;
-      const paraQuien = x => !(x.para || []).length ? '<span class="text-warning-emphasis">Nadie de su lado' + (a.copia.length ? ' (va a los de copia)' : '') + '</span>'
-        : x.para.map(u => `<label class="d-flex align-items-start gap-1 mb-1" title="${fuera(u) ? 'No se le envía. Márcalo para enviarle' : 'Quítale la marca para no enviarle (sale de todos los correos de esta vez)'}"><input type="checkbox" class="form-check-input mt-0 flex-shrink-0 al-persona" value="${esc(u)}" ${fuera(u) ? '' : 'checked'}><span class="${fuera(u) ? 'text-muted text-decoration-line-through' : ''}">${esc(nombreDe(u))}</span></label>`).join('');
-      const detalle = Object.keys(n).filter(t => n[t]).map(t => `<details class="mb-2" ${n[t] <= 12 ? 'open' : ''}><summary class="fw-semibold">${NOMBRE_ALERTA[t]} (${n[t]})</summary>
-          <div class="table-responsive"><table class="table table-sm small mb-1"><thead><tr><th scope="col">Sede</th><th scope="col">Planta y sesión</th><th scope="col">Tema</th><th scope="col">Fecha Holcim</th><th scope="col">Fecha Ambipar</th><th scope="col">Estado</th><th scope="col">Le llega a</th></tr></thead><tbody>
-          ${a.items.filter(x => x.tipo === t).map(x => `<tr><td>${esc(x.sede)}</td><td>${esc(x.pl + ' · ' + x.ses)}</td><td>${x.cl ? '<span class="badge text-bg-dark me-1">' + esc(x.cl) + '</span>' : ''}${esc(x.ent)}</td><td>${esc(x.f || (x.mes ? 'Sin fecha (' + x.mes + ')' : 'Sin fecha'))}</td><td>${esc(x.amb || '—')}</td><td>${esc(x.e || '—')}</td><td>${paraQuien(x)}</td></tr>`).join('')}</tbody></table></div></details>`).join('');
-      const envios = a.envios.length ? '<div class="small mb-2">' + a.envios.map(d => `<label class="form-check d-flex align-items-start gap-2 mb-1"><input type="checkbox" class="form-check-input mt-1 al-persona" value="${esc(d.usuario)}" ${fuera(d.usuario) ? '' : 'checked'}>
-          <span class="${fuera(d.usuario) ? 'text-muted text-decoration-line-through' : ''}"><b>${esc(d.nombre)}</b> <span class="text-muted">(${esc(d.org)} · ${esc(d.correo)} · ${d.sedes.length ? esc(d.sedes.join(', ')) : 'todas las sedes'})</span>: ${[d.n.holcim ? d.n.holcim + ' sin Fecha Holcim' : '', d.n.ambipar ? d.n.ambipar + ' sin Fecha Ambipar' : '', d.n.discordancia ? d.n.discordancia + ' con fechas distintas' : ''].filter(Boolean).join(', ')}</span></label>`).join('') + '<div class="text-muted">Quita la marca a quien no quieras enviarle esta vez.</div></div>'
+      const paraQuien = x => !sale(x) ? '<span class="text-muted">No va en ningún correo</span>'
+        : (x.para || []).map(u => fuera(u) ? `<s class="text-muted" title="Desmarcado arriba: no se le envía">${esc(nombreDe(u))}</s>` : esc(nombreDe(u))).join(', ')
+          + (x.h ? '<span class="text-warning-emphasis">' + ((x.para || []).length ? ' · y ' : '') + (a.copia.length ? 'a los de copia (nadie de su lado)' : 'nadie de su lado: elige quién va con copia') + '</span>' : '');
+      const fila = x => `<tr class="${sale(x) ? '' : 'opacity-50'}"><td><input type="checkbox" class="form-check-input al-item" value="${esc(x.id)}" ${sale(x) ? 'checked' : ''} aria-label="Enviar este pendiente: ${esc(x.pl + ' · ' + x.ses)}"></td>`;
+      const detalle = Object.keys(n).filter(t => n[t]).map(t => `<details class="mb-2" ${n[t] <= 12 ? 'open' : ''}><summary class="fw-semibold">${NOMBRE_ALERTA[t]} (${nv[t] !== n[t] ? nv[t] + ' de ' + n[t] : n[t]})</summary>
+          <div class="table-responsive"><table class="table table-sm small mb-1"><thead><tr><th scope="col"><input type="checkbox" class="form-check-input al-todos" data-tipo="${t}" ${a.items.filter(x => x.tipo === t).every(sale) ? 'checked' : ''} title="Marcar o desmarcar todos" aria-label="Todos los de ${NOMBRE_ALERTA[t]}"></th><th scope="col">Sede</th><th scope="col">Planta y sesión</th><th scope="col">Tema</th><th scope="col">Fecha Holcim</th><th scope="col">Fecha Ambipar</th><th scope="col">Estado</th><th scope="col">Le llega a</th></tr></thead><tbody>
+          ${a.items.filter(x => x.tipo === t).map(x => `${fila(x)}<td>${esc(x.sede)}</td><td>${esc(x.pl + ' · ' + x.ses)}</td><td>${x.cl ? '<span class="badge text-bg-dark me-1">' + esc(x.cl) + '</span>' : ''}${esc(x.ent)}</td><td>${esc(x.f || (x.mes ? 'Sin fecha (' + x.mes + ')' : 'Sin fecha'))}</td><td>${esc(x.amb || '—')}</td><td>${esc(x.e || '—')}</td><td>${paraQuien(x)}</td></tr>`).join('')}</tbody></table></div></details>`).join('');
+      const suyo = d => { const c = { holcim: 0, ambipar: 0, discordancia: 0 }; vivos.forEach(x => { if ((x.para || []).indexOf(d.usuario) !== -1) c[x.tipo]++; }); return c; };
+      const envios = a.envios.length ? '<div class="small mb-2">' + a.envios.map(d => ({ ...d, n: suyo(d) })).map(d => `<label class="form-check d-flex align-items-start gap-2 mb-1"><input type="checkbox" class="form-check-input mt-1 al-persona" value="${esc(d.usuario)}" ${fuera(d.usuario) ? '' : 'checked'}>
+          <span class="${fuera(d.usuario) ? 'text-muted text-decoration-line-through' : ''}"><b>${esc(d.nombre)}</b> <span class="text-muted">(${esc(d.org)} · ${esc(d.correo)} · ${d.sedes.length ? esc(d.sedes.join(', ')) : 'todas las sedes'})</span>: ${[d.n.holcim ? d.n.holcim + ' sin Fecha Holcim' : '', d.n.ambipar ? d.n.ambipar + ' sin Fecha Ambipar' : '', d.n.discordancia ? d.n.discordancia + ' con fechas distintas' : ''].filter(Boolean).join(', ') || 'nada (desmarcaste lo suyo)'}</span></label>`).join('') + '<div class="text-muted">Quita la marca a quien no quieras enviarle esta vez.</div></div>'
         : '<p class="small text-muted">Nadie: no hay pendientes, o nadie con correo y avisos activos en esas sedes.</p>';
       const copia = alertas.editarCopia
         ? `<div class="d-flex flex-wrap gap-2 small mb-2" id="al-copia-lista">${a.candidatos.map(d => `<label class="form-check m-0 d-inline-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" value="${esc(d.usuario)}" ${a.copia.some(c => c.usuario === d.usuario) ? 'checked' : ''}>${esc(d.nombre)} <span class="text-muted">(${esc(d.correo)})</span></label>`).join('') || '<span class="text-muted">No hay usuarios de Holcim con correo.</span>'}</div>
            <button type="button" class="btn btn-sm btn-primary" data-accion="al-copia-guardar">Guardar quién va con copia</button> <button type="button" class="btn btn-sm btn-link" data-accion="al-copia-cancelar">Cancelar</button>`
         : (a.copia.length ? a.copia.map(d => `<span class="badge bg-light text-dark border fw-normal me-1">${esc(d.nombre)} · ${esc(d.correo)}</span>`).join('') : '<span class="text-warning-emphasis small">Nadie todavía.</span>') + ' <button type="button" class="btn btn-sm btn-link" data-accion="al-copia-editar">Cambiar</button>';
-      const van = a.envios.filter(d => !fuera(d.usuario));
-      const correos = van.length + (a.huerfanos && a.copia.length ? 1 : 0);
-      const usa = van.reduce((k, d) => k + 1 + a.copia.filter(c => c.correo.toLowerCase() !== d.correo.toLowerCase()).length, 0) + (a.huerfanos ? a.copia.length : 0);
+      const huerf = vivos.filter(x => x.h).length;
+      const van = a.envios.filter(d => !fuera(d.usuario) && vivos.some(x => (x.para || []).indexOf(d.usuario) !== -1));
+      const correos = van.length + (huerf && a.copia.length ? 1 : 0);
+      const usa = van.reduce((k, d) => k + 1 + a.copia.filter(c => c.correo.toLowerCase() !== d.correo.toLowerCase()).length, 0) + (huerf ? a.copia.length : 0);
       const caja = $('al-cuerpo').closest('.modal-body'), arriba = caja ? caja.scrollTop : 0; // que no salte al marcar o desmarcar
       $('al-cuerpo').innerHTML = `<div class="row g-2 mb-3">${kpis}</div>
         <h3 class="h6 fw-bold">Le llega a (${van.length} de ${a.envios.length} persona${a.envios.length === 1 ? '' : 's'}, un correo cada una)</h3>${envios}
-        ${a.huerfanos ? `<div class="alert alert-warning small py-2">${a.huerfanos} pendiente(s) no tienen a quién llegar de su lado (sede sin usuario de Holcim con correo, o sin Ambipar): ${a.copia.length ? 'les llegan a los de copia en un correo aparte.' : 'elige quién va con copia para que les lleguen.'}</div>` : ''}
+        ${huerf ? `<div class="alert alert-warning small py-2">${huerf} pendiente(s) no tienen a quién llegar de su lado (sede sin usuario de Holcim con correo, o sin Ambipar): ${a.copia.length ? 'les llegan a los de copia en un correo aparte.' : 'elige quién va con copia para que les lleguen.'}</div>` : ''}
         <h3 class="h6 fw-bold mt-3">Siempre con copia a</h3>${copia}
-        <h3 class="h6 fw-bold mt-3">Detalle</h3>${a.envios.length && detalle ? '<p class="small text-muted mb-2">En «Le llega a», quítale la marca a quien no quieras enviarle: no le llega ningún correo esta vez.</p>' : ''}${detalle || '<p class="text-success small"><i class="fa-solid fa-check me-1"></i>Nada pendiente en ese mes.</p>'}`;
+        <h3 class="h6 fw-bold mt-3">Detalle</h3>${detalle ? '<p class="small text-muted mb-2">Quítale la marca a un pendiente para que no vaya en ningún correo. Los que quedan marcados son los que se envían.</p>' : ''}${detalle || '<p class="text-success small"><i class="fa-solid fa-check me-1"></i>Nada pendiente en ese mes.</p>'}`;
       $('al-pie').textContent = (a.cupo >= 0 ? 'Cupo de correos hoy: ' + a.cupo + ' (se usarían ' + usa + ').' : '') + (a.ultimo ? ' Última vez: ' + a.ultimo + '.' : '');
       $('al-enviar').disabled = !correos || alertas.editarCopia;
       $('al-enviar').innerHTML = `<i class="fa-solid fa-paper-plane me-1"></i>Enviar ${correos} correo${correos === 1 ? '' : 's'}`;
@@ -2292,6 +2298,10 @@
       document.querySelectorAll('#al-cuerpo .al-persona').forEach(c => { c.onchange = () => {
         alertas.excluir = alertas.excluir.filter(u => u !== c.value).concat(c.checked ? [] : [c.value]); pintarAlertas();
       }; });
+      const marcar = (ids, si) => { alertas.quitar = alertas.quitar.filter(i => ids.indexOf(i) === -1).concat(si ? [] : ids); pintarAlertas(); };
+      document.querySelectorAll('#al-cuerpo .al-item').forEach(c => { c.onchange = () => marcar([c.value], c.checked); });
+      document.querySelectorAll('#al-cuerpo .al-todos').forEach(c => { const de = a.items.filter(x => x.tipo === c.dataset.tipo); c.indeterminate = de.some(sale) && !de.every(sale); });
+      document.querySelectorAll('#al-cuerpo .al-todos').forEach(c => { c.onchange = () => marcar(a.items.filter(x => x.tipo === c.dataset.tipo).map(x => x.id), c.checked); });
     }
     async function guardarCopiaAlertasApp() {
       const us = [...document.querySelectorAll('#al-copia-lista input:checked')].map(x => x.value);
@@ -2304,10 +2314,10 @@
     }
     async function enviarAlertasApp() {
       const a = alertas.datos; if (!a) return;
-      if (!confirm((a.copia.length ? '' : 'Nadie va con copia. ') + '¿Enviar las alertas ahora? A cada persona marcada le llega un correo con lo suyo' + (alertas.excluir.length ? ' (' + alertas.excluir.length + ' desmarcada(s) no lo reciben)' : '') + '.')) return;
+      if (!confirm((a.copia.length ? '' : 'Nadie va con copia. ') + '¿Enviar las alertas ahora? A cada persona marcada le llega un correo con lo suyo' + (alertas.excluir.length ? ' (' + alertas.excluir.length + ' desmarcada(s) no lo reciben)' : '') + (alertas.quitar.length ? '. ' + alertas.quitar.length + ' pendiente(s) desmarcado(s) no van' : '') + '.')) return;
       $('al-enviar').disabled = true; ocupado(true);
       try {
-        const r = await api('enviarAlertasPendientes', E.token, $('al-mes').value, tiposAlerta(), alertas.excluir);
+        const r = await api('enviarAlertasPendientes', E.token, $('al-mes').value, tiposAlerta(), alertas.excluir, alertas.quitar);
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 12000);

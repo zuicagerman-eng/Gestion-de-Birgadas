@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.15.2';
+const SIGBE_VERSION = '4.15.3';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -1735,13 +1735,14 @@ function sigbePendientesCrono_(mes) {
     if (x.i ? x.i.slice(0, 7) !== mes : !(mismoAnio && SIGBE_MESES.indexOf(sigbeNorm_(x.mes)) + 1 === nMes)) return null;
     const amb = /^\d{4}-\d{2}-\d{2}$/.test(x.amb) ? x.amb : sigbeIso_(x.amb);
     const tipo = !x.i ? 'holcim' : !amb ? 'ambipar' : amb !== x.i ? 'discordancia' : '';
-    return tipo ? { tipo: tipo, sede: x.sede, pl: x.pl, ses: x.ses, mes: x.mes, ent: x.ent, cl: x.cl, f: x.f, i: x.i, amb: x.amb, e: x.e } : null;
+    return tipo ? { id: [tipo, x.sede, x.pl, x.ses, x.cl, x.ent].join('|'), tipo: tipo, sede: x.sede, pl: x.pl, ses: x.ses, mes: x.mes, ent: x.ent, cl: x.cl, f: x.f, i: x.i, amb: x.amb, e: x.e } : null;
   }).filter(Boolean).sort((a, b) => orden[a.tipo] - orden[b.tipo] || a.sede.localeCompare(b.sede) || (a.i || '9').localeCompare(b.i || '9') || a.pl.localeCompare(b.pl));
 }
 
-/** Quién recibe qué: { items, envios: [{ d: perfil, items }], huerfanos, copia: [perfil], todos } (sin quien envía). */
-function sigbePlanAlertas_(yo, mes, tipos) {
-  const items = sigbePendientesCrono_(mes).filter(x => tipos.indexOf(x.tipo) !== -1);
+/** Quién recibe qué: { items, envios: [{ d: perfil, items }], huerfanos, copia: [perfil], todos } (sin quien envía). quitar: ids de pendientes que no van. */
+function sigbePlanAlertas_(yo, mes, tipos, quitar) {
+  const sin = Array.isArray(quitar) ? quitar.map(String) : [];
+  const items = sigbePendientesCrono_(mes).filter(x => tipos.indexOf(x.tipo) !== -1 && sin.indexOf(x.id) === -1);
   const principal = prop_('SIGBE_USUARIO');
   const todos = [sigbePerfil_(principal)].concat(Object.keys(sigbeUsuarios_()).filter(u => u !== principal).map(sigbePerfil_)).filter(d => d && d.correo);
   const yoP = todos.find(d => d.usuario === yo), mio = String((yoP && yoP.correo) || '').toLowerCase();
@@ -1758,6 +1759,7 @@ function sigbePlanAlertas_(yo, mes, tipos) {
   envios.forEach(e => e.items.forEach(x => { (x.para = x.para || []).push(e.d.usuario); })); // a quién le llega cada pendiente
   // Lo que no le llega a nadie de su lado (una sede sin usuarios de Holcim con correo, o sin nadie de Ambipar): a los de copia
   const huerfanos = items.filter(x => lados(x).some(l => !lado[l].some(d => deSede(d, x))));
+  huerfanos.forEach(x => { x.h = true; });
   return { items: items, envios: envios, huerfanos: huerfanos, copia: copia, todos: todos };
 }
 
@@ -1798,18 +1800,22 @@ function guardarCopiaAlertas(token, usuarios) {
   return { exito: true, mensaje: validos.length ? 'Con copia a ' + validos.length + ' persona(s).' : 'Sin copia.' };
 }
 
-/** Envía las alertas: un correo por persona con lo suyo, con copia a los elegidos. excluir: usuarios a los que no. Solo los gestores. */
-function enviarAlertasPendientes(token, mes, tipos, excluir) {
+/**
+ * Envía las alertas: un correo por persona con lo suyo, con copia a los elegidos. Solo los gestores.
+ * excluir: usuarios a los que no; quitar: ids de los pendientes que no van en ningún correo (los que el gestor desmarcó).
+ */
+function enviarAlertasPendientes(token, mes, tipos, excluir, quitar) {
   try {
     const yo = sigbePerfil_(sigbeExigirSesion_(token));
     if (!yo || !yo.admin) return { exito: false, mensaje: 'Solo un gestor envía las alertas de pendientes.' };
     mes = sigbeMesAlertas_(mes);
-    const plan = sigbePlanAlertas_(yo.usuario, mes, sigbeTiposAlerta_(tipos));
+    const plan = sigbePlanAlertas_(yo.usuario, mes, sigbeTiposAlerta_(tipos), quitar);
     const fuera = Array.isArray(excluir) ? excluir.map(String) : [];
     plan.envios = plan.envios.filter(e => fuera.indexOf(e.d.usuario) === -1); // los que el gestor desmarcó
     const copias = plan.copia.map(c => c.correo);
     const correos = plan.envios.map(e => ({ to: [e.d.correo], cc: copias.filter(c => c.toLowerCase() !== e.d.correo.toLowerCase()), nombre: e.d.nombre, items: e.items }));
     if (plan.huerfanos.length && copias.length) correos.push({ to: copias, cc: [], nombre: '', items: plan.huerfanos, huerfanos: true });
+    if (!plan.items.length) return { exito: false, mensaje: 'No quedó ningún pendiente marcado para enviar.' };
     if (!correos.length) return { exito: true, enviados: 0, mensaje: plan.items.length ? 'Hay pendientes, pero nadie con correo para avisarles (elige quién va con copia).' : 'No hay pendientes que avisar.' };
     const usa = correos.reduce((n, c) => n + c.to.length + c.cc.length, 0), cupo = MailApp.getRemainingDailyQuota();
     if (usa > cupo) return { exito: false, mensaje: 'Hoy quedan ' + cupo + ' envíos de correo en la cuenta de la app y harían falta ' + usa + '. Prueba mañana, o con menos tipos o una fecha más corta.' };
