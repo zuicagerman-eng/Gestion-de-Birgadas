@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.15.0';
+const SIGBE_VERSION = '4.15.1';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -1755,6 +1755,7 @@ function sigbePlanAlertas_(yo, mes, tipos) {
     const suyos = items.filter(x => lados(x).indexOf(l) !== -1 && deSede(d, x));
     if (suyos.length) envios.push({ d: d, lado: l, items: suyos });
   }));
+  envios.forEach(e => e.items.forEach(x => { (x.para = x.para || []).push(e.d.usuario); })); // a quién le llega cada pendiente
   // Lo que no le llega a nadie de su lado (una sede sin usuarios de Holcim con correo, o sin nadie de Ambipar): a los de copia
   const huerfanos = items.filter(x => lados(x).some(l => !lado[l].some(d => deSede(d, x))));
   return { items: items, envios: envios, huerfanos: huerfanos, copia: copia, todos: todos };
@@ -1797,13 +1798,15 @@ function guardarCopiaAlertas(token, usuarios) {
   return { exito: true, mensaje: validos.length ? 'Con copia a ' + validos.length + ' persona(s).' : 'Sin copia.' };
 }
 
-/** Envía las alertas: un correo por persona con lo suyo, con copia a los elegidos. Solo los gestores. */
-function enviarAlertasPendientes(token, mes, tipos) {
+/** Envía las alertas: un correo por persona con lo suyo, con copia a los elegidos. excluir: usuarios a los que no. Solo los gestores. */
+function enviarAlertasPendientes(token, mes, tipos, excluir) {
   try {
     const yo = sigbePerfil_(sigbeExigirSesion_(token));
     if (!yo || !yo.admin) return { exito: false, mensaje: 'Solo un gestor envía las alertas de pendientes.' };
     mes = sigbeMesAlertas_(mes);
     const plan = sigbePlanAlertas_(yo.usuario, mes, sigbeTiposAlerta_(tipos));
+    const fuera = Array.isArray(excluir) ? excluir.map(String) : [];
+    plan.envios = plan.envios.filter(e => fuera.indexOf(e.d.usuario) === -1); // los que el gestor desmarcó
     const copias = plan.copia.map(c => c.correo);
     const correos = plan.envios.map(e => ({ to: [e.d.correo], cc: copias.filter(c => c.toLowerCase() !== e.d.correo.toLowerCase()), nombre: e.d.nombre, items: e.items }));
     if (plan.huerfanos.length && copias.length) correos.push({ to: copias, cc: [], nombre: '', items: plan.huerfanos, huerfanos: true });
