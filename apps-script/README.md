@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.14.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.15.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -166,6 +166,27 @@ de GSTOR. Con la clave temporal de GSTOR no entra: primero la cambia en GSTOR.
 en SIGBE, poner las propiedades del script `GSTOR_URL` (URL /exec de GSTOR) y `GSTOR_PUENTE` (la llave que dio
 `prepararPuenteSigbe`), correr `probarGstor` en el editor (pide permiso para llamar a otra URL) y publicar versión nueva.
 *Estado del sistema* muestra si la conexión funciona.
+
+## Alertas de pendientes del cronograma (solo los gestores)
+
+En **Cronograma → Alertas de pendientes** (solo lo ven los gestores) se revisa, leyendo el cronograma en ese momento,
+qué falta en cada sesión hasta la fecha que se elija (las sesiones sin fecha, hasta ese mes; no cuentan las que no
+aplican ni las realizadas o canceladas), y se avisa por correo **a quien le toca**:
+
+| Pendiente | Le llega a |
+|---|---|
+| Falta la **Fecha Holcim** | los usuarios de Holcim de esa sede (con correo y avisos activos) |
+| Falta la **Fecha Ambipar** (hay Fecha Holcim) | solo a Ambipar |
+| Las dos fechas **no coinciden** | a los dos |
+
+- Antes de enviar muestra cuántos hay de cada uno, el detalle y **a quién le llega qué**. A cada persona le llega **un
+  solo correo** con lo suyo (de sus sedes), **siempre con copia** a los usuarios que el gestor elige en «Siempre con
+  copia a» (propiedad `SIGBE_ALERTAS_COPIA`; a nadie se le copia su propio correo). Quien envía no se manda a sí mismo.
+- Lo que no tiene a quién llegar de su lado (una sede sin usuario de Holcim con correo, o sin nadie de Ambipar) les
+  llega a los de copia en un correo aparte.
+- Si el cupo diario de correos de la cuenta de la app no alcanza, no se envía nada y se avisa. Queda en el historial
+  («Alertas de pendientes») y en la ventana se ve cuándo se enviaron la última vez. Solo sale cuando el gestor pulsa el
+  botón (no hay envío automático).
 
 ## Evidencias (lista firmada y fotos de cada sesión)
 

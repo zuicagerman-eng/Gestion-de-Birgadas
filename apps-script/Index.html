@@ -191,7 +191,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.14.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.15.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -421,7 +421,8 @@
           <section class="vista" id="v-cronograma" aria-labelledby="t-crono">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
               <h1 class="titulo-vista mb-0" id="t-crono">Cronograma de capacitaciones</h1>
-              <div class="d-flex gap-2">
+              <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-warning btn-sm" id="crono-alertas-btn" data-accion="alertas" style="display:none;" title="Solo los gestores: avisa por correo lo que falta en cada sesión"><i class="fa-solid fa-bell me-1"></i>Alertas de pendientes</button>
                 <button class="btn btn-outline-success btn-sm" data-accion="nueva-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Programar / Agregar sesión</button>
                 <button class="btn btn-success btn-sm" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-1"></i>Nuevo módulo</button>
               </div>
@@ -822,6 +823,28 @@
       <div class="modal-header"><h2 class="modal-title h5" id="conf-titulo"></h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body" id="conf-cuerpo"></div>
       <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Volver</button><button class="btn btn-success" id="conf-ok"></button></div>
+    </div></div>
+  </div>
+  <!-- MODAL: alertas de pendientes del cronograma (solo los gestores) -->
+  <div class="modal fade" id="modal-alertas" tabindex="-1" aria-labelledby="al-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable"><div class="modal-content">
+      <div class="modal-header"><div><h2 class="modal-title h5" id="al-titulo"><i class="fa-solid fa-bell text-warning me-2"></i>Alertas de pendientes del cronograma</h2>
+        <div class="small text-muted">A cada uno lo suyo: <b>sin Fecha Holcim</b> → Holcim de esa sede · <b>sin Fecha Ambipar</b> → solo Ambipar · <b>fechas distintas</b> → los dos. Un correo por persona, con copia a los que elijas.</div></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body">
+        <div class="d-flex flex-wrap align-items-end gap-3 mb-3">
+          <div><label class="form-label small mb-0" for="al-hasta">Sesiones hasta</label><input type="date" id="al-hasta" class="form-control form-control-sm"></div>
+          <div class="d-flex flex-wrap gap-3 small" id="al-tipos" role="group" aria-label="Qué avisar">
+            <label class="form-check m-0"><input type="checkbox" class="form-check-input" value="holcim" checked> Falta Fecha Holcim</label>
+            <label class="form-check m-0"><input type="checkbox" class="form-check-input" value="ambipar" checked> Falta Fecha Ambipar</label>
+            <label class="form-check m-0"><input type="checkbox" class="form-check-input" value="discordancia" checked> Fechas distintas</label>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-accion="al-revisar"><i class="fa-solid fa-rotate me-1"></i>Revisar</button>
+        </div>
+        <div id="al-cuerpo"></div>
+      </div>
+      <div class="modal-footer"><span class="small text-muted me-auto" id="al-pie"></span><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-warning" id="al-enviar" data-accion="al-enviar" disabled><i class="fa-solid fa-paper-plane me-1"></i>Enviar alertas</button></div>
     </div></div>
   </div>
   <!-- MODAL: restricción médica -->
