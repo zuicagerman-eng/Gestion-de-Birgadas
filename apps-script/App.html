@@ -147,7 +147,7 @@
       $('form-restr').onsubmit = guardarRestriccionApp;
       $('restr-persona').oninput = mostrarPersonaRestr;
       $('evid-in-lista').onchange = ev => subirEvidencias([...ev.target.files], 'lista');
-      $('al-hasta').onchange = revisarAlertas; $('al-tipos').onchange = revisarAlertas;
+      $('al-mes').onchange = revisarAlertas; $('al-tipos').onchange = revisarAlertas;
       $('evid-in-foto').onchange = ev => subirEvidencias([...ev.target.files], 'foto');
       $('brig-buscar').oninput = conEspera(pintarBrigadistas);
       ['brig-estado', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
@@ -2245,10 +2245,7 @@
     function tiposAlerta() { return [...document.querySelectorAll('#al-tipos input:checked')].map(x => x.value); }
     async function abrirAlertas() {
       if (!E.perfil || !E.perfil.admin) return;
-      if (!$('al-hasta').value) { // por defecto, hasta el fin del mes siguiente
-        const h = new Date(), f = new Date(h.getFullYear(), h.getMonth() + 2, 0);
-        $('al-hasta').value = f.getFullYear() + '-' + String(f.getMonth() + 1).padStart(2, '0') + '-' + String(f.getDate()).padStart(2, '0');
-      }
+      $('al-mes').value = D.hoy.slice(0, 7); // solo el mes en curso (se puede elegir otro)
       alertas.editarCopia = false;
       modal('modal-alertas').show();
       await revisarAlertas();
@@ -2256,7 +2253,7 @@
     async function revisarAlertas() {
       $('al-cuerpo').innerHTML = '<p class="text-muted"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Revisando el cronograma…</p>';
       $('al-enviar').disabled = true;
-      try { alertas.datos = await api('getAlertasPendientes', E.token, $('al-hasta').value, tiposAlerta()); }
+      try { alertas.datos = await api('getAlertasPendientes', E.token, $('al-mes').value, tiposAlerta()); }
       catch (e) { $('al-cuerpo').innerHTML = '<div class="alert alert-danger">' + esc(e && e.message ? e.message : e) + '</div>'; return; }
       pintarAlertas();
     }
@@ -2281,7 +2278,7 @@
         <h3 class="h6 fw-bold">Le llega a (${a.envios.length} persona${a.envios.length === 1 ? '' : 's'}, un correo cada una)</h3>${envios}
         ${a.huerfanos ? `<div class="alert alert-warning small py-2">${a.huerfanos} pendiente(s) no tienen a quién llegar de su lado (sede sin usuario de Holcim con correo, o sin Ambipar): ${a.copia.length ? 'les llegan a los de copia en un correo aparte.' : 'elige quién va con copia para que les lleguen.'}</div>` : ''}
         <h3 class="h6 fw-bold mt-3">Siempre con copia a</h3>${copia}
-        <h3 class="h6 fw-bold mt-3">Detalle</h3>${detalle || '<p class="text-success small"><i class="fa-solid fa-check me-1"></i>Nada pendiente hasta esa fecha.</p>'}`;
+        <h3 class="h6 fw-bold mt-3">Detalle</h3>${detalle || '<p class="text-success small"><i class="fa-solid fa-check me-1"></i>Nada pendiente en ese mes.</p>'}`;
       $('al-pie').textContent = (a.cupo >= 0 ? 'Cupo de correos hoy: ' + a.cupo + ' (se usarían ' + usa + ').' : '') + (a.ultimo ? ' Última vez: ' + a.ultimo + '.' : '');
       $('al-enviar').disabled = !correos || alertas.editarCopia;
       $('al-enviar').innerHTML = `<i class="fa-solid fa-paper-plane me-1"></i>Enviar ${correos} correo${correos === 1 ? '' : 's'}`;
@@ -2300,7 +2297,7 @@
       if (!confirm((a.copia.length ? '' : 'Nadie va con copia. ') + '¿Enviar las alertas ahora? A cada persona de la lista le llega un correo con lo suyo.')) return;
       $('al-enviar').disabled = true; ocupado(true);
       try {
-        const r = await api('enviarAlertasPendientes', E.token, $('al-hasta').value, tiposAlerta());
+        const r = await api('enviarAlertasPendientes', E.token, $('al-mes').value, tiposAlerta());
         ocupado(false);
         if (revisarSesion(r)) return;
         avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 12000);
@@ -2587,7 +2584,7 @@
           'Al editar puedes aplicar el mismo cambio a las otras plantas de esa fila.',
           '<b>Programar / Agregar sesión</b>: una sesión nueva en una planta.',
           '<b>Nuevo módulo</b>: un tema de capacitación que todavía no está.',
-          ['g', '<b>Alertas de pendientes</b> (solo los gestores): revisa qué falta en cada sesión y avisa por correo a quien le toca — sin Fecha Holcim, a Holcim de esa sede; sin Fecha Ambipar, solo a Ambipar; fechas distintas, a los dos —, siempre con copia a quienes elijas. Antes de enviar muestra qué le llega a cada uno.'],
+          ['g', '<b>Alertas de pendientes</b> (solo los gestores): revisa qué falta en cada sesión del mes en curso y avisa por correo a quien le toca — sin Fecha Holcim, a Holcim de esa sede; sin Fecha Ambipar, solo a Ambipar; fechas distintas, a los dos —, siempre con copia a quienes elijas. Antes de enviar muestra qué le llega a cada uno.'],
         ],
         otro: [['a', 'La <b>Fecha Holcim</b> y marcar que una sesión no aplica los hace Holcim.']],
         ojo: ['Lo que cambias aquí cambia qué sesiones aplican en Tomar asistencia y en el avance de cada planta.'],
@@ -2700,7 +2697,7 @@
       ['a', 'fa-notes-medical', 'Registrar una restricción médica', 'restricciones', ['En la lista de asistencia, clic en el nombre del brigadista → botón <b>Restricción médica</b>.', 'O: menú → <b>Restricciones médicas</b> → <b>Registrar restricción</b> y elige a la persona.', 'Escribe qué no puede hacer y, si es temporal, hasta cuándo. Pulsa <b>Guardar</b>.']],
       ['gh', 'fa-right-left', 'Trasladar a un brigadista de planta', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre → <b>Editar</b>.', 'En <b>Planta</b> elige la nueva (o «+ Nueva planta…» para crearla).', 'Si también va a sesiones de otras plantas, márcalas en <b>Otras plantas</b>. Revisa y guarda: conserva su asistencia.']],
       ['gh', 'fa-user-minus', 'Retirar a un brigadista', 'brigadistas', ['Menú → <b>Brigadistas</b> → clic en su nombre.', 'En la ficha, <b>Editar</b> (o <b>Completar datos</b>).', 'Estado <b>Desvinculado</b>, su <b>fecha de retiro</b> (obligatoria) y, si quieres, observaciones; guarda. No se borra: queda su historial.']],
-      ['g', 'fa-bell', 'Avisar lo que falta en el cronograma', 'cronograma', ['Menú → <b>Cronograma</b> → <b>Alertas de pendientes</b>.', 'Elige hasta qué fecha mirar y qué avisar; revisa la lista de quién recibe qué. La primera vez, en <b>Siempre con copia a</b> pulsa <b>Cambiar</b> y marca a quienes van con copia.', 'Pulsa <b>Enviar</b>: a cada persona le llega un correo con lo suyo. Queda en el historial.']],
+      ['g', 'fa-bell', 'Avisar lo que falta en el cronograma', 'cronograma', ['Menú → <b>Cronograma</b> → <b>Alertas de pendientes</b>.', 'Mira el mes en curso (puedes elegir otro) y qué avisar; revisa la lista de quién recibe qué. La primera vez, en <b>Siempre con copia a</b> pulsa <b>Cambiar</b> y marca a quienes van con copia.', 'Pulsa <b>Enviar</b>: a cada persona le llega un correo con lo suyo. Queda en el historial.']],
       ['g', 'fa-user-gear', 'Darle acceso a alguien', 'configuracion', ['Menú → <b>Configuración</b> → <b>Usuarios</b>.', 'Llena usuario, nombre, correo, tipo (Holcim o Ambipar) y sus sedes.', 'Pulsa <b>Agregar</b>. Si dejas marcado «Enviar el acceso por correo ahora», le llega de una vez; si no, se lo envías después.']],
       ['gha', 'fa-key', 'Cambiar tu clave', 'configuracion', ['Menú → <b class="no-proveedor">Configuración</b><b class="solo-proveedor">Mi clave</b>.', 'Escribe tu clave actual y la nueva dos veces.', 'Pulsa <b>Cambiar</b>. Si entras con tu clave de GSTOR, cámbiala en GSTOR.']],
     ];

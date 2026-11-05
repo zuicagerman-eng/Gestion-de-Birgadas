@@ -1715,24 +1715,24 @@ const SIGBE_TIPOS_ALERTA = {
   discordancia: ['La Fecha Holcim y la Fecha Ambipar no coinciden', 'Pónganse de acuerdo y corrijan la que corresponda en el Cronograma de SIGBE.'],
 };
 
-/** Último día del mes siguiente (yyyy-MM-dd): hasta dónde se mira si no se dice otra cosa. */
-function sigbeFinMesSiguiente_() {
-  const h = new Date(), f = new Date(h.getFullYear(), h.getMonth() + 2, 0);
-  return Utilities.formatDate(f, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+/** El mes que se mira (yyyy-MM): el que se pidió o, si no, el mes en curso. */
+function sigbeMesAlertas_(mes) {
+  const m = String(mes || '').match(/^(\d{4})-(\d{2})/);
+  return m ? m[1] + '-' + m[2] : sigbeHoy_().slice(0, 7);
 }
 
 /**
- * Sesiones con algo pendiente hasta esa fecha (las que no tienen fecha, hasta ese mes), leídas del cronograma en este
- * momento. No cuentan las que no aplican ni las realizadas o canceladas.
+ * Sesiones de ese mes (yyyy-MM) con algo pendiente, leídas del cronograma en este momento: las que tienen fecha en ese
+ * mes y las que no tienen fecha y están en la fila de ese mes. No cuentan las que no aplican ni las realizadas o canceladas.
  */
-function sigbePendientesCrono_(hasta) {
+function sigbePendientesCrono_(mes) {
   const F = sigbeFuentes_();
   const lista = sigbeListaCrono_(sigbeLeerCronograma_(sigbeHoja_(F.datos, SIGBE_HOJA_CRONOGRAMA)));
-  const anio = Number(sigbeHoy_().slice(0, 4)), mesHasta = Number(hasta.slice(0, 4)) > anio ? 12 : Number(hasta.slice(5, 7));
+  const nMes = Number(mes.slice(5, 7)), mismoAnio = mes.slice(0, 4) === sigbeHoy_().slice(0, 4);
   const orden = { holcim: 0, ambipar: 1, discordancia: 2 };
   return lista.map(x => {
     if (x.na || /REALIZ|CANCEL/.test(sigbeNorm_(x.e))) return null;
-    if (x.i ? x.i > hasta : (SIGBE_MESES.indexOf(sigbeNorm_(x.mes)) + 1 || 1) > mesHasta) return null;
+    if (x.i ? x.i.slice(0, 7) !== mes : !(mismoAnio && SIGBE_MESES.indexOf(sigbeNorm_(x.mes)) + 1 === nMes)) return null;
     const amb = /^\d{4}-\d{2}-\d{2}$/.test(x.amb) ? x.amb : sigbeIso_(x.amb);
     const tipo = !x.i ? 'holcim' : !amb ? 'ambipar' : amb !== x.i ? 'discordancia' : '';
     return tipo ? { tipo: tipo, sede: x.sede, pl: x.pl, ses: x.ses, mes: x.mes, ent: x.ent, cl: x.cl, f: x.f, i: x.i, amb: x.amb, e: x.e } : null;
@@ -1740,8 +1740,8 @@ function sigbePendientesCrono_(hasta) {
 }
 
 /** Quién recibe qué: { items, envios: [{ d: perfil, items }], huerfanos, copia: [perfil], todos } (sin quien envía). */
-function sigbePlanAlertas_(yo, hasta, tipos) {
-  const items = sigbePendientesCrono_(hasta).filter(x => tipos.indexOf(x.tipo) !== -1);
+function sigbePlanAlertas_(yo, mes, tipos) {
+  const items = sigbePendientesCrono_(mes).filter(x => tipos.indexOf(x.tipo) !== -1);
   const principal = prop_('SIGBE_USUARIO');
   const todos = [sigbePerfil_(principal)].concat(Object.keys(sigbeUsuarios_()).filter(u => u !== principal).map(sigbePerfil_)).filter(d => d && d.correo);
   const yoP = todos.find(d => d.usuario === yo), mio = String((yoP && yoP.correo) || '').toLowerCase();
@@ -1772,16 +1772,16 @@ function sigbeTiposAlerta_(tipos) {
 }
 
 /** Lo que se enviaría (sin enviar nada): para revisar antes. Solo los gestores. */
-function getAlertasPendientes(token, hasta, tipos) {
+function getAlertasPendientes(token, mes, tipos) {
   const yo = sigbePerfil_(sigbeExigirSesion_(token));
   if (!yo || !yo.admin) throw new Error('Solo un gestor envía las alertas de pendientes.');
-  hasta = /^\d{4}-\d{2}-\d{2}$/.test(String(hasta || '')) ? String(hasta) : sigbeFinMesSiguiente_();
-  const plan = sigbePlanAlertas_(yo.usuario, hasta, sigbeTiposAlerta_(tipos));
+  mes = sigbeMesAlertas_(mes);
+  const plan = sigbePlanAlertas_(yo.usuario, mes, sigbeTiposAlerta_(tipos));
   const persona = d => ({ usuario: d.usuario, nombre: d.nombre, correo: d.correo, org: d.rol === 'proveedor' ? d.org || 'Ambipar' : 'Holcim', sedes: d.sedes });
   let cupo = -1;
   try { cupo = MailApp.getRemainingDailyQuota(); } catch (e) { /* sin permiso de correo */ }
   return {
-    hasta: hasta, items: plan.items, huerfanos: plan.huerfanos.length,
+    mes: mes, items: plan.items, huerfanos: plan.huerfanos.length,
     envios: plan.envios.map(e => Object.assign(persona(e.d), { lado: e.lado, n: sigbeContarAlertas_(e.items) })),
     copia: plan.copia.map(persona), candidatos: plan.todos.filter(d => d.rol !== 'proveedor').map(persona),
     cupo: cupo, ultimo: prop_('SIGBE_ALERTAS_ULTIMO') || '',
@@ -1798,12 +1798,12 @@ function guardarCopiaAlertas(token, usuarios) {
 }
 
 /** Envía las alertas: un correo por persona con lo suyo, con copia a los elegidos. Solo los gestores. */
-function enviarAlertasPendientes(token, hasta, tipos) {
+function enviarAlertasPendientes(token, mes, tipos) {
   try {
     const yo = sigbePerfil_(sigbeExigirSesion_(token));
     if (!yo || !yo.admin) return { exito: false, mensaje: 'Solo un gestor envía las alertas de pendientes.' };
-    hasta = /^\d{4}-\d{2}-\d{2}$/.test(String(hasta || '')) ? String(hasta) : sigbeFinMesSiguiente_();
-    const plan = sigbePlanAlertas_(yo.usuario, hasta, sigbeTiposAlerta_(tipos));
+    mes = sigbeMesAlertas_(mes);
+    const plan = sigbePlanAlertas_(yo.usuario, mes, sigbeTiposAlerta_(tipos));
     const copias = plan.copia.map(c => c.correo);
     const correos = plan.envios.map(e => ({ to: [e.d.correo], cc: copias.filter(c => c.toLowerCase() !== e.d.correo.toLowerCase()), nombre: e.d.nombre, items: e.items }));
     if (plan.huerfanos.length && copias.length) correos.push({ to: copias, cc: [], nombre: '', items: plan.huerfanos, huerfanos: true });
@@ -1814,12 +1814,12 @@ function enviarAlertasPendientes(token, hasta, tipos) {
     try { url = ScriptApp.getService().getUrl() || ''; } catch (e) { /* sin URL */ }
     const nombresCopia = plan.copia.map(c => c.nombre).join(', ');
     correos.forEach(c => {
-      const m = sigbeCorreoAlerta_(c, yo, url, nombresCopia);
+      const m = sigbeCorreoAlerta_(c, yo, url, nombresCopia, mes);
       MailApp.sendEmail({ to: c.to.join(','), cc: c.cc.join(','), name: 'SIGBE', subject: m.asunto, body: m.texto, htmlBody: m.html });
     });
     const n = sigbeContarAlertas_(plan.items);
     const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
-    const resumen = n.holcim + ' sin Fecha Holcim · ' + n.ambipar + ' sin Fecha Ambipar · ' + n.discordancia + ' con fechas distintas (hasta el ' + hasta.split('-').reverse().join('/') + ')';
+    const resumen = n.holcim + ' sin Fecha Holcim · ' + n.ambipar + ' sin Fecha Ambipar · ' + n.discordancia + ' con fechas distintas (' + SIGBE_MESES[Number(mes.slice(5, 7)) - 1].toLowerCase() + ' de ' + mes.slice(0, 4) + ')';
     props_().setProperty('SIGBE_ALERTAS_ULTIMO', fecha + ' · ' + correos.length + ' correo(s) · ' + resumen);
     sigbeBitacora_(yo.usuario, [['Alertas de pendientes', SIGBE_HOJA_CRONOGRAMA, '', '', '', resumen, '', correos.length + ' correo(s)' + (copias.length ? ', con copia a ' + nombresCopia : '')]]);
     return { exito: true, enviados: correos.length, mensaje: correos.length + ' correo(s) enviado(s): ' + resumen + '.', ultimo: prop_('SIGBE_ALERTAS_ULTIMO') };
@@ -1829,12 +1829,13 @@ function enviarAlertasPendientes(token, hasta, tipos) {
 }
 
 /** Asunto, texto y HTML de un correo de alertas (c: { nombre, items, huerfanos }). */
-function sigbeCorreoAlerta_(c, yo, url, nombresCopia) {
+function sigbeCorreoAlerta_(c, yo, url, nombresCopia, mes) {
+  const nombreMes = SIGBE_MESES[Number(mes.slice(5, 7)) - 1].toLowerCase() + ' de ' + mes.slice(0, 4);
   const esc = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const grupos = Object.keys(SIGBE_TIPOS_ALERTA).map(t => ({ t: t, l: c.items.filter(x => x.tipo === t) })).filter(g => g.l.length);
-  const asunto = 'SIGBE · Pendientes del cronograma de brigadas (' + c.items.length + ')';
+  const asunto = 'SIGBE · Pendientes del cronograma de brigadas de ' + nombreMes + ' (' + c.items.length + ')';
   const saludo = c.huerfanos ? 'Estos pendientes no tienen a quién avisarle en SIGBE (no hay usuario con correo de ese lado y esa sede). Les llegan a ustedes, que van con copia de todas las alertas:'
-    : 'Hola' + (c.nombre ? ', ' + c.nombre : '') + '. Estas sesiones del cronograma de capacitación de brigadistas necesitan tu atención:';
+    : 'Hola' + (c.nombre ? ', ' + c.nombre : '') + '. Estas sesiones del cronograma de capacitación de brigadistas de ' + nombreMes + ' necesitan tu atención:';
   const fila = x => [x.sede, x.pl + ' · ' + x.ses, (x.cl ? x.cl + ' · ' : '') + x.ent, x.f || (x.mes ? 'Sin fecha (' + x.mes + ')' : 'Sin fecha'), x.amb || '—', x.e || '—'];
   const cab = ['Sede', 'Planta y sesión', 'Tema', 'Fecha Holcim', 'Fecha Ambipar', 'Estado'];
   const td = 'style="border:1px solid #dee2e6;padding:4px 6px;font-size:13px;vertical-align:top"';

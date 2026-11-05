@@ -170,8 +170,9 @@ en SIGBE, poner las propiedades del script `GSTOR_URL` (URL /exec de GSTOR) y `G
 ## Alertas de pendientes del cronograma (solo los gestores)
 
 En **Cronograma → Alertas de pendientes** (solo lo ven los gestores) se revisa, leyendo el cronograma en ese momento,
-qué falta en cada sesión hasta la fecha que se elija (las sesiones sin fecha, hasta ese mes; no cuentan las que no
-aplican ni las realizadas o canceladas), y se avisa por correo **a quien le toca**:
+qué falta en cada sesión **del mes en curso** (se puede elegir otro mes; cuentan las que tienen fecha en ese mes y las
+que no tienen fecha y están en la fila de ese mes; no cuentan las que no aplican ni las realizadas o canceladas), y se
+avisa por correo **a quien le toca**:
 
 | Pendiente | Le llega a |
 |---|---|
