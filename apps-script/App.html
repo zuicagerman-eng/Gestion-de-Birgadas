@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.15.3'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.16.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -547,7 +547,7 @@
       const colorPct = x => x >= 80 ? 'var(--s-ok)' : x >= 40 ? '#e8590c' : 'var(--s-mal)';
       $('inicio-kpis').innerHTML =
         kpi('fa-list-check', colorPct(pct), 'Asistencia a módulos ya dictados', t ? pct + ' %' : '—',
-          t ? `<b>${c}</b> de <b>${t}</b> asistencias esperadas: cada brigadista propio activo (Holcim, Geocycle, Transcem, Fundación) por cada módulo que ya se dictó en su planta.` : 'Todavía no hay módulos con fecha pasada.', t ? pct : undefined) +
+          t ? `<b>${c}</b> de <b>${t}</b> asistencias esperadas: cada brigadista propio activo (Holcim, Transcem, Geocycle, Fundación Holcim) por cada módulo que ya se dictó en su planta.` : 'Todavía no hay módulos con fecha pasada.', t ? pct : undefined) +
         kpi('fa-user-check', colorPct(cumps.length ? alDia / cumps.length * 100 : 0), 'Brigadistas propios al día', `${alDia} de ${cumps.length}`,
           `asistieron a todos los módulos ya dictados${ninguna ? ` · <b>${ninguna}</b> no tienen ninguna asistencia` : ''}.`) +
         kpi('fa-users', 'var(--s-azul)', 'Brigadistas propios activos', h.length, `son los que toman asistencia por módulo en la lista${h.length - cumps.length ? ` (${h.length - cumps.length} aún sin módulos dictados)` : ''}.`) +
@@ -902,7 +902,16 @@
       const n = norm(p.em);
       return ['GEOCYCLE', 'TRANSCEM', 'FUNDACION'].find(k => n.indexOf(k) !== -1) || 'HOLCIM';
     }
-    const NOMBRE_GRUPO = { HOLCIM: 'Holcim', GEOCYCLE: 'Geocycle', TRANSCEM: 'Transcem', FUNDACION: 'Fundación', INHOUSE: 'contratistas' };
+    const NOMBRE_GRUPO = { HOLCIM: 'Holcim', GEOCYCLE: 'Geocycle', TRANSCEM: 'Transcem', FUNDACION: 'Fundación Holcim', INHOUSE: 'contratistas' };
+    // Empresa del personal propio (lista Holcim): una de las divisiones de Holcim. Si la hoja trae otra cosa, se respeta hasta que se elija.
+    const DIVISIONES_HOLCIM = [['HOLCIM', 'Holcim'], ['TRANSCEM', 'Transcem'], ['GEOCYCLE', 'Geocycle'], ['FUNDACIÓN HOLCIM', 'Fundación Holcim']];
+    function opcionesDivision(actual) {
+      const a = String(actual || '').trim(), igual = DIVISIONES_HOLCIM.find(d => d[0] === a.toUpperCase());
+      return (!a ? '<option value="">— Elige —</option>' : igual ? '' : `<option value="${esc(a)}" selected>${esc(a)} (como está en la hoja)</option>`) +
+        DIVISIONES_HOLCIM.map(d => `<option value="${d[0]}" ${igual && igual[0] === d[0] ? 'selected' : ''}>${d[1]}</option>`).join('');
+    }
+    /** ¿Es el mismo valor de empresa? (en la lista Holcim, sin importar mayúsculas: «Holcim» = «HOLCIM») */
+    function mismaEmpresa(tipo, v, orig) { return tipo === 'INHOUSE' || tipo === 'HOLCIM' ? String(v || '').toUpperCase() === String(orig || '').toUpperCase() : v === orig; }
     /**
      * Lista desplegable con casillas para elegir varias opciones a la vez (como el selector de sedes). sel es el arreglo
      * de elegidas: vacío = todas. "solo" deja únicamente esa opción.
@@ -980,7 +989,8 @@
             ${ctl('cedula', falta.indexOf('cedula') !== -1 ? `<input class="form-control form-control-sm ed" ${base} data-campo="cedula" inputmode="numeric" value="${esc(valor('cedula'))}" placeholder="Cédula" style="width:110px">` : esc(x.cedula))}
             ${ctl('grupo', `<select class="form-select form-select-sm ed" ${base} data-campo="grupo" style="width:80px"><option value="">—</option>${op(catalogos.grupos, valor('grupo'))}</select>`)}
             ${ctl('fechaIngreso', `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaIngreso" value="${esc(isoDe(valor('fechaIngreso')) || valor('fechaIngreso'))}" style="width:135px">`)}
-            ${ctl('empresa', `<input class="form-control form-control-sm ed" ${base} data-campo="empresa" list="${p.tipo === 'HOLCIM' ? 'dl-propias' : 'dl-empresas'}" value="${esc(valor('empresa'))}" placeholder="Empresa" style="width:150px">`)}
+            ${ctl('empresa', p.tipo === 'HOLCIM' ? `<select class="form-select form-select-sm ed" ${base} data-campo="empresa" style="width:160px" aria-label="Empresa">${opcionesDivision(valor('empresa'))}</select>`
+              : `<input class="form-control form-control-sm ed" ${base} data-campo="empresa" list="dl-empresas" value="${esc(valor('empresa'))}" placeholder="Empresa" style="width:150px">`)}
             ${ctl('clase1', `<select class="form-select form-select-sm ed" ${base} data-campo="clase1" style="width:115px"><option value="">—</option>${op(catalogos.clases, valor('clase1'))}</select>`)}
             ${ctl('estado', `<select class="form-select form-select-sm ed" ${base} data-campo="estado" style="width:125px">${p.tipo === 'INHOUSE' && !x.estado ? '<option value="">Activo</option>' : ''}${op(catalogos.estados, valor('estado'))}</select>`)}
             ${ctl('fechaRetiro', inactivo ? `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaRetiro" value="${esc(isoDe(valor('fechaRetiro')) || valor('fechaRetiro'))}" style="width:135px" aria-label="Fecha de retiro (obligatoria)" title="Obligatoria para desvincular"><input class="form-control form-control-sm ed mt-1" ${base} data-campo="obsRetiro" maxlength="300" value="${esc(valor('obsRetiro'))}" placeholder="Observaciones (opcional)" style="width:135px" aria-label="Observaciones del retiro">` : '<span class="text-muted small">—</span>')}</tr>`;
@@ -1007,7 +1017,7 @@
       const p = el.dataset.tipo === 'INHOUSE' ? I[+el.dataset.j] : P[+el.dataset.j];
       const campo = el.dataset.campo, clave = p.tipo + ':' + p.j, orig = datosDe(p)[campo];
       let v = el.value.trim();
-      const igual = campo === 'fechaIngreso' || campo === 'fechaRetiro' ? v === (isoDe(orig) || orig) : campo === 'empresa' && p.tipo === 'INHOUSE' ? v.toUpperCase() === orig : v === orig;
+      const igual = campo === 'fechaIngreso' || campo === 'fechaRetiro' ? v === (isoDe(orig) || orig) : campo === 'empresa' ? mismaEmpresa(p.tipo, v, orig) : v === orig;
       brig.cambios[clave] = brig.cambios[clave] || {};
       if (igual) delete brig.cambios[clave][campo]; else brig.cambios[clave][campo] = v;
       if (!Object.keys(brig.cambios[clave]).length) delete brig.cambios[clave];
@@ -1106,7 +1116,7 @@
           ${falta.indexOf('cedula') !== -1 ? `<div class="col-md-4"><label class="form-label small" for="ed-cedula">Cédula</label><input id="ed-cedula" class="form-control form-control-sm" inputmode="numeric" value="${esc(x.cedula)}"></div>` : ''}
           <div class="col-md-4"><label class="form-label small" for="ed-grupo">Grupo sanguíneo</label><select id="ed-grupo" class="form-select form-select-sm">${op(catalogos.grupos, x.grupo, '—')}</select></div>
           <div class="col-md-4"><label class="form-label small" for="ed-fechaIngreso">Fecha de ingreso</label><input type="date" id="ed-fechaIngreso" class="form-control form-control-sm" value="${esc(isoDe(x.fechaIngreso))}"></div>
-          <div class="col-md-4"><label class="form-label small" for="ed-empresa">Empresa</label><input id="ed-empresa" class="form-control form-control-sm" list="${f.tipo === 'HOLCIM' ? 'dl-propias' : 'dl-empresas'}" value="${esc(x.empresa)}"></div>
+          <div class="col-md-4"><label class="form-label small" for="ed-empresa">Empresa</label>${f.tipo === 'HOLCIM' ? `<select id="ed-empresa" class="form-select form-select-sm">${opcionesDivision(x.empresa)}</select>` : `<input id="ed-empresa" class="form-control form-control-sm" list="dl-empresas" value="${esc(x.empresa)}">`}</div>
           <div class="col-md-4"><label class="form-label small" for="ed-clase1">Brigadista Clase I</label><select id="ed-clase1" class="form-select form-select-sm">${op(catalogos.clases, x.clase1, '—')}</select></div>
           <div class="col-md-4"><label class="form-label small" for="ed-estado">Estado</label><select id="ed-estado" class="form-select form-select-sm">${f.tipo === 'INHOUSE' && !x.estado ? '<option value="">Activo</option>' : ''}${op(catalogos.estados, x.estado)}</select></div>
           <div class="col-md-4 ed-retiro" id="ed-retiro-box" style="${inactivo ? '' : 'display:none'}"><label class="form-label small" for="ed-fechaRetiro">Fecha de retiro <span class="text-danger">*</span></label><input type="date" id="ed-fechaRetiro" class="form-control form-control-sm" value="${esc(isoDe(x.fechaRetiro))}"></div>
@@ -1238,6 +1248,7 @@
         const esFecha = k === 'fechaIngreso' || k === 'fechaRetiro';
         if (esFecha && !v && x[k] && !isoDe(x[k])) return; // "2023" u otro formato que el calendario no muestra: no se borra si no se tocó
         const actual = esFecha ? isoDe(x[k]) || x[k] : x[k];
+        if (k === 'empresa' && mismaEmpresa(f.tipo, v, actual)) return;
         if (v !== String(actual || '')) { cambios[k] = v; anteriores[k] = x[k] || ''; }
       });
       // Planta (traslado) y otras plantas
@@ -2568,7 +2579,7 @@
       matriz: {
         para: 'Cuánto lleva cada planta, módulo por módulo.',
         puede: [
-          'Cada casilla es el % de brigadistas propios activos (Holcim, Geocycle, Transcem, Fundación) que asistieron, entre los que ya debían tomar ese módulo (la sesión les aplica y su fecha ya pasó).',
+          'Cada casilla es el % de brigadistas propios activos (Holcim, Transcem, Geocycle, Fundación Holcim) que asistieron, entre los que ya debían tomar ese módulo (la sesión les aplica y su fecha ya pasó).',
           'Haz clic en un % para abrir esa lista de asistencia.',
           'Buscar una planta, ver solo las que tienen módulos sin completar y <b>Descargar</b> la tabla.',
         ],
@@ -2583,7 +2594,7 @@
           '<b>Editar en la tabla</b>: corrige a muchos de una vez y luego <b>Revisar y guardar</b>.',
           '<b>Registrar brigadista</b>: agrega a alguien nuevo (si su planta no está, «+ Nueva planta…»).',
           'En la ficha, <b>Editar</b>: cambiar su <b>planta</b> (traslado: conserva su asistencia), marcar <b>otras plantas</b> a cuyas sesiones también va (para la meta cuenta solo en su planta) y su <b>restricción médica</b>.',
-          'Los chips <b>Holcim, Geocycle, Transcem, Fundación</b> y <b>Contratistas</b> separan a cada grupo según su empresa.',
+          'Los chips <b>Holcim, Transcem, Geocycle, Fundación Holcim</b> y <b>Contratistas</b> separan a cada grupo según su empresa.',
           '<b>Traer faltantes</b>: busca brigadistas que están en otras pestañas del Excel pero no en las listas, y los trae.',
           '<b>Descargar</b> la lista tal como la estás viendo.',
         ],
@@ -2612,7 +2623,7 @@
       cobertura: {
         para: 'Si cada planta tiene los brigadistas que pide la meta: el 20 % de su personal.',
         puede: [
-          'Arriba, los totales: personal, brigadistas (propios + contratistas), la meta y cuántas plantas cumplen. Propios = Holcim, Geocycle, Transcem y Fundación.',
+          'Arriba, los totales: personal, brigadistas (propios + contratistas), la meta y cuántas plantas cumplen. Propios = Holcim, Transcem, Geocycle y Fundación Holcim.',
           'Cada tarjeta es una planta: ábrela para ver cada empresa, cuántos brigadistas tiene y cuántos le faltan.',
           'Ver solo las plantas a las que les faltan brigadistas, y ordenar por las más críticas o por nombre.',
         ],

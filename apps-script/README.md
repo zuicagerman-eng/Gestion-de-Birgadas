@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.15.3)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.16.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -47,8 +47,10 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
 - **Menú** agrupado: Dashboard · *Brigada* (Cobertura, Brigadistas) · *Asistencia y capacitaciones* (Tomar asistencia,
   Avance por planta, Cronograma, Temarios, Otras hojas) · *Control* (Historial de cambios, Revisión de datos, Registro de
   ingresos) · *Sistema* (Estado del sistema, Configuración, Ayuda).
-- **Brigadistas**: chips **Holcim / Geocycle / Transcem / Fundación / Contratistas** (los propios se separan por su
-  empresa; los cuatro cuentan como personal propio en Cobertura). En la ficha, **Editar** permite **trasladar** de planta
+- **Brigadistas**: chips **Holcim / Geocycle / Transcem / Fundación Holcim / Contratistas** (los propios se separan por
+  su empresa; los cuatro cuentan como personal propio en Cobertura). En la lista Holcim, la **Empresa** se elige de una
+  lista con las divisiones de Holcim: **Holcim, Transcem, Geocycle o Fundación Holcim** (en la ficha, en Editar en la
+  tabla y al registrar). Si la hoja trae otra cosa, se muestra «como está en la hoja» hasta que se elija una. En la ficha, **Editar** permite **trasladar** de planta
   (la fila pasa al final del grupo de su nueva planta, antes de su TOTAL; conserva su asistencia; queda en el historial
   como «Traslado de planta»; se puede crear una planta nueva) y marcar **otras plantas** (columna `OTRAS PLANTAS`):
   aparece también en sus listas de asistencia, pero para la meta y el avance cuenta solo en su planta. **Desvincular**

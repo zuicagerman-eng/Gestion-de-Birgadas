@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.15.3';
+const SIGBE_VERSION = '4.16.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -69,7 +69,7 @@ const SIGBE_CAMPOS = {
 };
 const SIGBE_GRUPOS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'];
 // Personal propio de la lista Holcim: su empresa es una de estas (lo demás de esa lista, p. ej. temporales, cuenta como Holcim)
-const SIGBE_PROPIAS = ['HOLCIM', 'GEOCYCLE', 'TRANSCEM', 'FUNDACIÓN'];
+const SIGBE_PROPIAS = ['HOLCIM', 'TRANSCEM', 'GEOCYCLE', 'FUNDACIÓN HOLCIM']; // las divisiones de Holcim (se eligen de una lista)
 /** 'HOLCIM' | 'GEOCYCLE' | 'TRANSCEM' | 'FUNDACION' según el texto de la empresa ('' si no es propia). */
 function sigbeEmpresaPropia_(empresa) {
   const n = sigbeNorm_(empresa);
@@ -996,6 +996,8 @@ function actualizarBrigadistasLote(token, lista) {
         if (campo === 'cedula') nuevo = nuevo.replace(/\D/g, '');
         if (campo === 'grupo' && nuevo) nuevo = nuevo.toUpperCase().replace(/\s+/g, '').replace('0', 'O');
         if (campo === 'empresa' && H.inhouse) nuevo = nuevo.toUpperCase();
+        const division = campo === 'empresa' && !H.inhouse && SIGBE_PROPIAS.indexOf(nuevo.toUpperCase()) !== -1; // Holcim, Transcem, Geocycle o Fundación Holcim
+        if (division) nuevo = nuevo.toUpperCase();
         if (campo === 'planta' || campo === 'otrasPlantas') { // solo plantas que ya están en la lista (o una nueva, a propósito)
           const cP = H.t.col('PLANTA');
           const deTabla = (t, c) => t.filas.map(f => String(f.valores[c - 1] || '').trim()).filter(x => x && !/^TOTAL/i.test(x));
@@ -1022,7 +1024,10 @@ function actualizarBrigadistasLote(token, lista) {
         let c = sigbeColCampo_(H.t, campo, H.inhouse);
         const actual = c ? sigbeTexto_(p.valores[c - 1]) : '';
         if (nuevoTexto === actual) return;
-        if (anteriores[campo] !== undefined && sigbeTexto_(anteriores[campo]) !== actual) {
+        // (en la lista Holcim, la app muestra «HOLCIM» cuando la empresa está vacía)
+        const antes = anteriores[campo] === undefined ? undefined : sigbeTexto_(anteriores[campo]);
+        const mismoAntes = campo === 'empresa' && !H.inhouse ? sigbeNorm_(antes) === sigbeNorm_(actual || 'HOLCIM') : antes === actual;
+        if (antes !== undefined && !mismoAntes) {
           rechazos.push(def.etiqueta + ': cambió en la hoja mientras tanto (ahora es "' + actual + '")'); return;
         }
         if (campo === 'cedula') {
@@ -1035,7 +1040,7 @@ function actualizarBrigadistasLote(token, lista) {
         if (campo === 'grupo' && nuevo && SIGBE_GRUPOS.indexOf(nuevo) === -1) { rechazos.push('Grupo sanguíneo: "' + nuevo + '" no es válido (' + SIGBE_GRUPOS.join(', ') + ')'); return; }
         if (c) {
           const opciones = opcionesDe(H, c, p.fila);
-          if (opciones && nuevo && campo !== 'clase1' && opciones.indexOf(nuevo) === -1) { rechazos.push(def.etiqueta + ': "' + nuevo + '" no está en las opciones de la hoja (' + opciones.join(', ') + ')'); return; }
+          if (opciones && nuevo && campo !== 'clase1' && !division && opciones.indexOf(nuevo) === -1) { rechazos.push(def.etiqueta + ': "' + nuevo + '" no está en las opciones de la hoja (' + opciones.join(', ') + ')'); return; }
         } else {
           c = sigbeCrearColumna_(H.sh, H.t, campo); // la columna no existía: se crea al final
         }
