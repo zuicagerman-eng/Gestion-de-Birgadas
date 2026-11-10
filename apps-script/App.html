@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.16.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.16.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -910,6 +910,12 @@
       return (!a ? '<option value="">— Elige —</option>' : igual ? '' : `<option value="${esc(a)}" selected>${esc(a)} (como está en la hoja)</option>`) +
         DIVISIONES_HOLCIM.map(d => `<option value="${d[0]}" ${igual && igual[0] === d[0] ? 'selected' : ''}>${d[1]}</option>`).join('');
     }
+    // En la lista de brigadistas, cada división de Holcim con su color (todas son personal propio de Holcim)
+    const COLOR_DIVISION = { HOLCIM: 'text-bg-primary', TRANSCEM: 'bg-warning-subtle text-warning-emphasis border border-warning-subtle', GEOCYCLE: 'bg-success-subtle text-success-emphasis border border-success-subtle', FUNDACION: 'division-fundacion' };
+    function badgeDivision(p, empresa) {
+      const g = grupoDe(p), raro = String(empresa || '').trim() && !DIVISIONES_HOLCIM.some(d => d[0] === String(empresa).trim().toUpperCase());
+      return `<span class="badge ${COLOR_DIVISION[g]}" title="${g === 'HOLCIM' ? 'Holcim' : 'División de Holcim: ' + NOMBRE_GRUPO[g]}${raro ? ' (en la hoja dice «' + esc(empresa) + '»)' : ''}">${NOMBRE_GRUPO[g]}</span>`;
+    }
     /** ¿Es el mismo valor de empresa? (en la lista Holcim, sin importar mayúsculas: «Holcim» = «HOLCIM») */
     function mismaEmpresa(tipo, v, orig) { return tipo === 'INHOUSE' || tipo === 'HOLCIM' ? String(v || '').toUpperCase() === String(orig || '').toUpperCase() : v === orig; }
     /**
@@ -997,7 +1003,7 @@
         }
         return `<tr class="fila-click ${p.activo ? '' : 'text-muted'}" data-accion="ficha" data-tipo="${p.tipo}" data-j="${p.j}" tabindex="0">
           <td class="small">${esc(p.p)}${p.otras && p.otras.length ? `<div class="text-muted" title="También en estas plantas (cuenta para la meta solo en la primera)">+ ${esc(p.otras.join(', '))}</div>` : ''}</td><td class="fw-semibold">${esc(p.n)}</td><td>${ver('cedula')}</td><td>${ver('grupo')}</td><td class="text-nowrap">${ver('fechaIngreso')}</td>
-          <td>${falta.indexOf('empresa') !== -1 ? completar('empresa') : `<span class="badge ${p.tipo === 'HOLCIM' ? 'text-bg-primary' : 'bg-info-subtle text-info-emphasis'}">${esc(x.empresa)}</span>`}</td>
+          <td>${falta.indexOf('empresa') !== -1 ? completar('empresa') : p.tipo === 'HOLCIM' ? badgeDivision(p, x.empresa) : `<span class="badge bg-info-subtle text-info-emphasis">${esc(x.empresa)}</span>`}</td>
           <td>${ver('clase1')}</td>
           <td>${falta.indexOf('estado') !== -1 ? completar('estado') : `<span class="badge ${p.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>`}</td>
           <td class="text-nowrap">${p.activo ? '' : ver('fechaRetiro')}</td></tr>`;
