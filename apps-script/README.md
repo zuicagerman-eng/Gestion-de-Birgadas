@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.16.1)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.17.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -111,7 +111,7 @@ cada intento fallido quedan en la pestaña **"Ingresos SIGBE"** y se ven en **Re
 | Tipo | Qué puede hacer |
 |---|---|
 | **Gestor** (el usuario principal, `SIGBE_USUARIO`) | Todo, y es el único que crea, desactiva o elimina usuarios y cambia la configuración (archivos, tarea automática). |
-| **Holcim** | Ve y cambia todo: asistencia, cronograma (fecha Holcim y Ambipar), módulos, sesiones, brigadistas, Indicador, traer faltantes. No administra usuarios ni la configuración. |
+| **Holcim** | Ve y cambia todo: asistencia, cronograma (la **Fecha Holcim**; la Fecha Ambipar la pone Ambipar, y un gestor puede poner las dos), módulos, sesiones, brigadistas, Indicador, traer faltantes. No administra usuarios ni la configuración. |
 | **Ambipar (proveedor)** | Toma asistencia. En el cronograma pone la **Fecha Ambipar**, el estado, las observaciones y el # de brigadistas, **programa sesiones** (también habilita las que tienen "-") y **crea módulos**. No cambia la Fecha Holcim ni edita brigadistas o el Indicador. Su menú es lo mínimo: Dashboard (asistencia y próximas), Tomar asistencia, Avance por planta, Cronograma, Temarios, Ayuda y **Mi clave**; el servidor tampoco le entrega historial, otras hojas, estado del sistema, configuración ni usuarios. |
 
 El gestor crea los usuarios en **Configuración → Usuarios** (usuario, nombre, correo, tipo, sedes y una clave temporal
@@ -288,7 +288,9 @@ aplica: si sí se dictó, se corrige el cronograma.
 lista de esa sesión (una nota dice cuántos quedaron fuera y por qué; "Ver desvinculados y a quienes no les aplica" los
 muestra), no cuenta como "no asistió" ni en su cumplimiento, en el avance por planta o en el Dashboard, y no se puede
 marcar (si la fecha de ingreso está mal, se corrige primero). La fórmula de cumplimiento del libro nuevo hace lo mismo.
-Si la persona no tiene fecha de ingreso, le aplican todas.
+Si la persona no tiene fecha de ingreso, para el cumplimiento le aplican todas; pero en **Tomar asistencia** no sale
+en la lista hasta que se registre su fecha de ingreso (salvo que ya tenga la asistencia marcada; la nota lo cuenta y
+"Ver desvinculados y a quienes no les aplica" la muestra). "Marcar todos" e "Imprimir para firmar" tampoco la incluyen.
 
 **Por sesión o por persona:** en *Tomar asistencia* se marca a todos los de una sesión; al tocar el nombre de alguien se
 abre su ficha, donde se marcan sus sesiones (también desde *Brigadistas*).

@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.16.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.17.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -20,6 +20,8 @@
       if (s && s.length) { E.sedes = s.slice(); guardar('localStorage', 'sigbe_sede', JSON.stringify(E.sedes)); }
     }
     function esProveedor() { return !!(E.perfil && E.perfil.rol === 'proveedor'); }
+    /** Usuario de Holcim que no es gestor: no pone la Fecha Ambipar (la pone Ambipar), igual que Ambipar no pone la Fecha Holcim. */
+    function esHolcimSinGestor() { return !!(E.perfil && E.perfil.rol === 'holcim'); }
     /** true (y avisa) si el usuario es Ambipar y la acción es solo de Holcim. */
     function soloHolcim() { if (!esProveedor()) return false; avisar('Esto lo hace un usuario de Holcim. Con tu usuario de Ambipar tomas asistencia y en el Cronograma pones la Fecha Ambipar, programas sesiones y creas módulos.', 'info', 8000); return true; }
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
@@ -666,13 +668,15 @@
       // A quien no le aplica la sesión (p. ej. entró a la brigada después) no se le muestra, salvo que ya tenga la marca o
       // se pida "Ver desvinculados y a quienes no les aplica". El buscador filtra sin repintar.
       const enPlanta = todas.filter(p => dePlantas(p, asis.plantas)).map(p => ({ p: p, x: ses(p, s.i) }));
-      const seVe = o => asis.inactivos || (o.p.activo && (o.x.aplica || o.x.marcada || o.p.j in asis.cambios));
+      // Sin fecha de ingreso registrada no se sabe si le aplica: no sale (salvo que ya tenga la marca o se pida verlos)
+      const seVe = o => asis.inactivos || (o.p.activo && (llamado(o.p, o.x) || o.x.marcada || o.p.j in asis.cambios));
       const conInfo = enPlanta.filter(seVe);
       const noAplican = enPlanta.filter(o => o.p.activo && !seVe(o)), porIngreso = noAplican.filter(o => o.x.antesIngreso).length;
+      const sinIngreso = noAplican.filter(o => o.x.aplica && !isoDe(o.p.fi)).length;
       const fechas = unicos(conInfo.filter(o => o.x.aplica).map(o => o.x.f).filter(Boolean));
       const n = Object.keys(asis.cambios).length;
       const guardadas = todas.filter(p => p.activo && p.m.charAt(s.i) === '1').length;
-      const aplican = todas.filter(p => p.activo && ses(p, s.i).aplica).length;
+      const aplican = todas.filter(p => p.activo && dePlantas(p, asis.plantas) && (llamado(p, ses(p, s.i)) || p.m.charAt(s.i) === '1')).length;
       const puede = !!E.usuario && !(D.fuentes.soloLectura || {}).asistencia;
       $('asis-contenido').innerHTML = `<div class="tarjeta p-3 mb-3">
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
@@ -697,7 +701,7 @@
               <button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="foto"><i class="fa-solid fa-camera me-1"></i>Subir fotos</button>` : ''}</div>
             <div id="evid-galeria" class="d-flex flex-wrap gap-2 mt-2">${galeriaEvid()}</div>
           </div>
-          ${noAplican.length ? `<div class="small text-muted mt-2"><i class="fa-solid fa-circle-info me-1"></i>${noAplican.length} persona(s) no aparecen porque esta sesión no les aplica${porIngreso ? ` (${porIngreso} ingresaron a la brigada después de la fecha de la sesión)` : ''}; no cuentan como "no asistió".</div>` : ''}
+          ${noAplican.length ? `<div class="small text-muted mt-2"><i class="fa-solid fa-circle-info me-1"></i>${noAplican.length} persona(s) no aparecen: ${[porIngreso ? porIngreso + ' ingresaron a la brigada después de la fecha de la sesión' : '', sinIngreso ? sinIngreso + ' no tienen registrada la fecha de ingreso a la brigada (complétala en Brigadistas)' : '', noAplican.length - porIngreso - sinIngreso ? (noAplican.length - porIngreso - sinIngreso) + ' porque la sesión no les aplica' : ''].filter(Boolean).join('; ')}. Para verlos, marca «Ver desvinculados y a quienes no les aplica».</div>` : ''}
           ${E.usuario ? '' : '<div class="alert alert-info small mt-3 mb-0"><i class="fa-solid fa-lock me-1"></i>Estás en <b>solo lectura</b>. <a href="#" data-accion="login">Inicia sesión</a> para marcar asistencia.</div>'}
         </div>
         <div class="d-grid gap-2 mb-3">` +
@@ -705,7 +709,7 @@
           const v = valorActual(p), cambiada = p.j in asis.cambios;
           const habil = puede && p.activo && (x.aplica || v);
           return `<div class="fila-persona d-flex flex-wrap align-items-center gap-2 ${cambiada ? 'cambiada' : ''} ${p.activo && x.aplica ? '' : 'inactiva'}" data-busca="${esc(norm(p.n + ' ' + p.c))}">
-            <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.sede !== E.sede ? ' <span class="badge bg-info-subtle text-info-emphasis" title="Su planta principal es ' + esc(p.p) + '; también va a las sesiones de esta sede">de otra planta</span>' : ''}${avisoRestr(p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? '' : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
+            <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.sede !== E.sede ? ' <span class="badge bg-info-subtle text-info-emphasis" title="Su planta principal es ' + esc(p.p) + '; también va a las sesiones de esta sede">de otra planta</span>' : ''}${avisoRestr(p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? (isoDe(p.fi) ? '' : ' · <span class="pildora e-na">sin fecha de ingreso</span>') : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
             <button class="btn ${v ? 'btn-success' : 'btn-outline-secondary'} btn-asistio" data-accion="asis-alternar" data-j="${p.j}" aria-pressed="${v}" ${habil ? '' : 'disabled'}>${v ? '<i class="fa-solid fa-check me-1"></i>Asistió' : '<i class="fa-regular fa-square me-1"></i>No asistió'}</button></div>`;
         }).join('') + `<p class="text-muted" id="asis-vacio" style="${conInfo.length ? 'display:none' : ''}">No hay brigadistas para mostrar.</p></div>` +
         (n ? `<div class="barra-guardar p-3 d-flex flex-wrap align-items-center gap-2 rounded-top" role="region" aria-label="Cambios sin guardar">
@@ -731,9 +735,11 @@
       if (nuevo === (p.m.charAt(s.i) === '1')) delete asis.cambios[j]; else asis.cambios[j] = nuevo;
       pintarLista();
     }
+    /** En Tomar asistencia solo se llama a quien la sesión le aplica por su fecha de ingreso: sin fecha de ingreso registrada no sale. */
+    function llamado(p, x) { return x.aplica && !!isoDe(p.fi); }
     function marcarTodos(v) {
       const s = sesionActual();
-      personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && ses(p, s.i).aplica).forEach(p => {
+      personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && llamado(p, ses(p, s.i))).forEach(p => {
         if (v === (p.m.charAt(s.i) === '1')) delete asis.cambios[p.j]; else asis.cambios[p.j] = v;
       });
       pintarLista();
@@ -791,7 +797,7 @@
     }
     function imprimirLista() {
       const s = sesionActual();
-      const pers = personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && ses(p, s.i).aplica);
+      const pers = personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && (llamado(p, ses(p, s.i)) || ses(p, s.i).marcada));
       const fechas = unicos(pers.map(p => ses(p, s.i).f).filter(Boolean));
       $('print-area').innerHTML = `<h2 style="margin:0 0 4px">Lista de asistencia · ${esc(E.sede)}</h2><div><b>${esc(nombreSesion(s))}</b> — ${esc(s.titulo)}</div>
         <div style="margin-bottom:10px">Fecha programada: ${esc(fechas.join(' / ') || '____/____/______')} &nbsp; Fecha real: ____/____/______ &nbsp; Instructor: ______________________</div>
@@ -1433,7 +1439,8 @@
       $('crono-sub').innerHTML = `<i class="fa-solid fa-location-dot me-1"></i>${esc(c.pl)} · ${esc(c.ses)}${c.pre && c.pre !== 'TODOS' ? ' · solo ' + esc(c.pre) : ''}`;
       $('cr-fecha').value = c.i || ''; $('cr-na').checked = !!c.na; $('cr-fecha').disabled = !!c.na || esProveedor(); $('cr-na').disabled = esProveedor();
       $('cr-fecha').title = esProveedor() ? 'La Fecha Holcim la cambia Holcim; tú diligencias la Fecha Ambipar' : '';
-      $('cr-ambipar').value = isoDe(c.amb) || '';
+      $('cr-ambipar').value = isoDe(c.amb) || ''; $('cr-ambipar').disabled = esHolcimSinGestor();
+      $('cr-ambipar').title = esHolcimSinGestor() ? 'La Fecha Ambipar la pone Ambipar; tú pones la Fecha Holcim' : '';
       $('cr-estado').innerHTML = '<option value="">—</option>' + (c.e && catalogos.estadosCrono.indexOf(c.e) === -1 ? [c.e] : []).concat(catalogos.estadosCrono).map(x => `<option ${x === c.e ? 'selected' : ''}>${esc(x)}</option>`).join('');
       $('cr-brig').value = /^\d+$/.test(c.br || '') ? c.br : '';
       $('cr-obs').value = c.obs || '';
@@ -1457,7 +1464,7 @@
       };
       agregar(c, ['fecha', 'ambipar', 'estado', 'brig', 'obs']);
       // A las otras plantas solo pasa lo que se cambió aquí (fecha, fecha Ambipar o estado), no lo que ya estaba
-      const cambiados = lote.length ? ['fecha', 'ambipar', 'estado'].filter(k => k in lote[0].item.cambios && !(k === 'fecha' && esProveedor())) : [];
+      const cambiados = lote.length ? ['fecha', 'ambipar', 'estado'].filter(k => k in lote[0].item.cambios && !(k === 'fecha' && esProveedor()) && !(k === 'ambipar' && esHolcimSinGestor())) : [];
       const marcadas = document.querySelectorAll('#cr-otras input:checked');
       if (marcadas.length && !cambiados.length) return avisar('Para pasarlo a otras plantas, primero cambia aquí la fecha, la fecha Ambipar o el estado.', 'info', 8000);
       marcadas.forEach(el => agregar(D.cronoTodo[+el.dataset.k], cambiados));
@@ -1493,6 +1500,8 @@
       $('form-sesion').reset();
       $('ses-fecha').disabled = esProveedor(); // Ambipar pone la Fecha Ambipar; la Fecha Holcim la pone Holcim
       $('ses-fecha').title = esProveedor() ? 'La Fecha Holcim la pone Holcim; tú pones la Fecha Ambipar' : '';
+      $('ses-ambipar').disabled = esHolcimSinGestor(); // y Holcim no pone la Fecha Ambipar
+      $('ses-ambipar').title = esHolcimSinGestor() ? 'La Fecha Ambipar la pone Ambipar; tú pones la Fecha Holcim' : '';
       const modulos = D.cronoFilas.filter(f => f.cl && D.cronoTodo.some(c => c.fila === f.fila));
       $('ses-fila').innerHTML = modulos.map(f => `<option value="${f.fila}" ${f.fila === fila ? 'selected' : ''}>${esc(f.cl)} · ${esc(f.nombre)}${f.pre && f.pre !== 'TODOS' ? ' (' + esc(f.pre) + ')' : ''}</option>`).join('');
       const plantas = unicos(D.cronoTodo.filter(enSede).map(c => c.pl));
@@ -2615,7 +2624,8 @@
         puede: [
           'Ver las sesiones <b>Próximas, Pasadas, Por definir</b>, <b>Todas</b> o las que <b>No aplican</b>; filtrar por mes, tema o estado, y buscar.',
           '<b>Asistencia</b>, en una sesión, te lleva directo a su lista.',
-          ['gh', '<b>Programar</b> o <b>Editar</b> una sesión: Fecha Holcim, Fecha Ambipar, estado y observaciones.'],
+          ['g', '<b>Programar</b> o <b>Editar</b> una sesión: Fecha Holcim, Fecha Ambipar, estado y observaciones.'],
+          ['h', '<b>Programar</b> o <b>Editar</b> una sesión: pones la <b>Fecha Holcim</b>, el estado y las observaciones. La Fecha Ambipar la pone Ambipar.'],
           ['gh', '<b>Habilitar</b> una sesión que dice «no aplica», o marcar que no aplica.'],
           ['a', '<b>Programar</b> o <b>Editar</b> una sesión: pones la <b>Fecha Ambipar</b>, el estado y las observaciones.'],
           'Al editar puedes aplicar el mismo cambio a las otras plantas de esa fila.',
@@ -2710,7 +2720,8 @@
     const PERMISOS = [
       ['Ver el Dashboard, el avance por planta, el cronograma y los temarios', 1, 1, 1],
       ['Tomar asistencia', 1, 1, 1],
-      ['Poner la Fecha Ambipar, el estado y las observaciones de una sesión', 1, 1, 1],
+      ['Poner la Fecha Ambipar de una sesión', 1, 0, 1],
+      ['Poner el estado y las observaciones de una sesión', 1, 1, 1],
       ['Programar o agregar sesiones y crear módulos', 1, 1, 1],
       ['Subir la lista firmada y las fotos de cada sesión', 1, 1, 1],
       ['Poner la Fecha Holcim y marcar que una sesión no aplica', 1, 1, 0],
@@ -2726,7 +2737,7 @@
       ['gha', 'fa-clipboard-check', 'Tomar asistencia', 'asistencia', ['Menú → <b>Tomar asistencia</b>.', 'Elige la sede y luego la sesión.', 'Marca a quienes asistieron (o <b>Marcar todos</b>).', 'Pulsa <b>Revisar y guardar</b> y confirma.']],
       ['gha', 'fa-camera', 'Subir la lista firmada y las fotos de una sesión', 'asistencia', ['Menú → <b>Tomar asistencia</b> → la sede → la sesión.', 'En <b>Evidencias de la sesión</b>, pulsa <b>Subir lista firmada</b> (PDF o foto) o <b>Subir fotos</b> (puedes elegir varias).', 'Quedan en la galería de la sesión. Tócalas para verlas o descargarlas; la × las quita.']],
       ['a', 'fa-calendar-check', 'Poner la Fecha Ambipar de una sesión', 'cronograma', ['Menú → <b>Cronograma</b>.', 'Busca la sesión (por mes, tema o con el buscador).', 'Pulsa <b>Programar</b> o <b>Editar</b>.', 'Pon la <b>Fecha Ambipar</b> (y el estado si cambió) y guarda.']],
-      ['gh', 'fa-calendar-check', 'Programar la fecha de una sesión', 'cronograma', ['Menú → <b>Cronograma</b>.', 'Busca la sesión (por mes, tema o con el buscador).', 'Pulsa <b>Programar</b> o <b>Editar</b>.', 'Pon la Fecha Holcim (y la Fecha Ambipar si ya la tienes) y guarda. Si es igual en otras plantas, márcalas para cambiarlas también.']],
+      ['gh', 'fa-calendar-check', 'Programar la fecha de una sesión', 'cronograma', ['Menú → <b>Cronograma</b>.', 'Busca la sesión (por mes, tema o con el buscador).', 'Pulsa <b>Programar</b> o <b>Editar</b>.', 'Pon la Fecha Holcim y guarda (la Fecha Ambipar la pone Ambipar; un gestor puede poner las dos). Si es igual en otras plantas, márcalas para cambiarlas también.']],
       ['gha', 'fa-calendar-plus', 'Agregar una sesión que no está', 'cronograma', ['Menú → <b>Cronograma</b> → <b>Programar / Agregar sesión</b>.', 'Elige el módulo y la planta.', 'Pon la fecha (Ambipar pone la Fecha Ambipar), el estado si hace falta, y guarda.']],
       ['gh', 'fa-user-plus', 'Registrar un brigadista nuevo', 'brigadistas', ['Menú → <b>Brigadistas</b> → <b>Registrar brigadista</b>.', 'Elige si es personal Holcim o contratista, la planta, y escribe nombre y cédula.', 'Llena lo que sepas (grupo sanguíneo, fecha de ingreso, Clase I…) y pulsa <b>Revisar y guardar</b>.']],
       ['gh', 'fa-pen-to-square', 'Completar los datos que faltan', 'brigadistas', ['Menú → <b>Brigadistas</b>.', 'Pulsa el enlace «<b>… con datos por completar</b>» (arriba a la derecha).', 'En cada fila, <b>+ Completar</b>; o <b>Editar en la tabla</b> para hacer muchos de una vez y luego <b>Revisar y guardar</b>.']],
@@ -2743,7 +2754,7 @@
       ['gha', '«Alguien la cambió mientras tanto»', 'Otra persona guardó esa misma casilla después de que abriste la lista. Vuelve a abrir la sesión y revisa.'],
       ['gh', '«Según el cronograma esa sesión no aplica»', 'Si sí se dictó, ponle la fecha en el Cronograma y vuelve a intentar.'],
       ['a', '«Según el cronograma esa sesión no aplica»', 'Si sí se dictó, habilítala en el Cronograma (Programar / Agregar sesión) o avísale a Holcim.'],
-      ['gha', 'No veo a un brigadista en la lista de asistencia', 'Puede que haya entrado a la brigada después de la fecha de la sesión o que esté desvinculado. Marca «Ver desvinculados y a quienes no les aplica».'],
+      ['gha', 'No veo a un brigadista en la lista de asistencia', 'Solo salen quienes tienen registrada la fecha de ingreso a la brigada y entraron antes de la sesión. Si le falta la fecha de ingreso, complétala en Brigadistas. También puede estar desvinculado. Para ver a todos, marca «Ver desvinculados y a quienes no les aplica».'],
       ['gha', 'Un cambio reciente no aparece', 'Pulsa <i class="fa-solid fa-rotate"></i> arriba, junto a la hora de los datos.'],
       ['a', 'Olvidé mi clave', 'Pídele al gestor de SIGBE que te envíe una clave nueva.'],
       ['h', 'Olvidé mi clave', 'Si entras con tu clave de GSTOR, recupérala en GSTOR. Si no, pídele al gestor de SIGBE una nueva.'],

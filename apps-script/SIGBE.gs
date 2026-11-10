@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.16.1';
+const SIGBE_VERSION = '4.17.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -1216,6 +1216,7 @@ function guardarCronograma(token, lista) {
         if (!def) return;
         const habilitar = campo === 'fecha' && actualDe('fecha') === '-' && !String(x.cambios.fecha || '').trim(); // quitar el "-" sin poner fecha
         if (campo === 'fecha' && rol === 'proveedor' && !habilitar) { rechazos.push('Fecha (Holcim): la cambia Holcim; Ambipar diligencia la Fecha Ambipar'); return; }
+        if (campo === 'ambipar' && rol === 'holcim') { rechazos.push('Fecha Ambipar: la pone Ambipar; Holcim pone la Fecha Holcim'); return; }
         const c = b.col[def.col];
         if (c === undefined) { rechazos.push(def.etiqueta + ': el bloque de ' + b.nombre + ' no tiene esa columna'); return; }
         let nuevo = String(x.cambios[campo] === null || x.cambios[campo] === undefined ? '' : x.cambios[campo]).trim();
@@ -1431,6 +1432,7 @@ function agregarSesion(token, d) {
     const libre = propios.findIndex(x => f.celdas[x.i].tipo === 'noaplica');
     if (libre !== -1) return { exito: false, habilitar: true, mensaje: 'La planta ya tiene la ' + propios[libre].b.sesion + ' (con "-" en este tema): habilítala en vez de crear otra.' };
     if (d.fecha && sigbeRol_(usuario) === 'proveedor') return { exito: false, mensaje: 'La Fecha Holcim la pone Holcim; tú pones la Fecha Ambipar.' };
+    if (d.ambipar && sigbeRol_(usuario) === 'holcim') return { exito: false, mensaje: 'La Fecha Ambipar la pone Ambipar; tú pones la Fecha Holcim.' };
     if (d.fecha && !/^\d{4}-\d{2}-\d{2}$/.test(d.fecha)) return { exito: false, mensaje: 'Fecha no válida.' };
     if (d.ambipar && !/^\d{4}-\d{2}-\d{2}$/.test(d.ambipar)) return { exito: false, mensaje: 'Fecha Ambipar no válida.' };
     const n = propios.length + 1, ultimo = propios[propios.length - 1].b;
