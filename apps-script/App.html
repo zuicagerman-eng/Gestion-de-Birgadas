@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.18.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.18.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -676,14 +676,14 @@
       // se pida "Ver desvinculados y a quienes no les aplica". El buscador filtra sin repintar.
       const enPlanta = todas.filter(p => dePlantas(p, asis.plantas)).map(p => ({ p: p, x: ses(p, s.i) }));
       // Sin fecha de ingreso registrada no se sabe si le aplica: no sale (salvo que ya tenga la marca o se pida verlos)
-      const seVe = o => asis.inactivos || (o.p.activo && (llamado(o.p, o.x) || o.x.marcada || o.p.j in asis.cambios));
+      const seVe = o => asis.inactivos || (o.p.activo && (llamadoAsis(o.p, o.x) || o.x.marcada || o.p.j in asis.cambios));
       const conInfo = enPlanta.filter(seVe);
       const noAplican = enPlanta.filter(o => o.p.activo && !seVe(o)), porIngreso = noAplican.filter(o => o.x.antesIngreso).length;
       const sinIngreso = noAplican.filter(o => o.x.aplica && !isoDe(o.p.fi)).length;
       const fechas = unicos(conInfo.filter(o => o.x.aplica).map(o => o.x.f).filter(Boolean));
       const n = Object.keys(asis.cambios).length;
       const guardadas = todas.filter(p => p.activo && p.m.charAt(s.i) === '1').length;
-      const aplican = todas.filter(p => p.activo && dePlantas(p, asis.plantas) && (llamado(p, ses(p, s.i)) || p.m.charAt(s.i) === '1')).length;
+      const aplican = todas.filter(p => p.activo && dePlantas(p, asis.plantas) && (llamadoAsis(p, ses(p, s.i)) || p.m.charAt(s.i) === '1')).length;
       const puede = !!E.usuario && !(D.fuentes.soloLectura || {}).asistencia;
       $('asis-contenido').innerHTML = `<div class="tarjeta p-3 mb-3">
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
@@ -709,6 +709,7 @@
               <button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="foto"><i class="fa-solid fa-camera me-1"></i>Subir fotos</button>` : ''}</div>
             <div id="evid-galeria" class="d-flex flex-wrap gap-2 mt-2">${galeriaEvid()}</div>
           </div>
+          ${esPrincipal() && conInfo.some(o => o.x.aplica && !isoDe(o.p.fi)) ? `<div class="small text-muted mt-2"><i class="fa-solid fa-user-shield me-1"></i>Como programador ves también a ${conInfo.filter(o => o.x.aplica && !isoDe(o.p.fi)).length} activo(s) sin fecha de ingreso a la brigada (salen con «sin fecha de ingreso»). Los demás usuarios no los ven hasta que se registre la fecha.</div>` : ''}
           ${noAplican.length ? `<div class="small text-muted mt-2"><i class="fa-solid fa-circle-info me-1"></i>${noAplican.length} persona(s) no aparecen: ${[porIngreso ? porIngreso + ' ingresaron a la brigada después de la fecha de la sesión' : '', sinIngreso ? sinIngreso + ' no tienen registrada la fecha de ingreso a la brigada (complétala en Brigadistas)' : '', noAplican.length - porIngreso - sinIngreso ? (noAplican.length - porIngreso - sinIngreso) + ' porque la sesión no les aplica' : ''].filter(Boolean).join('; ')}. Para verlos, marca «Ver desvinculados y a quienes no les aplica».</div>` : ''}
           ${E.usuario ? '' : '<div class="alert alert-info small mt-3 mb-0"><i class="fa-solid fa-lock me-1"></i>Estás en <b>solo lectura</b>. <a href="#" data-accion="login">Inicia sesión</a> para marcar asistencia.</div>'}
         </div>
@@ -745,9 +746,12 @@
     }
     /** En Tomar asistencia solo se llama a quien la sesión le aplica por su fecha de ingreso: sin fecha de ingreso registrada no sale. */
     function llamado(p, x) { return x.aplica && !!isoDe(p.fi); }
+    /** El programador (usuario principal) ve en Tomar asistencia a todos los activos a quienes les aplica, aunque no tengan fecha de ingreso. */
+    function esPrincipal() { return !!(E.perfil && E.perfil.principal); }
+    function llamadoAsis(p, x) { return x.aplica && (!!isoDe(p.fi) || esPrincipal()); }
     function marcarTodos(v) {
       const s = sesionActual();
-      personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && llamado(p, ses(p, s.i))).forEach(p => {
+      personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && llamadoAsis(p, ses(p, s.i))).forEach(p => {
         if (v === (p.m.charAt(s.i) === '1')) delete asis.cambios[p.j]; else asis.cambios[p.j] = v;
       });
       pintarLista();
@@ -805,7 +809,7 @@
     }
     function imprimirLista() {
       const s = sesionActual();
-      const pers = personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && (llamado(p, ses(p, s.i)) || ses(p, s.i).marcada));
+      const pers = personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && (llamadoAsis(p, ses(p, s.i)) || ses(p, s.i).marcada));
       const fechas = unicos(pers.map(p => ses(p, s.i).f).filter(Boolean));
       $('print-area').innerHTML = `<h2 style="margin:0 0 4px">Lista de asistencia · ${esc(E.sede)}</h2><div><b>${esc(nombreSesion(s))}</b> — ${esc(s.titulo)}</div>
         <div style="margin-bottom:10px">Fecha programada: ${esc(fechas.join(' / ') || '____/____/______')} &nbsp; Fecha real: ____/____/______ &nbsp; Instructor: ______________________</div>
