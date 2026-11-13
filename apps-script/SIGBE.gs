@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.18.2';
+const SIGBE_VERSION = '4.18.3';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -471,9 +471,9 @@ function pdfListaAsistencia(token, d) {
   }
 }
 
-/** ID de la plantilla (o ''). */
+/** ID de la plantilla (o ''). Sirve con cualquiera de los dos nombres: SIGBE_PLANTILLA_ASISTENCIA o PLANTILLA_ASISTENCIA (el de Capacitaciones). */
 function sigbePlantillaAsistencia_() {
-  const v = String(prop_('SIGBE_PLANTILLA_ASISTENCIA') || '').trim();
+  const v = String(prop_('SIGBE_PLANTILLA_ASISTENCIA') || prop_('PLANTILLA_ASISTENCIA') || '').trim();
   return v ? idDesdeTexto_(v) : '';
 }
 
@@ -3030,7 +3030,10 @@ function guardarConfiguracion(token, cfg) {
     if (cfg.plantillaAsistencia !== undefined) { // plantilla de la lista de asistencia de Holcim (para los PDF); vacía = sin plantilla
       const t = String(cfg.plantillaAsistencia || '').trim(), valor = t ? idDesdeTexto_(t) : '';
       if (valor) { try { SpreadsheetApp.openById(valor).getName(); } catch (e) { return { exito: false, mensaje: 'No se pudo abrir la plantilla de la lista de asistencia con esa URL (¿está compartida con ' + cuentaScript_() + '?): ' + e.message }; } }
-      if (valor !== String(props.getProperty('SIGBE_PLANTILLA_ASISTENCIA') || '')) { props.setProperty('SIGBE_PLANTILLA_ASISTENCIA', valor); cambios.push('plantilla de la lista de asistencia → ' + (valor || 'sin plantilla')); }
+      if (valor !== sigbePlantillaAsistencia_()) {
+        props.setProperty('SIGBE_PLANTILLA_ASISTENCIA', valor); props.deleteProperty('PLANTILLA_ASISTENCIA'); // queda una sola
+        cambios.push('plantilla de la lista de asistencia → ' + (valor || 'sin plantilla'));
+      }
     }
     if (reiniciarEspejo) {
       Object.keys(props.getProperties()).filter(k => /^LIBRO_NUEVO_(HUELLA|CELDAS)_/.test(k)).forEach(k => props.deleteProperty(k));
