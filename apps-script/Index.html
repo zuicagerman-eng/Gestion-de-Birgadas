@@ -192,7 +192,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.18.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.18.1</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -357,13 +357,13 @@
               <button class="btn btn-sm btn-outline-success" data-accion="lis-excel"><i class="fa-solid fa-file-excel me-1"></i><span id="lis-excel-txt">Descargar Excel</span></button>
               <button class="btn btn-sm btn-primary" data-accion="lis-pdfs"><i class="fa-solid fa-file-pdf me-1"></i><span id="lis-pdfs-txt">Descargar en formato Holcim (PDF)</span></button>
             </div>
-            <p class="sub-vista">Cada sesión de un módulo en una planta es una lista, armada con lo cargado en SIGBE: quiénes estaban convocados (la sesión les aplica y tienen fecha de ingreso) y quiénes asistieron. Antes de la sesión sale vacía, para firmar; después, con <b>✓ Asistió</b> o <b>✗ No asistió</b>. Se descarga en Excel o en PDF con la plantilla oficial de Holcim.</p>
+            <p class="sub-vista">Cada sesión de un módulo en una planta es una lista, armada con lo cargado en SIGBE: solo las sesiones en las que ya se tomó asistencia (al menos una persona marcada), con cada convocado como <b>✓ Asistió</b> o <b>✗ No asistió</b>. Se descarga en Excel o en PDF con la plantilla oficial de Holcim.</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros">
                 <input type="search" id="lis-buscar" class="form-control form-control-sm" placeholder="Buscar módulo, planta, persona o cédula…" aria-label="Buscar listas">
                 <select id="lis-mes" class="form-select form-select-sm" aria-label="Mes"></select>
                 <select id="lis-modulo" class="form-select form-select-sm" aria-label="Módulo"></select>
-                <select id="lis-estado" class="form-select form-select-sm" aria-label="Listas"><option value="">Todas las listas</option><option value="completa">Completas: todos asistieron</option><option value="faltan">Con faltantes</option><option value="firmar">Por realizar (para firmar)</option></select>
+                <select id="lis-estado" class="form-select form-select-sm" aria-label="Listas"><option value="">Todas las listas</option><option value="completa">Completas: todos asistieron</option><option value="faltan">Con faltantes</option></select>
                 <span class="contador ms-auto" id="lis-conteo"></span>
               </div>
             </div>

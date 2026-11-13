@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.18.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.18.1)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -203,11 +203,12 @@ avisa por correo **a quien le toca**:
 Menú **Listas de asistencia** (todos los usuarios, de sus sedes). Cada sesión de un módulo en una planta, con su fecha
 del cronograma, es una **lista**, armada con lo cargado en SIGBE: las personas de esa planta convocadas (la sesión les
 aplica y tienen fecha de ingreso, como en Tomar asistencia) y las que ya tienen la asistencia marcada. No se sube nada.
+**Solo salen las sesiones en las que ya se tomó asistencia** (al menos una persona marcada).
 
-- **Antes de la sesión** la lista sale para firmar (sin marcas); **después**, cada persona con **✓ Asistió** o
-  **✗ No asistió** según lo marcado en SIGBE. Pastillas: en la lista, asistieron, no asistieron, por realizar y «Lista
-  firmada subida» (si la sesión tiene la lista firmada en Evidencias).
-- Filtros: buscar (módulo, planta, persona, cédula, fecha), mes, módulo y estado (completas, con faltantes, por realizar).
+- Cada persona con **✓ Asistió** o **✗ No asistió** según lo marcado en SIGBE. Pastillas: en la lista, asistieron, no
+  asistieron y «Lista firmada subida» (si la sesión tiene la lista firmada en Evidencias). Para una lista en blanco para
+  firmar sigue «Imprimir para firmar» en Tomar asistencia.
+- Filtros: buscar (módulo, planta, persona, cédula, fecha), mes, módulo y estado (completas o con faltantes).
 - **Excel** (lo que se ve): hojas «Resumen» (una fila por lista) y «Personas» (una por persona; la cédula como número).
   Se arma en el navegador con SheetJS (cdn.jsdelivr.net).
 - **PDF en formato Holcim**: el servidor llena **una copia** de la plantilla oficial «Lista de asistencia» (la misma de

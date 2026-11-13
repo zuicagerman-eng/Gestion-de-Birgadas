@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.18.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.18.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -853,21 +853,20 @@
       const hoy = D.hoy, lista = Object.keys(grupos).map(k => {
         const g = grupos[k];
         g.gente.sort((a, b) => a.p.n.localeCompare(b.p.n, 'es'));
-        g.futura = g.iso > hoy;
         g.si = g.gente.filter(o => o.x.marcada).length;
-        g.pend = g.futura ? g.gente.length - g.si : 0;
-        g.no = g.gente.length - g.si - g.pend;
-        g.estado = g.futura && !g.si ? 'firmar' : g.no ? 'faltan' : g.pend ? 'firmar' : 'completa';
+        g.no = g.gente.length - g.si;
+        g.estado = g.no ? 'faltan' : 'completa';
         g.firmada = ((D.evid || {})[g.sede + '|' + g.s.key] || [0])[0] > 0;
         const c = D.cronoTodo.find(c => c.pl === g.pl && c.cl === g.s.clave && c.ses === 'Sesión ' + g.s.n);
         g.obs = c ? c.obs || '' : '';
         g.modalidad = /virtual/i.test(g.obs) ? 'Virtual' : /presencial/i.test(g.obs) ? 'Presencial' : '';
         return g;
-      }).sort((a, b) => (a.iso < b.iso ? 1 : a.iso > b.iso ? -1 : a.pl.localeCompare(b.pl) || a.s.i - b.s.i));
+      }).filter(g => g.si > 0) // solo las sesiones en las que ya se tomó asistencia (al menos una persona marcada)
+        .sort((a, b) => (a.iso < b.iso ? 1 : a.iso > b.iso ? -1 : a.pl.localeCompare(b.pl) || a.s.i - b.s.i));
       return { lista: lista, sinFecha: sinFecha };
     }
-    function estadoPersona(g, o) { return o.x.marcada ? 'si' : g.futura ? '' : 'no'; }
-    const TXT_ESTADO = { si: 'Asistió', no: 'No asistió', '': 'Por realizar' };
+    function estadoPersona(g, o) { return o.x.marcada ? 'si' : 'no'; }
+    const TXT_ESTADO = { si: 'Asistió', no: 'No asistió' };
     function pintarListas() {
       if (!D) return;
       const todo = armarListas();
@@ -881,8 +880,8 @@
       const suma = k => vistas.reduce((n, g) => n + g[k], 0), completas = vistas.filter(g => g.estado === 'completa').length;
       $('lis-conteo').textContent = vistas.length + ' lista(s)' + (todo.sinFecha ? ' · ' + todo.sinFecha + ' convocatoria(s) sin fecha en el cronograma no salen' : '');
       $('lis-cifras').innerHTML = [['Listas', vistas.length, completas + ' completas', 'var(--s-azul)'], ['Asistieron', suma('si'), 'marcados en SIGBE', 'var(--s-ok)'],
-        ['No asistieron', suma('no'), 'sesiones ya pasadas', 'var(--s-mal)'], ['Por realizar', suma('pend'), 'listas para firmar', '#57606a']]
-        .map(k => `<div class="col-6 col-md-3"><div class="kpi"><div class="eti">${k[0]}</div><div class="num" style="color:${k[3]}">${k[1]}</div><div class="small text-muted">${k[2]}</div></div></div>`).join('');
+        ['No asistieron', suma('no'), 'convocados sin marca', 'var(--s-mal)']]
+        .map(k => `<div class="col-12 col-md-4"><div class="kpi"><div class="eti">${k[0]}</div><div class="num" style="color:${k[3]}">${k[1]}</div><div class="small text-muted">${k[2]}</div></div></div>`).join('');
       const filtrado = !!(q || mes || mod || est);
       $('lis-excel-txt').textContent = 'Descargar Excel (' + (filtrado ? 'lo filtrado' : 'todo') + ')';
       $('lis-pdfs-txt').textContent = vistas.length === 1 ? 'Descargar la lista en formato Holcim (PDF)' : 'Descargar las ' + vistas.length + ' listas en formato Holcim (PDF)';
@@ -895,20 +894,19 @@
             ${pastilla(g.gente.length + ' en la lista', 'bg-light text-dark border')}
             ${g.si ? pastilla(g.si + ' asistieron', 'bg-success-subtle text-success-emphasis') : ''}
             ${g.estado === 'completa' ? pastilla('Completa: todos asistieron', 'bg-success-subtle text-success-emphasis') : g.no ? pastilla(g.no + ' no asistieron', 'bg-danger-subtle text-danger-emphasis') : ''}
-            ${g.pend ? pastilla('Por realizar: para firmar', 'bg-secondary-subtle text-secondary-emphasis') : ''}
             ${g.firmada ? pastilla('<i class="fa-solid fa-file-signature me-1"></i>Lista firmada subida', 'bg-info-subtle text-info-emphasis') : ''}
             <button class="btn btn-sm btn-outline-primary" data-accion="lis-pdf" data-k="${k}"><i class="fa-solid fa-file-pdf me-1"></i>PDF Holcim</button>
           </summary>
           <div class="px-3 pb-3 lis-tabla"></div></details>`).join('') +
           (vistas.length > listas.max ? `<button class="btn btn-sm btn-outline-secondary" data-accion="lis-mas">Ver ${Math.min(40, vistas.length - listas.max)} más (de ${vistas.length - listas.max})</button>` : '')
-        : '<p class="text-muted">No hay listas con esos filtros. Las listas salen de las sesiones con fecha en el cronograma.</p>');
+        : '<p class="text-muted">No hay listas con esos filtros. Solo salen las sesiones con fecha en el cronograma en las que ya se tomó asistencia (al menos una persona marcada).</p>');
     }
     function tablaLista(g) {
-      const color = { si: 'bg-success-subtle text-success-emphasis', no: 'bg-danger-subtle text-danger-emphasis', '': 'bg-secondary-subtle text-secondary-emphasis' };
+      const color = { si: 'bg-success-subtle text-success-emphasis', no: 'bg-danger-subtle text-danger-emphasis' };
       return `<div class="table-responsive"><table class="table table-sm small align-middle mb-2"><thead><tr><th scope="col">Persona</th><th scope="col">Planta · empresa</th><th scope="col">Asistencia</th></tr></thead><tbody>` +
         g.gente.map(o => { const e = estadoPersona(g, o); return `<tr><td><a href="#" data-accion="ficha" data-tipo="HOLCIM" data-j="${o.p.j}" class="fw-semibold text-reset text-decoration-none">${esc(o.p.n)}</a><div class="text-muted">C.C. ${esc(o.p.c)}</div></td>
           <td>${esc(o.p.p)} · ${esc(NOMBRE_GRUPO[grupoDe(o.p)])}${o.p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${isoDe(o.p.fi) ? '' : ' · <span class="text-muted">sin fecha de ingreso</span>'}</td>
-          <td><span class="badge ${color[e]}">${e === 'si' ? '✓ ' : e === 'no' ? '✗ ' : ''}${TXT_ESTADO[e]}</span></td></tr>`; }).join('') +
+          <td><span class="badge ${color[e]}">${e === 'si' ? '✓ ' : '✗ '}${TXT_ESTADO[e]}</span></td></tr>`; }).join('') +
         `</tbody></table></div><div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-outline-secondary" data-accion="ir-asistencia" data-sede="${esc(g.sede)}" data-key="${esc(g.s.key)}" data-planta="${esc(g.pl)}"><i class="fa-solid fa-clipboard-check me-1"></i>Ir a tomar asistencia</button></div>`;
     }
     /** Lo que el servidor necesita para llenar la plantilla de Holcim. */
@@ -955,7 +953,7 @@
     function pdfDeSesionActual() {
       const s = sesionActual(); if (!s) return;
       const r = armarListas({ key: s.key, sede: E.sede, plantas: asis.plantas });
-      if (!r.lista.length) return avisar('Esta sesión no tiene fecha en el cronograma o no hay a quién convocar: la lista en formato Holcim necesita la fecha.', 'warning', 8000);
+      if (!r.lista.length) return avisar('Todavía no hay asistencia guardada en esta sesión (o no tiene fecha en el cronograma). La lista en formato Holcim sale cuando al menos una persona tiene la asistencia marcada; para firmar, usa «Imprimir para firmar».', 'warning', 9000);
       descargarPdfs(r.lista);
     }
     /** Excel con lo que se ve: hoja «Resumen» (una fila por lista) y hoja «Personas» (una fila por persona). */
@@ -965,20 +963,20 @@
       try { await cargarScript(LIB_XLSX); } catch (e) { return avisar(esc(e.message), 'danger', 9000); }
       const fecha = iso => iso ? iso.split('-').reverse().join('/') : '';
       const num = v => /^\d{1,15}$/.test(String(v || '')) ? Number(v) : v;
-      const resumen = [['Fecha', 'Capacitación (módulo)', 'Sesión', 'Planta', 'Sede', 'Instructor', 'Interna/Externa', 'Modalidad', 'En la lista', 'Asistieron', 'No asistieron', 'Por realizar', '¿Completa?', 'Lista firmada subida']]
-        .concat(vistas.map(g => [fecha(g.iso), g.s.clave + ' · ' + g.s.titulo, 'Sesión ' + g.s.n, g.pl, g.sede, 'Ambipar', 'Externo', g.modalidad, g.gente.length, g.si, g.no, g.pend, g.estado === 'completa' ? 'Sí' : 'No', g.firmada ? 'Sí' : 'No']));
+      const resumen = [['Fecha', 'Capacitación (módulo)', 'Sesión', 'Planta', 'Sede', 'Instructor', 'Interna/Externa', 'Modalidad', 'En la lista', 'Asistieron', 'No asistieron', '¿Completa?', 'Lista firmada subida']]
+        .concat(vistas.map(g => [fecha(g.iso), g.s.clave + ' · ' + g.s.titulo, 'Sesión ' + g.s.n, g.pl, g.sede, 'Ambipar', 'Externo', g.modalidad, g.gente.length, g.si, g.no, g.estado === 'completa' ? 'Sí' : 'No', g.firmada ? 'Sí' : 'No']));
       const personas = [['Fecha', 'Capacitación (módulo)', 'Sesión', 'Planta', 'Sede', 'Cédula', 'Nombre', 'Empresa', 'Planta (brigadista)', 'Asistencia', '¿Asistió?', 'Observación']];
       vistas.forEach(g => g.gente.forEach(o => {
         const e = estadoPersona(g, o);
-        personas.push([fecha(g.iso), g.s.clave + ' · ' + g.s.titulo, 'Sesión ' + g.s.n, g.pl, g.sede, num(o.p.c), o.p.n, NOMBRE_GRUPO[grupoDe(o.p)], o.p.p, TXT_ESTADO[e], e === 'si' ? 'Sí' : e === 'no' ? 'No' : '',
+        personas.push([fecha(g.iso), g.s.clave + ' · ' + g.s.titulo, 'Sesión ' + g.s.n, g.pl, g.sede, num(o.p.c), o.p.n, NOMBRE_GRUPO[grupoDe(o.p)], o.p.p, TXT_ESTADO[e], e === 'si' ? 'Sí' : 'No',
           [o.p.activo ? '' : 'Desvinculado', isoDe(o.p.fi) ? '' : 'Sin fecha de ingreso (salió porque ya tenía la asistencia marcada)'].filter(Boolean).join(' · ')]);
       }));
       const libro = XLSX.utils.book_new();
       const hoja = (filas, anchos) => { const h = XLSX.utils.aoa_to_sheet(filas); h['!cols'] = anchos.map(w => ({ wch: w })); h['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: filas.length - 1, c: filas[0].length - 1 } }) }; return h; };
-      XLSX.utils.book_append_sheet(libro, hoja(resumen, [11, 44, 10, 24, 14, 12, 12, 11, 10, 10, 12, 11, 11, 12]), 'Resumen');
+      XLSX.utils.book_append_sheet(libro, hoja(resumen, [11, 44, 10, 24, 14, 12, 12, 11, 10, 10, 12, 11, 12]), 'Resumen');
       XLSX.utils.book_append_sheet(libro, hoja(personas, [11, 44, 10, 24, 14, 13, 34, 16, 24, 12, 9, 40]), 'Personas');
       const est = $('lis-estado').value, filtrado = !!($('lis-buscar').value || $('lis-mes').value || $('lis-modulo').value || est);
-      const nombre = D.hoy.replace(/-/g, '.') + ' Listas de asistencia' + ({ completa: ' completas', faltan: ' con faltantes', firmar: ' para firmar' }[est] || '') + (filtrado ? ' (filtrado)' : ' - todas') + '.xlsx';
+      const nombre = D.hoy.replace(/-/g, '.') + ' Listas de asistencia' + ({ completa: ' completas', faltan: ' con faltantes' }[est] || '') + (filtrado ? ' (filtrado)' : ' - todas') + '.xlsx';
       XLSX.writeFile(libro, nombre);
       avisar('✓ «' + esc(nombre) + '»: ' + vistas.length + ' listas, ' + (personas.length - 1) + ' personas.', 'success', 7000);
     }
@@ -2838,16 +2836,16 @@
       listas: {
         para: 'Las listas de asistencia de cada sesión de los módulos, armadas con lo cargado en SIGBE, para descargarlas en Excel o en PDF con la plantilla oficial de Holcim.',
         pasos: [
-          'Filtra por mes, módulo o estado (completas, con faltantes, por realizar) o busca una planta o una persona.',
+          'Filtra por mes, módulo o estado (completas o con faltantes) o busca una planta o una persona.',
           'Abre una lista para ver quiénes están y si asistieron. <b>PDF Holcim</b> baja esa lista.',
           'Arriba: <b>Descargar Excel</b> (lo que se ve, en dos hojas: Resumen y Personas) o <b>Descargar en formato Holcim</b> (varias listas salen en un .zip).',
         ],
         puede: [
-          'Antes de la sesión, la lista sale vacía, lista para imprimir y firmar. Después, con ✓ Asistió o ✗ No asistió según lo marcado en SIGBE.',
+          'Cada persona sale con ✓ Asistió o ✗ No asistió según lo marcado en SIGBE. Para una lista en blanco para firmar, usa «Imprimir para firmar» en Tomar asistencia.',
           'También desde <b>Tomar asistencia</b>: botón <b>Lista Holcim (PDF)</b> en la sesión abierta.',
         ],
         ojo: [
-          'Salen las personas convocadas (la sesión les aplica y tienen fecha de ingreso) y las que ya tienen la asistencia marcada. Las sesiones sin fecha en el cronograma no tienen lista.',
+          'Solo salen las sesiones en las que ya se tomó asistencia (al menos una persona marcada) y que tienen fecha en el cronograma. En cada una: los convocados (la sesión les aplica y tienen fecha de ingreso) y los que tienen la asistencia marcada.',
           'El PDF necesita la plantilla de Holcim configurada (Configuración → Archivos). Si sale «No asistió» y sí fue, corrígelo en Tomar asistencia y vuelve a descargarla.',
         ],
       },
