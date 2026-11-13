@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.17.0';
+const SIGBE_VERSION = '4.18.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -433,6 +433,117 @@ function sigbeRestrCambio_(cedula) {
   const c = String(cedula || '').replace(/\D/g, ''), o = {};
   if (c) o[c] = sigbeRestriccionesEfectivas_([c])[c] || null;
   return o;
+}
+
+// ═════════════════════════════ LISTAS DE ASISTENCIA EN FORMATO HOLCIM (PDF) ═════════════════════════════
+// Cada sesión de un módulo en una planta es una lista. La app la arma con lo cargado en SIGBE (quiénes estaban
+// convocados y quiénes asistieron) y aquí se llena UNA COPIA de la plantilla oficial de Holcim (propiedad
+// SIGBE_PLANTILLA_ASISTENCIA = el enlace del Sheet «Lista de asistencia», el mismo que usan Capacitaciones y GSTOR),
+// se pasa a PDF y la copia se borra aunque falle. No se guarda nada. Mismas celdas y tabla que Capacitaciones.
+const SIGBE_LISTA_HOLCIM = { curso: 'E5', fechaIni: 'D6', fechaFin: 'H6', instructor: 'D7', duracion: 'H7', tipo: 'D8', modalidad: 'E10', lugar: 'H10', texto: 'E17' };
+
+/**
+ * d: { curso, ini, fin, instructor, tipo, modalidad, lugar, horas, sesion, p: [[documento, nombre, localidad, correo, posición, calificación, asistencia]] }
+ * asistencia: 'si' | 'no' | '' (vacía: lista para firmar). Devuelve { exito, nombre, pdf (base64) }. Cualquier usuario con sesión.
+ */
+function pdfListaAsistencia(token, d) {
+  try {
+    sigbeExigirSesion_(token);
+    const id = sigbePlantillaAsistencia_();
+    if (!id) return { exito: false, falta: true, mensaje: 'Falta la plantilla de la lista de asistencia de Holcim. Un gestor la configura en Configuración → Archivos → «Plantilla de la lista de asistencia».' };
+    d = d || {};
+    const txt = (v, n) => String(v === null || v === undefined ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n || 120);
+    const dia = t => { const m = String(t || '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : ''; };
+    if (!txt(d.curso) || !dia(d.ini)) return { exito: false, mensaje: 'A la lista le falta el módulo o la fecha.' };
+    const gente = (Array.isArray(d.p) ? d.p : []).slice(0, 400).map(f => {
+      const a = String((f || [])[6] || '');
+      return [0, 1, 2, 3, 4, 5].map(k => sigbeTxt_(txt((f || [])[k], 80))).concat([a === 'si' ? '✓ Asistió' : a === 'no' ? '✗ No asistió' : '']);
+    });
+    const blob = sigbeLlenarListaHolcim_(id, {
+      curso: txt(d.curso), ini: dia(d.ini), fin: dia(d.fin) || dia(d.ini), instructor: txt(d.instructor), tipo: txt(d.tipo, 30), modalidad: txt(d.modalidad, 30),
+      lugar: txt(d.lugar), horas: txt(d.horas, 10), sesion: txt(d.sesion, 40), firmar: gente.every(g => !g[6]), gente: gente,
+    });
+    const nombre = (Utilities.formatDate(dia(d.ini), Session.getScriptTimeZone(), 'yyyy.MM.dd') + ' LISTA DE ASISTENCIA ' + sigbeNorm_(d.curso) + (d.lugar ? ' ' + txt(d.lugar) : ''))
+      .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9 .,()&-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) + '.pdf';
+    return { exito: true, nombre: nombre, pdf: Utilities.base64Encode(blob.getBytes()) };
+  } catch (e) {
+    return { exito: false, mensaje: 'No se pudo generar el PDF: ' + e.message };
+  }
+}
+
+/** ID de la plantilla (o ''). */
+function sigbePlantillaAsistencia_() {
+  const v = String(prop_('SIGBE_PLANTILLA_ASISTENCIA') || '').trim();
+  return v ? idDesdeTexto_(v) : '';
+}
+
+function sigbeLlenarListaHolcim_(idPlantilla, d) {
+  const L = SIGBE_LISTA_HOLCIM, tz = Session.getScriptTimeZone();
+  const copia = DriveApp.getFileById(idPlantilla).makeCopy('(temporal) Lista de asistencia SIGBE · ' + d.curso.slice(0, 80));
+  try {
+    const libro = SpreadsheetApp.openById(copia.getId());
+    const h = libro.getSheets().filter(x => sigbeNorm_(x.getName()).indexOf('LISTA DE ASISTENCIA') === 0)[0] || libro.getSheets()[0];
+    const poner = (celda, v) => h.getRange(celda).setValue(v);
+    poner(L.curso, d.curso);
+    poner(L.fechaIni, d.ini);
+    poner(L.fechaFin, d.fin);
+    poner(L.instructor, d.instructor);
+    const horas = Number(String(d.horas || '').replace(',', '.'));
+    poner(L.duracion, horas > 0 ? horas : d.horas);
+    if (d.tipo) poner(L.tipo, d.tipo);
+    if (d.modalidad) poner(L.modalidad, d.modalidad);
+    poner(L.lugar, d.lugar);
+    poner(L.texto, 'Capacitación «' + d.curso + '»' + (d.sesion ? ' · ' + d.sesion : '') + (d.lugar ? ' · ' + d.lugar : '') + ' · ' + Utilities.formatDate(d.ini, tz, 'dd/MM/yyyy') +
+      (d.firmar ? '. Generada desde SIGBE para firmar el día de la sesión.' : '. Generada desde SIGBE: la asistencia (✓) es la marcada en SIGBE.'));
+    try { sigbeTablaListaHolcim_(h, d.gente); }
+    catch (e) { sigbeTablaListaHolcim_(h, d.gente.map(f => f.slice(0, 6).concat([String(f[6]).replace(/^[✓✗]\s*/, '')]))); } // la celda solo admite «Asistió / No asistió»
+    SpreadsheetApp.flush();
+    const url = 'https://docs.google.com/spreadsheets/d/' + libro.getId() + '/export?format=pdf&gid=' + h.getSheetId() +
+      '&size=letter&portrait=false&fitw=true&gridlines=false&printtitle=false&sheetnames=false&pagenum=UNDEFINED' +
+      '&top_margin=0.4&bottom_margin=0.4&left_margin=0.4&right_margin=0.4';
+    let resp = null;
+    for (let i = 0; i < 3; i++) {
+      resp = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+      if (resp.getResponseCode() === 200) break;
+      Utilities.sleep(1500 * (i + 1));
+    }
+    if (resp.getResponseCode() !== 200) throw new Error('Google devolvió el código ' + resp.getResponseCode() + ' al exportar el PDF');
+    return resp.getBlob();
+  } finally {
+    try { copia.setTrashed(true); } catch (e) { console.log('No se pudo borrar la copia temporal: ' + e.message); }
+  }
+}
+
+/**
+ * La tabla de la plantilla: desde la fila de «N°» (columna B) hasta antes del texto legal («titular de los datos»).
+ * gente: [documento, nombre, localidad, correo, posición, calificación, asistencia]; el N.º lo pone esta. Si hay más
+ * personas que filas, se agregan con el formato y alto de la última; las que sobran quedan con su número y sus fórmulas.
+ */
+function sigbeTablaListaHolcim_(h, gente) {
+  const ultima = Math.min(h.getLastRow(), 200), colB = h.getRange(1, 2, ultima, 1).getValues();
+  let enc = -1, legal = -1;
+  colB.forEach((f, i) => {
+    const t = sigbeNorm_(f[0]).replace(/[^A-Z0-9 ]/g, '').trim();
+    if (enc < 0 && (t === 'N' || t === 'NO' || String(f[0]).trim() === 'N°')) enc = i + 1;
+    else if (enc > 0 && legal < 0 && sigbeNorm_(f[0]).indexOf('TITULAR DE LOS DATOS') !== -1) legal = i + 1;
+  });
+  if (enc < 0) enc = 18;
+  if (legal < 0) legal = enc + 11;
+  const desde = enc + 1, n = gente.length;
+  let cupo = legal - desde;
+  if (n > cupo) {
+    const base = legal - 1, extra = n - cupo, ancho = h.getMaxColumns();
+    h.insertRowsAfter(base, extra);
+    h.getRange(base, 1, 1, ancho).copyTo(h.getRange(base + 1, 1, extra, ancho), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    h.setRowHeights(base + 1, extra, h.getRowHeight(base));
+    cupo = n;
+  }
+  const formulas = h.getRange(desde, 3, cupo, 5).getFormulas(), filas = [];
+  for (let r = 0; r < cupo; r++) {
+    const a = gente[r];
+    filas.push(a ? [r + 1].concat(a) : [r + 1, '', formulas[r][1] || '', formulas[r][2] || '', formulas[r][3] || '', formulas[r][4] || '', '', '']);
+  }
+  h.getRange(desde, 2, cupo, 8).setValues(filas);
 }
 
 // ═════════════════════════════ EVIDENCIAS: LISTA FIRMADA Y FOTOS DE CADA SESIÓN ═════════════════════════════
@@ -2887,6 +2998,7 @@ function getConfiguracion(token) {
     carpetaRespaldos: CARPETA_RESPALDOS,
     respaldos: respaldos,
     ejecutaComo: cuentaScript_(),
+    plantillaAsistencia: (() => { const id = sigbePlantillaAsistencia_(); if (!id) return { id: '', nombre: '', url: '' }; try { const f = DriveApp.getFileById(id); return { id: id, nombre: f.getName(), url: f.getUrl() }; } catch (e) { return { id: id, nombre: '', url: '', error: 'No se puede abrir con la cuenta ' + cuentaScript_() }; } })(),
   };
 }
 
@@ -2915,6 +3027,11 @@ function guardarConfiguracion(token, cfg) {
     const err = archivo('idOrigen', 'SIGBE_ID_ORIGEN', 'archivo 1.0', true) || archivo('idDestino', 'SIGBE_ID_DESTINO', 'archivo 2.0', !!lnIdLibro_()) ||
       (cfg.idLibro !== undefined && String(cfg.idLibro).trim() ? archivo('idLibro', 'LIBRO_NUEVO_ID', 'libro nuevo', false) : null);
     if (err) return { exito: false, mensaje: err };
+    if (cfg.plantillaAsistencia !== undefined) { // plantilla de la lista de asistencia de Holcim (para los PDF); vacía = sin plantilla
+      const t = String(cfg.plantillaAsistencia || '').trim(), valor = t ? idDesdeTexto_(t) : '';
+      if (valor) { try { SpreadsheetApp.openById(valor).getName(); } catch (e) { return { exito: false, mensaje: 'No se pudo abrir la plantilla de la lista de asistencia con esa URL (¿está compartida con ' + cuentaScript_() + '?): ' + e.message }; } }
+      if (valor !== String(props.getProperty('SIGBE_PLANTILLA_ASISTENCIA') || '')) { props.setProperty('SIGBE_PLANTILLA_ASISTENCIA', valor); cambios.push('plantilla de la lista de asistencia → ' + (valor || 'sin plantilla')); }
+    }
     if (reiniciarEspejo) {
       Object.keys(props.getProperties()).filter(k => /^LIBRO_NUEVO_(HUELLA|CELDAS)_/.test(k)).forEach(k => props.deleteProperty(k));
     }

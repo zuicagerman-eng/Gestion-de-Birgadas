@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.17.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.18.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -197,6 +197,28 @@ avisa por correo **a quien le toca**:
 - Si el cupo diario de correos de la cuenta de la app no alcanza, no se envía nada y se avisa. Queda en el historial
   («Alertas de pendientes») y en la ventana se ve cuándo se enviaron la última vez. Solo sale cuando el gestor pulsa el
   botón (no hay envío automático).
+
+## Listas de asistencia (formato Holcim)
+
+Menú **Listas de asistencia** (todos los usuarios, de sus sedes). Cada sesión de un módulo en una planta, con su fecha
+del cronograma, es una **lista**, armada con lo cargado en SIGBE: las personas de esa planta convocadas (la sesión les
+aplica y tienen fecha de ingreso, como en Tomar asistencia) y las que ya tienen la asistencia marcada. No se sube nada.
+
+- **Antes de la sesión** la lista sale para firmar (sin marcas); **después**, cada persona con **✓ Asistió** o
+  **✗ No asistió** según lo marcado en SIGBE. Pastillas: en la lista, asistieron, no asistieron, por realizar y «Lista
+  firmada subida» (si la sesión tiene la lista firmada en Evidencias).
+- Filtros: buscar (módulo, planta, persona, cédula, fecha), mes, módulo y estado (completas, con faltantes, por realizar).
+- **Excel** (lo que se ve): hojas «Resumen» (una fila por lista) y «Personas» (una por persona; la cédula como número).
+  Se arma en el navegador con SheetJS (cdn.jsdelivr.net).
+- **PDF en formato Holcim**: el servidor llena **una copia** de la plantilla oficial «Lista de asistencia» (la misma de
+  Capacitaciones y GSTOR), la exporta a PDF y **borra la copia** aunque falle; no queda nada guardado. Celdas: curso E5,
+  fechas D6 y H6, instructor D7 (Ambipar), duración H7, interno/externo D8 (Externo), modalidad E10 (si el cronograma dice
+  virtual o presencial), lugar H10 (la planta), texto E17; la tabla va desde la fila «N°» hasta el texto legal y se
+  agregan filas con el mismo formato si hacen falta. Columnas: N.º, cédula, nombre, planta, (correo), empresa,
+  (calificación), asistencia. Varias listas salen en un **.zip** (hasta 60 a la vez; más de 10 pide confirmación).
+  También desde **Tomar asistencia → Lista Holcim (PDF)**.
+- La plantilla se configura una vez en **Configuración → Archivos → Plantilla de la lista de asistencia** (propiedad
+  `SIGBE_PLANTILLA_ASISTENCIA`); tiene que estar compartida con la cuenta que ejecuta la app.
 
 ## Evidencias (lista firmada y fotos de cada sesión)
 
