@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.18.3'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.19.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -96,7 +96,11 @@
     async function iniciar() {
       window.__sigbeArranco = true;
       document.querySelectorAll('#nav .nav-link').forEach(a => a.onclick = ev => { ev.preventDefault(); ir(a.dataset.vista); });
-      ponerBotonesAyuda();
+      ponerBotonesAyuda(); decorarEncabezados();
+      $('nav-admin-btn').onclick = () => abrirAdmin($('nav-admin').hidden, true);
+      abrirAdmin(leer('localStorage', 'sigbe_menu_admin') === '1');
+      const logo = document.querySelector('.marca-logo'); if (logo) $('heroe-logo').src = logo.src;
+      pintarBarraAbajo();
       document.body.addEventListener('click', clicGeneral);
       $('sede-menu').addEventListener('change', ev => {
         const marcadas = [...document.querySelectorAll('#sede-menu input[data-sede]:checked')].map(x => x.dataset.sede);
@@ -181,7 +185,7 @@
       await arrancar();
     }
 
-    /** Pestañas del Dashboard (se recuerda la última abierta en este equipo). */
+    /** Pestañas de «Cómo vamos» en el Inicio (se recuerda la última abierta en este equipo). */
     function elegirPestana(tab, foco) {
       if (!$('tab-' + tab) || (esProveedor() && (tab === 'cobertura' || tab === 'revision'))) tab = 'asistencia';
       document.querySelectorAll('#inicio-tabs .pestana').forEach(b => { const si = b.dataset.tab === tab; b.setAttribute('aria-selected', String(si)); b.tabIndex = si ? 0 : -1; if (si && foco) b.focus(); });
@@ -296,7 +300,7 @@
     /** Tras un cambio en memoria: la revisión y el historial se vuelven a calcular (una sola vez, no por cada sesión). */
     function contarRevision() {
       REV = null; CAMBIOS = null; AVANCE = null;
-      $('badge-revision').textContent = revision().filter(r => r.g !== 'info').length || '';
+      $('badge-revision').textContent = $('badge-admin').textContent = revision().filter(r => r.g !== 'info').length || '';
     }
     function banner(html) { $('banner').innerHTML = html; $('banner').style.display = 'block'; }
     function pintarFrescura() {
@@ -313,6 +317,31 @@
       document.querySelectorAll('.vista').forEach(v => v.style.display = 'none');
       $('v-' + vista).style.display = 'block';
       document.querySelectorAll('#nav .nav-link').forEach(a => { const s = a.dataset.vista === vista; a.classList.toggle('active', s); s ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); });
+      if (document.querySelector('#nav-admin [data-vista="' + vista + '"]') && $('nav-admin').hidden) abrirAdmin(true);
+      document.querySelectorAll('#barra-abajo [data-ir]').forEach(b => b.dataset.ir === vista ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
+    }
+    /** Administración (revisión, historial, ingresos, estado) va plegada en el menú: se usa poco y alarga la lista. */
+    function abrirAdmin(si, recordar) {
+      $('nav-admin').hidden = !si; $('nav-admin-btn').setAttribute('aria-expanded', String(!!si));
+      if (recordar) guardar('localStorage', 'sigbe_menu_admin', si ? '1' : '');
+    }
+    /** Celular: barra fija abajo con lo más usado; «Más» abre el menú completo. */
+    function pintarBarraAbajo() {
+      const prov = rolActual() === 'proveedor' && !!E.perfil;
+      const items = [['inicio', 'fa-house', 'Inicio'], ['asistencia', 'fa-clipboard-check', 'Asistencia'], ['cronograma', 'fa-calendar-days', 'Cronograma'],
+        prov ? ['listas', 'fa-file-signature', 'Listas'] : ['brigadistas', 'fa-users', 'Brigadistas']];
+      $('barra-abajo').innerHTML = items.map(([v, ico, t]) => `<button type="button" data-ir="${v}" ${E.vista === v ? 'aria-current="page"' : ''}><i class="fa-solid ${ico}" aria-hidden="true"></i><span>${t}</span></button>`).join('') +
+        '<button type="button" data-bs-toggle="offcanvas" data-bs-target="#menu" aria-controls="menu"><i class="fa-solid fa-bars" aria-hidden="true"></i><span>Más</span></button>';
+    }
+    /** Cada pantalla con el ícono de su grupo junto al título (el mismo del menú). */
+    const GRUPO_VISTA = { asistencia: 'g-dia', cronograma: 'g-dia', listas: 'g-dia', brigadistas: 'g-brig', cobertura: 'g-brig', matriz: 'g-brig', restricciones: 'g-salud',
+      temarios: 'g-con', hojas: 'g-con', ayuda: 'g-con', revision: 'g-adm', cambios: 'g-adm', ingresos: 'g-adm', estado: 'g-adm', configuracion: 'g-adm', setup: 'g-adm' };
+    function decorarEncabezados() {
+      document.querySelectorAll('section.vista').forEach(sec => {
+        const v = sec.id.replace(/^v-/, ''), h = sec.querySelector('.titulo-vista');
+        if (!h || v === 'inicio' || v === 'ingreso' || h.querySelector('.vista-ico')) return;
+        h.insertAdjacentHTML('afterbegin', `<span class="vista-ico ${GRUPO_VISTA[v] || 'g-adm'}" aria-hidden="true"><i class="${iconoVista(v)}"></i></span>`);
+      });
     }
     // Ambipar (proveedor) solo ve lo de su trabajo: asistencia, avance, cronograma, temarios, ayuda y su clave
     const VISTAS_NO_PROVEEDOR = ['cobertura', 'brigadistas', 'hojas', 'cambios', 'revision', 'ingresos', 'estado'];
@@ -408,6 +437,9 @@
         'brig-guardar': confirmarTabla,
         'brig-descartar': () => { brig.cambios = {}; pintarBrigadistas(); },
         'brig-incompletos': () => { $('brig-datos').value = 'incompletos'; pintarBrigadistas(); },
+        'ir-incompletos': () => { ir('brigadistas'); $('brig-datos').value = 'incompletos'; pintarBrigadistas(); },
+        'ir-atrasadas': () => { if (d.sede) { E.sedes = [d.sede]; guardar('localStorage', 'sigbe_sede', JSON.stringify(E.sedes)); pintarSelectorSede(); } asis.key = null; asis.paso = 'sesiones'; asis.filtro = 'atrasada'; asis.plantas = []; ir('asistencia'); },
+        'ir-crono': () => irCronograma(d.cuando),
         'asis-sede': () => cambiarSede([d.sede]),
         'elegir-sede': () => cambiarSede([d.sede]),
         'sede-solo': () => { cambiarSede([d.sede]); bootstrap.Dropdown.getOrCreateInstance($('sel-sede')).hide(); },
@@ -467,6 +499,7 @@
       ['gestor', 'holcim', 'proveedor'].forEach(r => document.body.classList.toggle('rol-' + r, rol === r));
       $('btn-sesion').className = 'btn btn-sm ' + (E.usuario ? 'btn-outline-secondary' : 'btn-primary');
       const tipos = { gestor: 'Gestor', holcim: 'Holcim', proveedor: 'Ambipar' };
+      if ($('barra-abajo')) pintarBarraAbajo();
       $('txt-usuario').innerHTML = E.usuario ? '<i class="fa-solid fa-circle-check text-success me-1"></i>' + esc(E.usuario) + (rol ? ' <span class="badge ' + (rol === 'proveedor' ? 'bg-warning-subtle text-warning-emphasis' : 'bg-secondary-subtle text-secondary-emphasis') + '">' + tipos[rol] + '</span>' : '') : '';
     }
     function olvidarSesion(silencio) { E.token = null; E.usuario = null; E.perfil = null; guardar('sessionStorage', 'sigbe_token', null); if (!silencio) pintarSesion(); }
@@ -545,7 +578,6 @@
     /** Plantas del Indicador con su cobertura. La cuenta la hace el servidor (sigbeCoberturaPlantas_), la misma que va a la hoja PANEL; aquí solo se filtra por sede. */
     function plantasCobertura() { return (D.cobertura || []).filter(enSede); }
     function pintarInicio() {
-      $('inicio-sub').textContent = E.sedes.length ? (E.sedes.length === 1 ? 'Sede ' : 'Sedes ') + E.sedes.join(', ') : 'Todas las sedes · haz clic en una sede de las barras o elige una o varias arriba';
       // 1) Asistencia a las capacitaciones (personal Holcim; solo módulos que aplican y cuya fecha ya pasó)
       const h = P.filter(p => enSede(p) && p.activo), ih = I.filter(p => enSede(p) && p.activo);
       const conCert = ih.filter(p => tieneCert(p.ce)).length;
@@ -556,11 +588,11 @@
       const colorPct = x => x >= 80 ? 'var(--s-ok)' : x >= 40 ? '#e8590c' : 'var(--s-mal)';
       $('inicio-kpis').innerHTML =
         kpi('fa-list-check', colorPct(pct), 'Asistencia a módulos ya dictados', t ? pct + ' %' : '—',
-          t ? `<b>${c}</b> de <b>${t}</b> asistencias esperadas: cada brigadista propio activo (Holcim, Transcem, Geocycle, Fundación Holcim) por cada módulo que ya se dictó en su planta.` : 'Todavía no hay módulos con fecha pasada.', t ? pct : undefined) +
+          t ? `<b>${c}</b> de <b>${t}</b> asistencias esperadas` : 'Todavía no hay módulos con fecha pasada.', t ? pct : undefined) +
         kpi('fa-user-check', colorPct(cumps.length ? alDia / cumps.length * 100 : 0), 'Brigadistas propios al día', `${alDia} de ${cumps.length}`,
-          `asistieron a todos los módulos ya dictados${ninguna ? ` · <b>${ninguna}</b> no tienen ninguna asistencia` : ''}.`) +
-        kpi('fa-users', 'var(--s-azul)', 'Brigadistas propios activos', h.length, `son los que toman asistencia por módulo en la lista${h.length - cumps.length ? ` (${h.length - cumps.length} aún sin módulos dictados)` : ''}.`) +
-        kpi('fa-certificate', '#7b2cbf', 'Contratistas con certificado 0256', ih.length ? Math.round(conCert / ih.length * 100) + ' %' : '—', `<b>${conCert}</b> de <b>${ih.length}</b> contratistas activos tienen el certificado.`, ih.length ? conCert / ih.length * 100 : undefined);
+          `con todo lo dictado${ninguna ? ` · <b>${ninguna}</b> sin ninguna asistencia` : ''}`) +
+        kpi('fa-users', 'var(--s-azul)', 'Brigadistas propios activos', h.length, `Holcim, Transcem, Geocycle y Fundación Holcim`) +
+        kpi('fa-certificate', '#7b2cbf', 'Contratistas con certificado 0256', ih.length ? Math.round(conCert / ih.length * 100) + ' %' : '—', `<b>${conCert}</b> de <b>${ih.length}</b> contratistas activos`, ih.length ? conCert / ih.length * 100 : undefined);
       const sedes = unicos(P.map(p => p.sede)).filter(sedeOk);
       $('inicio-por-sede').innerHTML = sedes.map(sd => {
         const cs = P.filter(p => p.sede === sd && p.activo).map(p => p.cump).filter(x => x.t);
@@ -587,7 +619,88 @@
       $('tv-revision').textContent = nRev || ''; $('tv-revision').className = 'valor ' + (hayErr ? 'mal' : nRev ? 'medio' : '');
       $('inicio-revision').innerHTML = lista.length ? lista.map(k => `<div class="d-flex justify-content-between py-1 border-bottom"><span><span class="punto punto-${grupos[k].g}"></span>${esc(grupos[k].t)}</span><b>${grupos[k].n}</b></div>`).join('')
         : '<p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>Sin errores ni avisos.</p>';
+      pintarInicioTareas({ pct: pct, t: t, pctCob: pctCob, metaT: metaT });
     }
+    // ══════════ INICIO: ¿QUÉ QUIERE HACER? ══════════
+    // Arriba lo que se puede hacer (según el tipo de usuario) con sus cifras, lo de esta semana y lo que necesita atención.
+    // Debajo, «Cómo vamos»: los indicadores de siempre.
+    function masDias(iso, n) { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+    function primerDiaMes() { return D.hoy.slice(0, 8) + '01'; }
+    /** Sin Fecha Ambipar: tiene Fecha Holcim desde este mes, no tiene Fecha Ambipar y no está realizada ni cancelada. */
+    function sinFechaAmbipar(c) { return !c.na && c.i && c.i >= primerDiaMes() && !String(c.amb || '').trim() && !/realiz|cancel/i.test(c.e || ''); }
+    function sesionesAtrasadas() {
+      const porSede = (D.sedes || []).filter(sedeOk).map(sd => ({ sd: sd, n: sesionesSede(sd).filter(x => x.aplica && !x.marcadas && x.iso && x.iso < D.hoy).length })).filter(x => x.n);
+      return { n: porSede.reduce((k, x) => k + x.n, 0), sedes: porSede };
+    }
+    function pintarInicioTareas(cifras) {
+      const r = rolActual(), prov = r === 'proveedor', gh = !prov;
+      const nombre = E.perfil && E.perfil.nombre ? nombreBonito(E.perfil.nombre) : E.usuario || '';
+      $('inicio-hola').textContent = nombre ? 'Hola, ' + nombre : 'Hola';
+      $('inicio-sub').innerHTML = (E.usuario ? '<i class="fa-solid ' + ROLES[r].ico + ' me-1" aria-hidden="true"></i>' + esc(nombreRol(r)) + ' · ' : 'Solo lectura · ') +
+        '<i class="fa-solid fa-location-dot me-1" aria-hidden="true"></i>' + esc(textoSedes()) + ' · datos de las ' + esc(D.generado.slice(11));
+      // Lo que viene esta semana
+      const fin = masDias(D.hoy, 6), conLista = new Set(D.sesiones.map(s => s.key));
+      const semana = D.crono.filter(c => enSede(c) && c.i && c.i >= D.hoy && c.i <= fin).sort((a, b) => a.i < b.i ? -1 : a.i > b.i ? 1 : a.pl.localeCompare(b.pl));
+      const atras = sesionesAtrasadas();
+      const mesPrefijo = D.hoy.slice(0, 7), delMes = D.crono.filter(c => enSede(c) && c.i && c.i.startsWith(mesPrefijo)).length;
+      const porDefinir = D.crono.filter(c => enSede(c) && !c.i).length;
+      const sinAmb = D.crono.filter(c => enSede(c) && sinFechaAmbipar(c)).length;
+      const activos = P.concat(I).filter(p => p.activo && enSede(p));
+      const incompletos = activos.filter(p => faltantes(p).length).length;
+      const nRestr = todosBrigadistas().filter(p => p.restr && p.restr.vigente && enSedeAlguna(p)).length;
+      let nListas = 0; try { nListas = armarListas().lista.length; } catch (e) { nListas = 0; }
+      const errores = gh ? revision().filter(x => (enSede(x) || !x.sede) && x.g === 'error').length : 0;
+      const nivel = x => x >= 80 ? 'ok' : x >= 40 ? 'aviso' : 'mal';
+      const m = (txt, tono) => `<span class="meta ${tono || ''}">${txt}</span>`;
+      const tareas = [
+        { v: 'asistencia', g: 'g-dia', t: 'Tomar asistencia', d: 'Marca quién asistió a una sesión y guarda.',
+          meta: (semana.length ? m(semana.length + ' esta semana', 'info') : '') + (atras.n ? m(atras.n + ' sin registrar', 'mal') : m('Al día', 'ok')) },
+        { v: 'cronograma', g: 'g-dia', t: prov ? 'Poner la Fecha Ambipar' : 'Programar sesiones', d: prov ? 'Pon la Fecha Ambipar y el estado de cada sesión.' : 'Pon o cambia las fechas de las sesiones de cada planta.',
+          meta: m(delMes + ' este mes', 'info') + (prov ? (sinAmb ? m(sinAmb + ' sin Fecha Ambipar', 'aviso') : '') : (porDefinir ? m(porDefinir + ' sin fecha', 'aviso') : '')) },
+        gh && { v: 'brigadistas', g: 'g-brig', t: 'Brigadistas', d: 'Busca a alguien, completa sus datos o registra uno nuevo.',
+          meta: m(activos.length + ' activos') + (incompletos ? m(incompletos + ' por completar', 'aviso') : '') },
+        gh && { v: 'cobertura', g: 'g-brig', t: 'Cobertura', d: '¿Tiene cada planta los brigadistas que pide la meta?',
+          meta: cifras.metaT ? m(cifras.pctCob + ' % de la meta', nivel(cifras.pctCob)) : m('Sin Indicador') },
+        { v: 'listas', g: 'g-dia', t: 'Listas de asistencia', d: 'Descarga las listas en Excel o en el formato de Holcim.', meta: m(nListas + ' listas', nListas ? 'info' : '') },
+        { v: 'restricciones', g: 'g-salud', t: 'Restricciones médicas', d: 'Quién no puede hacer qué en las prácticas.', meta: m(nRestr + ' vigentes', nRestr ? 'mal' : 'ok') },
+        prov && { v: 'matriz', g: 'g-brig', t: 'Avance por planta', d: 'Qué porcentaje asistió a cada módulo, planta por planta.', meta: cifras.t ? m(cifras.pct + ' % de asistencia', nivel(cifras.pct)) : '' },
+        prov && { v: 'temarios', g: 'g-con', t: 'Temarios', d: 'Qué se ve en cada módulo de la brigada.', meta: '' },
+      ].filter(Boolean);
+      $('inicio-acciones').innerHTML = tareas.map(x => `<div class="col-6 col-xl-4"><button type="button" class="accion" data-ir="${x.v}">
+          <span class="vista-ico ${x.g}" aria-hidden="true"><i class="${iconoVista(x.v)}"></i></span>
+          <span class="acc-titulo">${x.t}</span><span class="acc-txt d-none d-sm-block">${x.d}</span>${x.meta ? `<span class="acc-meta">${x.meta}</span>` : ''}</button></div>`).join('');
+      // Esta semana
+      const dia = iso => iso === D.hoy ? 'Hoy' : iso === masDias(D.hoy, 1) ? 'Mañana' : '';
+      $('inicio-semana').innerHTML = semana.length ? semana.slice(0, 6).map(c => {
+        const key = c.cl ? c.cl + '|' + c.n : '', hay = key && conLista.has(key);
+        return `<div class="semana-item">${chipFecha(c.i, c.f)}
+          <div class="flex-grow-1 min-w-0"><div class="fw-semibold small">${dia(c.i) ? '<span class="badge text-bg-primary me-1">' + dia(c.i) + '</span>' : ''}${c.cl ? '<span class="badge text-bg-dark me-1">' + esc(c.cl) + '</span>' : ''}${esc(c.ent)}</div>
+            <div class="small text-muted"><i class="fa-solid fa-location-dot me-1" aria-hidden="true"></i>${esc(c.pl)} · ${esc(c.ses)}</div></div>
+          ${hay ? `<button class="btn btn-sm btn-outline-primary flex-shrink-0" aria-label="Tomar asistencia de esta sesión" data-accion="ir-asistencia" data-sede="${esc(c.sede)}" data-key="${esc(key)}" data-planta="${esc(c.pl)}"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i><span class="d-none d-sm-inline ms-1">Asistencia</span></button>` : ''}</div>`;
+      }).join('') + (semana.length > 6 ? `<div class="small text-muted pt-2">Y ${semana.length - 6} más en el <a href="#" data-ir="cronograma">cronograma</a>.</div>` : '')
+        : (() => {
+          const prox = D.crono.filter(c => enSede(c) && c.i && c.i > fin).sort((a, b) => a.i < b.i ? -1 : 1)[0];
+          return `<div class="vacio"><i class="fa-regular fa-calendar" aria-hidden="true"></i>No hay sesiones en los próximos 7 días.${prox ? `<div class="small mt-1">La próxima: <b>${esc(prox.f)}</b> · ${esc(prox.cl || '')} · ${esc(prox.pl)}</div>` : ''}</div>`;
+        })();
+      // Necesita atención
+      const at = [];
+      if (atras.n) at.push({ n: atras.n, tono: 'mal', t: 'sesiones ya pasaron y no tienen asistencia', b: 'Ver', accion: 'ir-atrasadas', sede: atras.sedes.length === 1 ? atras.sedes[0].sd : '' });
+      if (gh && porDefinir) at.push({ n: porDefinir, tono: 'aviso', t: 'sesiones sin Fecha Holcim (por definir)', b: 'Programar', accion: 'ir-crono', cuando: 'sinfecha' });
+      if (sinAmb) at.push({ n: sinAmb, tono: 'aviso', t: 'sesiones sin Fecha Ambipar desde este mes', b: prov ? 'Poner' : 'Ver', accion: 'ir-crono', cuando: 'sinamb' });
+      if (gh && incompletos) at.push({ n: incompletos, tono: 'aviso', t: 'brigadistas con datos por completar', b: 'Completar', accion: 'ir-incompletos' });
+      if (gh && errores) at.push({ n: errores, tono: 'mal', t: 'errores en la revisión de datos', b: 'Revisar', ir: 'revision' });
+      const fondo = { mal: 'e-no', aviso: 'e-pend' };
+      $('inicio-atencion').innerHTML = at.length ? at.map(x => `<div class="atencion"><div class="atencion-num ${fondo[x.tono]}">${x.n}</div><div class="flex-grow-1 small">${x.t}</div>
+          <button class="btn btn-sm btn-outline-secondary flex-shrink-0" ${x.ir ? `data-ir="${x.ir}"` : `data-accion="${x.accion}"`} ${x.sede ? `data-sede="${esc(x.sede)}"` : ''} ${x.cuando ? `data-cuando="${x.cuando}"` : ''}>${x.b}</button></div>`).join('')
+        : '<div class="vacio"><i class="fa-solid fa-circle-check text-success" aria-hidden="true"></i>Todo al día: nada pendiente por ahora.</div>';
+    }
+    /** Lleva al cronograma con un filtro de «cuándo» ya puesto. */
+    function irCronograma(cuando) {
+      crono.cuando = cuando || '';
+      document.querySelectorAll('#crono-cuando .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cuando === crono.cuando)));
+      ir('cronograma');
+    }
+
 
     /** Sesiones de la sede (por planta) que ya pasaron, aplican y no tienen ninguna asistencia. */
     // ══════════ TOMAR ASISTENCIA ══════════
@@ -1578,7 +1691,7 @@
       const q = norm($('crono-buscar').value), mes = $('crono-mes').value, mod = $('crono-modulo').value, est = $('crono-estado').value;
       const na = crono.cuando === 'noaplica';
       const lista = D.cronoTodo.filter(c => enSede(c) && (na ? c.na : !c.na) && (!crono.plantas.length || crono.plantas.indexOf(c.pl) !== -1) && (!mes || (c.i || '').startsWith(mes)) && (!mod || c.ent === mod) && (!est || c.e === est) &&
-        (!crono.cuando || na || (crono.cuando === 'proximas' && c.i && c.i >= D.hoy) || (crono.cuando === 'pasadas' && c.i && c.i < D.hoy) || (crono.cuando === 'sinfecha' && !c.i)) &&
+        (!crono.cuando || na || (crono.cuando === 'proximas' && c.i && c.i >= D.hoy) || (crono.cuando === 'pasadas' && c.i && c.i < D.hoy) || (crono.cuando === 'sinfecha' && !c.i) || (crono.cuando === 'sinamb' && sinFechaAmbipar(c))) &&
         (!q || norm([c.ent, c.pl, c.obs, c.e, c.pre, c.cl].join(' ')).includes(q)))
         .sort((a, b) => crono.cuando === 'pasadas' ? ((a.i || '') < (b.i || '') ? 1 : -1) : ((a.i || '9') < (b.i || '9') ? -1 : (a.i || '9') > (b.i || '9') ? 1 : a.fila - b.fila || a.b - b.b));
       $('crono-conteo').textContent = lista.length + ' sesión(es)';
@@ -2734,8 +2847,10 @@
     // Cada texto es 'texto' (para todos) o ['gha', 'texto']: g = gestor, h = Holcim, a = Ambipar (proveedor).
     const AYUDA = {
       inicio: {
-        para: 'El resumen de todo en una sola pantalla: cómo va la asistencia a las capacitaciones y qué sesiones vienen.',
+        para: 'Por dónde empezar: lo que puedes hacer, lo que viene esta semana y lo que necesita atención. Abajo, «Cómo vamos»: los indicadores.',
         puede: [
+          'Tocar una tarea de «¿Qué quiere hacer?» para ir directo; cada una dice cuánto hay pendiente.',
+          'En «Necesita atención», cada botón te lleva a la lista exacta de lo que falta (por ejemplo, las sesiones pasadas sin asistencia).',
           'Cambiar de pestaña: <b>Asistencia</b> y <b>Próximas capacitaciones</b>.',
           ['gh', 'Ver la <b>Cobertura</b> (si cada planta tiene los brigadistas que pide la meta) y la <b>Revisión de datos</b> (lo que conviene corregir).'],
           'Hacer clic en una sede de las barras para ver solo esa sede, o elegir una o varias en <b>Sede</b>, arriba.',
@@ -2909,7 +3024,7 @@
     };
     // [qué, gestor, Holcim, Ambipar]
     const PERMISOS = [
-      ['Ver el Dashboard, el avance por planta, el cronograma y los temarios', 1, 1, 1],
+      ['Ver el Inicio, el avance por planta, el cronograma y los temarios', 1, 1, 1],
       ['Tomar asistencia', 1, 1, 1],
       ['Poner la Fecha Ambipar de una sesión', 1, 0, 1],
       ['Poner el estado y las observaciones de una sesión', 1, 1, 1],
@@ -2953,7 +3068,7 @@
       ['g', 'Sale el aviso de «versiones distintas»', 'Vuelve a pegar los archivos que dice el aviso y publica una nueva versión.'],
     ];
     const INICIO_ROL = {
-      gestor: [['inicio', 'Dashboard', 'Cómo va todo, de un vistazo.'], ['brigadistas', 'Brigadistas', 'Completa y corrige los datos de cada brigadista.'], ['configuracion', 'Usuarios', 'Da acceso a Holcim y a Ambipar.']],
+      gestor: [['inicio', 'Inicio', 'Qué hacer hoy y cómo va todo.'], ['brigadistas', 'Brigadistas', 'Completa y corrige los datos de cada brigadista.'], ['configuracion', 'Usuarios', 'Da acceso a Holcim y a Ambipar.']],
       holcim: [['asistencia', 'Tomar asistencia', 'Marca quién asistió a cada sesión.'], ['brigadistas', 'Brigadistas', 'Completa y corrige los datos de cada brigadista.'], ['cronograma', 'Cronograma', 'Programa las fechas de las sesiones.']],
       proveedor: [['asistencia', 'Tomar asistencia', 'Marca quién asistió a cada sesión.'], ['cronograma', 'Cronograma', 'Pon la Fecha Ambipar y programa sesiones.'], ['restricciones', 'Restricciones médicas', 'Registra lo que alguien no puede hacer en las prácticas.']],
     };

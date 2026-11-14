@@ -180,6 +180,85 @@
     .ayuda h2 { font-size: 1.05rem; margin-top: 1.4rem; }
     .ayuda .paso { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
     .ayuda .paso .n { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--s-azul); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+
+    /* ══ Diseño (4.19): relieve suave, encabezados con ícono, Inicio por tareas y barra de accesos en el celular ══ */
+    :root {
+      --s-sombra: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.08); --s-sombra-alta: 0 8px 22px rgba(16,24,40,.13);
+      --g-dia: #0b4fc2; --g-dia-f: #e7f0ff; --g-brig: #146c3a; --g-brig-f: #e3f4e8; --g-con: #5b2a9e; --g-con-f: #f1e9fd;
+      --g-adm: #33424f; --g-adm-f: #e9eef3; --g-salud: #a61b1b; --g-salud-f: #fdecea; --g-ini: #0b4fc2; --g-ini-f: #e7f0ff;
+    }
+    .tarjeta, .kpi, .planta-cob, .tarjeta-sesion, .fila-persona { box-shadow: var(--s-sombra); }
+    .tarjeta { border-radius: 14px; }
+    .titulo-vista { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+    .titulo-vista .btn-ayuda-vista { margin-left: 0; }
+    .vista-ico { width: 40px; height: 40px; border-radius: 12px; display: inline-grid; place-items: center; font-size: 1.05rem; flex: none; }
+    .g-ini { background: var(--g-ini-f); color: var(--g-ini); } .g-dia { background: var(--g-dia-f); color: var(--g-dia); }
+    .g-brig { background: var(--g-brig-f); color: var(--g-brig); } .g-con { background: var(--g-con-f); color: var(--g-con); }
+    .g-adm { background: var(--g-adm-f); color: var(--g-adm); } .g-salud { background: var(--g-salud-f); color: var(--g-salud); }
+    .sub-vista { max-width: 860px; }
+
+    /* Menú: grupos y Administración plegable */
+    .sidebar .nav-grupo { padding: 16px 12px 4px; }
+    .nav-plegable { width: 100%; border: 0; background: none; display: flex; align-items: center; gap: 8px; padding: 0; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+    .nav-plegable:hover { color: #fff; }
+    .nav-plegable .flecha { margin-left: auto; transition: transform .15s; font-size: .7rem; }
+    .nav-plegable[aria-expanded="true"] .flecha { transform: rotate(90deg); }
+    .nav-plegable .badge { font-size: .68rem; letter-spacing: 0; }
+    .nav-plegable[aria-expanded="true"] .badge { display: none; }
+    .min-w-0 { min-width: 0; }
+    .sidebar .nav-sub { padding-left: 0; }
+    .sidebar .nav-final { border-top: 1px solid rgba(255,255,255,.1); margin-top: 10px; padding-top: 8px; }
+    .sidebar .nav-link.active { box-shadow: inset 3px 0 0 #8fb8ff; }
+
+    /* Inicio */
+    .heroe { background: linear-gradient(115deg, #10284a 0%, #17406f 55%, #1d4f8a 100%); color: #fff; border-radius: 18px; padding: 20px 24px; display: flex; align-items: center; gap: 18px; box-shadow: var(--s-sombra-alta); margin-bottom: 20px; }
+    .heroe-logo { width: 60px; height: 60px; border-radius: 50%; background: #fff; padding: 4px; flex: none; }
+    .heroe-eti { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: #dbe7f7; font-weight: 700; }
+    .heroe .titulo-vista { font-size: 1.6rem; font-weight: 800; margin: 2px 0 4px; color: #fff; }
+    .heroe-sub { color: #e3edfb; font-size: .95rem; }
+    .heroe .btn-ayuda-vista { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.4); color: #fff; }
+    .heroe .btn-ayuda-vista:hover { background: rgba(255,255,255,.24); }
+    .seccion-titulo { font-size: .78rem; text-transform: uppercase; letter-spacing: .09em; font-weight: 800; color: #4b5864; margin: 4px 0 10px; }
+    .accion { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; height: 100%; text-align: left; background: #fff; border: 1px solid var(--s-borde); border-radius: 16px; padding: 16px; box-shadow: var(--s-sombra); transition: transform .12s, box-shadow .12s, border-color .12s; color: inherit; }
+    .accion:hover, .accion:focus-visible { transform: translateY(-2px); box-shadow: var(--s-sombra-alta); border-color: #b9cdf3; }
+    .accion .vista-ico { width: 46px; height: 46px; font-size: 1.2rem; }
+    .acc-titulo { font-weight: 700; font-size: 1.05rem; color: #14212b; }
+    .acc-txt { color: #4b5864; font-size: .88rem; line-height: 1.35; }
+    .acc-meta { margin-top: auto; padding-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .meta { border-radius: 999px; padding: 2px 10px; font-size: .8rem; font-weight: 700; background: #eef1f5; color: #33424f; }
+    .meta.mal { background: var(--s-mal-suave); color: #a61b1b; } .meta.aviso { background: #fff1d6; color: #6e4700; } .meta.ok { background: var(--s-ok-suave); color: #146c3a; } .meta.info { background: #e7f0ff; color: #0b4fc2; }
+    .atencion { display: flex; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--s-borde); }
+    .atencion:last-child { border-bottom: 0; }
+    .atencion-num { min-width: 46px; height: 46px; padding: 0 6px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 1.05rem; flex: none; }
+    .semana-item { display: flex; align-items: center; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--s-borde); }
+    .semana-item:last-child { border-bottom: 0; }
+    .vacio { text-align: center; color: #4b5864; padding: 18px 8px; }
+    .vacio i { font-size: 1.6rem; display: block; margin-bottom: 6px; color: #8c959f; }
+
+    /* Celular: barra de accesos abajo */
+    .barra-abajo { display: none; }
+    @media (max-width: 767.98px) {
+      .main { padding: 16px 14px 92px; }
+      .barra-abajo { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030; background: var(--s-oscuro); padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); box-shadow: 0 -4px 14px rgba(0,0,0,.2); }
+      .barra-abajo button { flex: 1 1 0; min-width: 0; min-height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #d5dde4; font-size: .7rem; font-weight: 600; border: 0; background: none; border-radius: 10px; padding: 4px 1px; letter-spacing: -.01em; }
+      .barra-abajo button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .barra-abajo button i { font-size: 1.15rem; }
+      .barra-abajo button[aria-current="page"] { color: #fff; background: rgba(255,255,255,.12); }
+      .barra-abajo button[aria-current="page"] i { color: #9cc2ff; }
+      body.modo-ingreso .barra-abajo { display: none; }
+      .barra-guardar { bottom: calc(64px + env(safe-area-inset-bottom)); }
+      #avisos { bottom: 82px; left: 12px; right: 12px; }
+      .heroe { padding: 14px 16px; gap: 12px; border-radius: 14px; margin-bottom: 14px; }
+      .heroe-logo, .heroe-eti { display: none; }
+      .accion { padding: 12px; border-radius: 14px; }
+      .accion .vista-ico { width: 38px; height: 38px; font-size: 1rem; }
+      .acc-titulo { font-size: .95rem; line-height: 1.25; }
+      .meta { font-size: .74rem; padding: 2px 8px; }
+      .heroe .titulo-vista { font-size: 1.3rem; }
+      .vista-ico { width: 34px; height: 34px; font-size: .95rem; border-radius: 10px; }
+      .titulo-vista { font-size: 1.25rem; }
+    }
+    @media (max-width: 359.98px) { .barra-abajo button { font-size: .62rem; } }
     #print-area { display: none; }
     @media print {
       body * { visibility: hidden; }
@@ -192,7 +271,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.18.3</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.19.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -209,25 +288,27 @@
             </div>
             <nav aria-label="Secciones">
               <ul class="nav flex-column" id="nav">
-                <li><a href="#" class="nav-link" data-vista="inicio"><i class="fa-solid fa-gauge-high"></i>Dashboard</a></li>
-                <li class="nav-grupo no-proveedor">Brigada</li>
-                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="cobertura"><i class="fa-solid fa-chart-column"></i>Cobertura</a></li>
-                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="brigadistas"><i class="fa-solid fa-users"></i>Brigadistas</a></li>
-                <li class="nav-grupo">Asistencia y capacitaciones</li>
+                <li><a href="#" class="nav-link" data-vista="inicio"><i class="fa-solid fa-house"></i>Inicio</a></li>
+                <li class="nav-grupo">Día a día</li>
                 <li><a href="#" class="nav-link" data-vista="asistencia"><i class="fa-solid fa-clipboard-check"></i>Tomar asistencia</a></li>
-                <li><a href="#" class="nav-link" data-vista="listas"><i class="fa-solid fa-file-signature"></i>Listas de asistencia</a></li>
-                <li><a href="#" class="nav-link" data-vista="matriz"><i class="fa-solid fa-table-cells"></i>Avance por planta</a></li>
                 <li><a href="#" class="nav-link" data-vista="cronograma"><i class="fa-solid fa-calendar-days"></i>Cronograma</a></li>
-                <li><a href="#" class="nav-link" data-vista="temarios"><i class="fa-solid fa-book-open"></i>Temarios</a></li>
+                <li><a href="#" class="nav-link" data-vista="listas"><i class="fa-solid fa-file-signature"></i>Listas de asistencia</a></li>
+                <li class="nav-grupo">La brigada</li>
+                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="brigadistas"><i class="fa-solid fa-users"></i>Brigadistas</a></li>
                 <li><a href="#" class="nav-link" data-vista="restricciones"><i class="fa-solid fa-notes-medical"></i>Restricciones médicas</a></li>
+                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="cobertura"><i class="fa-solid fa-chart-column"></i>Cobertura</a></li>
+                <li><a href="#" class="nav-link" data-vista="matriz"><i class="fa-solid fa-table-cells"></i>Avance por planta</a></li>
+                <li class="nav-grupo">Consultar</li>
+                <li><a href="#" class="nav-link" data-vista="temarios"><i class="fa-solid fa-book-open"></i>Temarios</a></li>
                 <li class="no-proveedor"><a href="#" class="nav-link" data-vista="hojas"><i class="fa-solid fa-folder-open"></i>Otras hojas</a></li>
-                <li class="nav-grupo no-proveedor">Control</li>
-                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
-                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
-                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="ingresos"><i class="fa-solid fa-id-card"></i>Registro de ingresos</a></li>
-                <li class="nav-grupo">Sistema</li>
-                <li class="no-proveedor"><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
-                <li><a href="#" class="nav-link" data-vista="configuracion"><i class="fa-solid fa-gear"></i><span class="no-proveedor">Configuración</span><span class="solo-proveedor">Mi clave</span></a></li>
+                <li class="nav-grupo no-proveedor"><button type="button" class="nav-plegable" id="nav-admin-btn" aria-expanded="false" aria-controls="nav-admin"><span>Administración</span> <span class="badge rounded-pill bg-warning text-dark" id="badge-admin" title="Avisos en Revisión de datos"></span><i class="fa-solid fa-chevron-right flecha" aria-hidden="true"></i></button></li>
+                <li class="no-proveedor"><ul class="nav flex-column nav-sub" id="nav-admin" hidden>
+                  <li><a href="#" class="nav-link" data-vista="revision"><i class="fa-solid fa-magnifying-glass-chart"></i>Revisión de datos <span class="badge rounded-pill bg-warning text-dark" id="badge-revision"></span></a></li>
+                  <li><a href="#" class="nav-link" data-vista="cambios"><i class="fa-solid fa-clock-rotate-left"></i>Historial de cambios</a></li>
+                  <li><a href="#" class="nav-link" data-vista="ingresos"><i class="fa-solid fa-id-card"></i>Registro de ingresos</a></li>
+                  <li><a href="#" class="nav-link" data-vista="estado"><i class="fa-solid fa-heart-pulse"></i>Estado del sistema</a></li>
+                </ul></li>
+                <li class="nav-final"><a href="#" class="nav-link" data-vista="configuracion"><i class="fa-solid fa-gear"></i><span class="no-proveedor">Configuración</span><span class="solo-proveedor">Mi clave</span></a></li>
                 <li><a href="#" class="nav-link" data-vista="ayuda"><i class="fa-solid fa-circle-question"></i>Ayuda</a></li>
               </ul>
             </nav>
@@ -257,6 +338,7 @@
         </header>
         <div id="banner" class="alert alert-warning rounded-0 mb-0 small" style="display:none;" role="alert"></div>
 
+        <nav class="barra-abajo" id="barra-abajo" aria-label="Accesos rápidos"></nav>
         <main class="main" id="contenido" tabindex="-1">
           <div id="arranque" class="tarjeta p-4 mb-3" role="status" aria-live="polite"><span class="spinner-border spinner-border-sm me-2" id="arranque-spin"></span><span id="arranque-txt">Abriendo la app…</span></div>
           <script>
@@ -303,9 +385,28 @@
 
           <!-- INICIO -->
           <section class="vista" id="v-inicio" aria-labelledby="t-inicio">
-            <h1 class="titulo-vista" id="t-inicio">Dashboard</h1>
-            <p class="sub-vista" id="inicio-sub"></p>
-            <div class="pestanas mb-3" role="tablist" aria-label="Secciones del Dashboard" id="inicio-tabs">
+            <div class="heroe">
+              <img class="heroe-logo" id="heroe-logo" alt="" width="60" height="60">
+              <div class="flex-grow-1 min-w-0">
+                <div class="heroe-eti">SIGBE · Brigada de emergencias</div>
+                <h1 class="titulo-vista" id="t-inicio"><span id="inicio-hola">Inicio</span></h1>
+                <div class="heroe-sub" id="inicio-sub"></div>
+              </div>
+            </div>
+            <h2 class="seccion-titulo" id="t-acciones">¿Qué quiere hacer?</h2>
+            <div class="row g-3 mb-4" id="inicio-acciones" aria-labelledby="t-acciones"></div>
+            <div class="row g-3 mb-4">
+              <div class="col-lg-7"><div class="tarjeta p-3 h-100">
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-1"><h2 class="h6 fw-bold mb-0"><i class="fa-solid fa-calendar-week me-2 text-primary" aria-hidden="true"></i>Esta semana</h2><a href="#" data-ir="cronograma" class="small">Ver cronograma</a></div>
+                <div id="inicio-semana"></div>
+              </div></div>
+              <div class="col-lg-5"><div class="tarjeta p-3 h-100">
+                <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-bell me-2 text-warning" aria-hidden="true"></i>Necesita atención</h2>
+                <div id="inicio-atencion"></div>
+              </div></div>
+            </div>
+            <h2 class="seccion-titulo">Cómo vamos</h2>
+            <div class="pestanas mb-3" role="tablist" aria-label="Indicadores" id="inicio-tabs">
               <button type="button" class="pestana" role="tab" id="pt-asistencia" data-tab="asistencia" aria-controls="tab-asistencia" aria-selected="true"><i class="fa-solid fa-clipboard-check me-2"></i>Asistencia <span class="valor" id="tv-asistencia"></span></button>
               <button type="button" class="pestana no-proveedor" role="tab" id="pt-cobertura" data-tab="cobertura" aria-controls="tab-cobertura" aria-selected="false" tabindex="-1"><i class="fa-solid fa-shield-halved me-2"></i>Cobertura <span class="valor" id="tv-cobertura"></span></button>
               <button type="button" class="pestana" role="tab" id="pt-proximas" data-tab="proximas" aria-controls="tab-proximas" aria-selected="false" tabindex="-1"><i class="fa-solid fa-calendar-check me-2"></i>Próximas capacitaciones <span class="valor" id="tv-proximas"></span></button>
@@ -313,7 +414,7 @@
             </div>
             <div class="tarjeta p-3 panel-inicio" role="tabpanel" id="tab-asistencia" aria-labelledby="pt-asistencia">
               <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-clipboard-check me-2 text-success"></i>Asistencia a las capacitaciones</h2>
-              <p class="small text-muted mb-3">Personal Holcim de la lista de asistencia. Solo cuentan los módulos que aplican a cada planta y cuya fecha ya pasó según el cronograma.</p>
+              <p class="small text-muted mb-3">Brigadistas propios. Solo cuentan los módulos que ya se dictaron en cada planta.</p>
               <div class="row g-3 mb-3" id="inicio-kpis"></div>
               <div class="small fw-semibold text-muted text-uppercase mb-1" style="letter-spacing:.05em">Asistencia por sede</div>
               <div id="inicio-por-sede" class="small"></div>
@@ -346,6 +447,7 @@
           <!-- ASISTENCIA -->
           <section class="vista" id="v-asistencia" aria-labelledby="t-asis">
             <h1 class="titulo-vista" id="t-asis">Tomar asistencia</h1>
+            <p class="sub-vista mb-2">Elige la sede y la sesión, marca quién asistió y guarda.</p>
             <nav aria-label="Pasos"><ol class="breadcrumb small mb-3" id="asis-migas"></ol></nav>
             <div id="asis-contenido"></div>
           </section>
@@ -357,7 +459,7 @@
               <button class="btn btn-sm btn-outline-success" data-accion="lis-excel"><i class="fa-solid fa-file-excel me-1"></i><span id="lis-excel-txt">Descargar Excel</span></button>
               <button class="btn btn-sm btn-primary" data-accion="lis-pdfs"><i class="fa-solid fa-file-pdf me-1"></i><span id="lis-pdfs-txt">Descargar en formato Holcim (PDF)</span></button>
             </div>
-            <p class="sub-vista">Cada sesión de un módulo en una planta es una lista, armada con lo cargado en SIGBE: solo las sesiones en las que ya se tomó asistencia (al menos una persona marcada), con cada convocado como <b>✓ Asistió</b> o <b>✗ No asistió</b>. Se descarga en Excel o en PDF con la plantilla oficial de Holcim.</p>
+            <p class="sub-vista">Las sesiones donde ya se tomó asistencia, para descargarlas en Excel o en el formato de Holcim.</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros">
                 <input type="search" id="lis-buscar" class="form-control form-control-sm" placeholder="Buscar módulo, planta, persona o cédula…" aria-label="Buscar listas">
@@ -373,7 +475,7 @@
           </section>
           <section class="vista" id="v-matriz" aria-labelledby="t-matriz">
             <h1 class="titulo-vista" id="t-matriz">Avance por planta</h1>
-            <p class="sub-vista">Asistencia de los brigadistas propios activos (Holcim, Transcem, Geocycle, Fundación Holcim) de cada planta, módulo por módulo. El % es cuántos asistieron entre los que ya debían tomarlo (la sesión aplica y su fecha pasó). Haz clic en un % para abrir esa lista de asistencia. El detalle de cada persona está en su ficha (Brigadistas).</p>
+            <p class="sub-vista">Qué porcentaje de cada planta asistió a cada módulo. Haz clic en un % para abrir esa lista.</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros">
                 <input type="search" class="form-control form-control-sm" id="mat-buscar" placeholder="Buscar planta o sede…" aria-label="Buscar planta">
@@ -393,13 +495,14 @@
           <section class="vista" id="v-brigadistas" aria-labelledby="t-brig">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
               <h1 class="titulo-vista mb-0" id="t-brig">Brigadistas</h1>
-              <div class="d-flex gap-2">
+              <div class="d-flex flex-wrap gap-2">
                 <button class="btn btn-outline-secondary btn-sm" data-accion="csv-brig"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
                 <button class="btn btn-outline-secondary btn-sm no-proveedor" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Traer faltantes</button>
                 <button class="btn btn-outline-primary btn-sm no-proveedor" id="brig-modo" data-accion="brig-modo"><i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla</button>
                 <button class="btn btn-success btn-sm no-proveedor" data-accion="registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
               </div>
             </div>
+            <p class="sub-vista">Los brigadistas de cada planta: busca a alguien, completa sus datos o registra uno nuevo.</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros mb-2">
                 <input type="search" id="brig-buscar" class="form-control form-control-sm flex-grow-1" placeholder="Buscar nombre, cédula, planta o empresa…" aria-label="Buscar brigadista" style="max-width: 360px;">
@@ -444,17 +547,18 @@
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
               <h1 class="titulo-vista mb-0" id="t-crono">Cronograma de capacitaciones</h1>
               <div class="d-flex flex-wrap gap-2">
-                <button class="btn btn-warning btn-sm" id="crono-alertas-btn" data-accion="alertas" style="display:none;" title="Solo los gestores: avisa por correo lo que falta en cada sesión"><i class="fa-solid fa-bell me-1"></i>Alertas de pendientes</button>
-                <button class="btn btn-outline-success btn-sm" data-accion="nueva-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Programar / Agregar sesión</button>
-                <button class="btn btn-success btn-sm" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-1"></i>Nuevo módulo</button>
+                <button class="btn btn-outline-secondary btn-sm" id="crono-alertas-btn" data-accion="alertas" style="display:none;" title="Solo los gestores: avisa por correo lo que falta en cada sesión"><i class="fa-solid fa-bell me-1 text-warning"></i>Alertas de pendientes</button>
+                <button class="btn btn-outline-success btn-sm" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-1"></i>Nuevo módulo</button>
+                <button class="btn btn-success btn-sm" data-accion="nueva-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Programar / Agregar sesión</button>
               </div>
             </div>
-            <p class="sub-vista">Programa desde aquí: <b>Programar / Editar</b> cambia la fecha, la fecha Ambipar, el estado y las observaciones de cada planta (también de varias plantas a la vez). Lo que no aplica ("-" o gris) está en <b>No aplican</b>, desde donde se puede habilitar.</p>
+            <p class="sub-vista">Las fechas de cada sesión por planta. Con <b>Editar</b> o <b>Programar</b> se pone o se cambia una fecha.</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros mb-2" role="group" aria-label="Cuándo" id="crono-cuando">
                 <button class="chip" data-cuando="proximas" aria-pressed="true">Próximas</button>
                 <button class="chip" data-cuando="pasadas" aria-pressed="false">Pasadas</button>
                 <button class="chip" data-cuando="sinfecha" aria-pressed="false">Por definir</button>
+                <button class="chip" data-cuando="sinamb" aria-pressed="false" title="Con Fecha Holcim desde este mes y sin Fecha Ambipar">Sin Fecha Ambipar</button>
                 <button class="chip" data-cuando="" aria-pressed="false">Todas</button>
                 <button class="chip" data-cuando="noaplica" aria-pressed="false">No aplican</button>
               </div>
@@ -473,7 +577,7 @@
           <!-- COBERTURA -->
           <section class="vista" id="v-cobertura" aria-labelledby="t-cob">
             <h1 class="titulo-vista" id="t-cob">Cobertura de brigadistas</h1>
-            <p class="sub-vista">Brigadistas = los activos en las listas de la app (lista de asistencia Holcim y contratistas registrados). Personal = pestaña <i>Indicador.</i>; meta = 20 % del personal, redondeada hacia arriba. Cada tarjeta es una planta; ábrela para ver el detalle por empresa.</p>
+            <p class="sub-vista">Cuántos brigadistas tiene cada planta frente a la meta (20 % de su personal). Abre una planta para ver el detalle.</p>
             <div class="row g-3 mb-3" id="cob-kpis"></div>
             <div id="cob-diferencia"></div>
             <div class="tarjeta p-3 mb-2">
@@ -510,7 +614,7 @@
           <!-- REGISTRO DE INGRESOS -->
           <section class="vista" id="v-ingresos" aria-labelledby="t-ingresos">
             <h1 class="titulo-vista" id="t-ingresos">Registro de ingresos</h1>
-            <p class="sub-vista">Quién entró y cuándo, con qué tipo de usuario, y los intentos fallidos de clave (pestaña <i>Ingresos SIGBE</i> del libro).</p>
+            <p class="sub-vista">Quién entró, cuándo y los intentos fallidos de clave.</p>
             <div id="ing-sin-sesion" class="alert alert-info" style="display:none;"><i class="fa-solid fa-lock me-1"></i>Solo el gestor y los usuarios Holcim ven el registro de ingresos. <a href="#" data-accion="login">Iniciar sesión</a></div>
             <div id="ing-contenido">
               <div class="row g-3 mb-3" id="ing-kpis"></div>
@@ -548,7 +652,7 @@
           <!-- CAMBIOS -->
           <section class="vista" id="v-cambios" aria-labelledby="t-cambios">
             <h1 class="titulo-vista" id="t-cambios">Historial de cambios</h1>
-            <p class="sub-vista">Lo que se guardó desde la app y lo que alguien cambió directamente en el Excel (lo detecta la tarea automática cada hora).</p>
+            <p class="sub-vista">Lo que se guardó desde la app y lo que se cambió directo en el Excel.</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros mb-2" id="cam-origen" role="group" aria-label="Origen">
                 <button class="chip" data-o="" aria-pressed="true">Todo</button>
@@ -578,6 +682,7 @@
           <!-- TEMARIOS -->
           <section class="vista" id="v-temarios" aria-labelledby="t-tem">
             <h1 class="titulo-vista" id="t-tem">Temarios</h1>
+            <p class="sub-vista">Qué se ve en cada módulo de la brigada.</p>
             <div class="filtros mb-3"><select id="tem-hoja" class="form-select" aria-label="Temario"></select><input type="search" id="tem-buscar" class="form-control" placeholder="Buscar en el temario…" aria-label="Buscar en el temario"></div>
             <div class="accordion" id="tem-acordeon"></div>
           </section>
@@ -588,7 +693,7 @@
               <h1 class="titulo-vista mb-0 me-auto" id="t-restr">Restricciones médicas</h1>
               <button class="btn btn-sm btn-danger" id="restr-nueva-btn" data-accion="restr-nueva"><i class="fa-solid fa-plus me-1"></i>Registrar restricción</button>
             </div>
-            <p class="sub-vista">Lo que un brigadista no puede hacer en las prácticas por su salud. Vienen de GSTOR (del D6) y se pueden ajustar en SIGBE, en la ficha de cada brigadista o aquí; salen con <i class="fa-solid fa-notes-medical text-danger"></i> en la lista de asistencia. Es un dato de salud: úsalo solo para cuidar a la persona.</p>
+            <p class="sub-vista">Lo que un brigadista no puede hacer en las prácticas por su salud. Es un dato de salud: úsalo solo para cuidar a la persona.</p>
             <div class="tarjeta p-3 mb-2">
               <div class="filtros">
                 <input type="search" id="restr-buscar" class="form-control form-control-sm" placeholder="Buscar nombre, cédula, planta o restricción…" aria-label="Buscar restricciones">
@@ -622,7 +727,7 @@
           <section class="vista" id="v-estado" aria-labelledby="t-estado">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
               <h1 class="titulo-vista mb-0" id="t-estado">Estado del sistema</h1>
-              <div class="d-flex gap-2">
+              <div class="d-flex flex-wrap gap-2">
                 <button class="btn btn-outline-primary btn-sm" data-accion="diagnostico"><i class="fa-solid fa-stethoscope me-1"></i>Diagnóstico</button>
                 <button class="btn btn-primary btn-sm no-proveedor" data-accion="actualizar-ahora"><i class="fa-solid fa-rotate me-1"></i>Actualizar ahora</button>
               </div>
@@ -682,7 +787,7 @@
               <div class="alert alert-secondary small" id="conf-no-principal" style="display:none;"><i class="fa-solid fa-circle-info me-1"></i>Los archivos, la tarea automática y los usuarios los cambia solo el gestor. Aquí puedes cambiar tu clave.</div>
               <div class="tarjeta p-3 mb-3 no-proveedor">
                 <h2 class="h6 fw-bold mb-1"><i class="fa-solid fa-users-gear me-2 text-primary"></i>Usuarios</h2>
-                <p class="small text-muted mb-2">Tres tipos de usuario: <b>Gestor</b> (todo, y crea o elimina usuarios; el principal puede nombrar otros gestores con el tipo «Gestor») · <b>Holcim</b> (ve y cambia todo, menos usuarios y configuración; entra con la <b>clave del gestor</b>) · <b>Ambipar – proveedor</b> (toma asistencia y en el cronograma pone la Fecha Ambipar, el estado y las observaciones, programa sesiones y crea módulos; no cambia la Fecha Holcim. Solo ve Dashboard, Tomar asistencia, Avance por planta, Cronograma, Temarios y su clave). En el historial queda quién hizo cada cambio.</p>
+                <p class="small text-muted mb-2">Tres tipos de usuario: <b>Gestor</b> (todo, y crea o elimina usuarios; el principal puede nombrar otros gestores con el tipo «Gestor») · <b>Holcim</b> (ve y cambia todo, menos usuarios y configuración; entra con la <b>clave del gestor</b>) · <b>Ambipar – proveedor</b> (toma asistencia y en el cronograma pone la Fecha Ambipar, el estado y las observaciones, programa sesiones y crea módulos; no cambia la Fecha Holcim. Solo ve Inicio, Tomar asistencia, Listas, Avance por planta, Cronograma, Restricciones, Temarios y su clave). En el historial queda quién hizo cada cambio.</p>
                 <div id="usr-pendientes" class="mb-2"></div>
                 <div class="table-responsive"><table class="table table-sm small align-middle mb-2"><thead><tr><th>Usuario</th><th>Nombre y correo</th><th>Tipo</th><th>Sedes</th><th>Avisos</th><th>Estado</th><th></th></tr></thead><tbody id="usr-tabla"></tbody></table></div>
                 <div id="usr-sin-correo" class="alert alert-warning small py-2" style="display:none;"><i class="fa-solid fa-envelope-circle-check me-1"></i>Los avisos por correo aún no están autorizados: en el editor de Apps Script ejecuta <b>probarCorreo</b> una vez (te llega un correo de prueba).</div>

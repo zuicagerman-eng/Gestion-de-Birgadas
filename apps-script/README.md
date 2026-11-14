@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.18.3)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.19.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -44,9 +44,14 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
 - **Avance por planta**: planta × módulo (filtro de una o varias plantas) con el % de brigadistas propios activos que asistieron entre los que ya debían
   tomarlo (la sesión aplica y su fecha pasó); "·" con la próxima fecha si aún no le toca y "—" si no aplica. Clic en un %
   abre esa lista de asistencia. Sin detalle por persona (eso está en la ficha de cada brigadista). CSV.
-- **Menú** agrupado: Dashboard · *Brigada* (Cobertura, Brigadistas) · *Asistencia y capacitaciones* (Tomar asistencia,
-  Avance por planta, Cronograma, Temarios, Otras hojas) · *Control* (Historial de cambios, Revisión de datos, Registro de
-  ingresos) · *Sistema* (Estado del sistema, Configuración, Ayuda).
+- **Menú** agrupado: Inicio · *Día a día* (Tomar asistencia, Cronograma, Listas de asistencia) · *La brigada*
+  (Brigadistas, Restricciones médicas, Cobertura, Avance por planta) · *Consultar* (Temarios, Otras hojas) ·
+  *Administración*, **plegada** (Revisión de datos, Historial de cambios, Registro de ingresos, Estado del sistema; el
+  contador de la revisión se ve en el grupo cerrado; se recuerda abierta o cerrada en cada equipo) · Configuración y
+  Ayuda. Cada pantalla lleva junto al título el ícono de su grupo y una línea que dice para qué es; lo largo está en
+  **¿Cómo funciona?**.
+- **Celular** (menos de 768 px): barra fija abajo con Inicio, Asistencia, Cronograma, Brigadistas (Ambipar: Listas) y
+  **Más** (abre el menú completo); botones de 56 px. La barra de guardar asistencia y los avisos quedan encima de ella.
 - **Brigadistas**: chips **Holcim / Geocycle / Transcem / Fundación Holcim / Contratistas** (los propios se separan por
   su empresa; los cuatro cuentan como personal propio en Cobertura). En la lista Holcim, la **Empresa** se elige de una
   lista con las divisiones de Holcim: **Holcim, Transcem, Geocycle o Fundación Holcim** (en la ficha, en Editar en la
@@ -77,15 +82,24 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   ya tiene esa sesión con "-" en ese tema, la habilita; si no, agrega un bloque "Sesión N" de columnas junto a los de la
   planta en el cronograma (con "-" en los demás temas) y, si hace falta, las columnas `M7_Sesión_3` en la lista.
   Los módulos nuevos quedan con "-" en las sesiones extra que casi ningún tema usa.
-- **Dashboard**: *Asistencia a las capacitaciones* (personal Holcim: asistencias registradas frente a las esperadas en
-  los módulos ya dictados, brigadistas al día, contratistas con 0256, asistencia por sede) separada de *Cobertura de
-  brigadistas* (Indicador frente a la meta del 20 %, con % por sede), más próximas capacitaciones y revisión de datos.
+- **Inicio** (la primera pantalla): saludo con el tipo de usuario, las sedes y la hora de los datos; **¿Qué quiere
+  hacer?**, una tarjeta por tarea según el tipo de usuario (Gestor y Holcim: Tomar asistencia, Programar sesiones,
+  Brigadistas, Cobertura, Listas de asistencia, Restricciones médicas; Ambipar: Tomar asistencia, Poner la Fecha Ambipar,
+  Listas, Restricciones, Avance por planta, Temarios), cada una con sus cifras (esta semana, sin registrar, sin fecha,
+  por completar, % de la meta…); **Esta semana** (las sesiones de los próximos 7 días, con botón a su asistencia) y
+  **Necesita atención** (sesiones pasadas sin asistencia, sin Fecha Holcim, sin Fecha Ambipar desde este mes, datos por
+  completar y errores de la revisión, cada uno con el botón que lleva a esa lista). Debajo, **Cómo vamos**: *Asistencia
+  a las capacitaciones* (personal Holcim: asistencias registradas frente a las esperadas en los módulos ya dictados,
+  brigadistas al día, contratistas con 0256, asistencia por sede), *Cobertura de brigadistas* (Indicador frente a la
+  meta del 20 %), próximas capacitaciones y revisión de datos.
+- **Cronograma**: filtro nuevo **Sin Fecha Ambipar** (con Fecha Holcim desde este mes, sin Fecha Ambipar, ni realizada ni
+  cancelada); es el mismo que usa «Necesita atención».
 - **Cobertura**: una tarjeta por planta del *Indicador.* con % de la meta, brigadistas, requeridos y personal, y el
   detalle por empresa. **Brigadistas = los activos en las listas de la app** (lista de asistencia Holcim y contratistas
   registrados en la plataforma); del Indicador solo se toma el **personal** (meta = 20 %, redondeada hacia arriba). Cada
   brigadista va a la fila de su planta y empresa (Holcim → fila "Holcim…"; contratistas → la de su empresa); si su empresa
   no está en el Indicador se avisa. **Traer faltantes** (en Brigadistas) busca en otras pestañas del 1.0 y el 2.0 personas
-  que no están en las listas, para registrarlas en la app. El Dashboard muestra la misma vista de Cobertura.
+  que no están en las listas, para registrarlas en la app. El Inicio muestra la misma vista de Cobertura.
 - **Sede** (arriba): se pueden elegir varias a la vez (o "solo" una); todas las vistas filtran por esas sedes.
 - **Restricciones médicas**: vienen de **GSTOR** (que las toma del D6, columna «RESTRICCION MEDICA», junto con el
   vencimiento del examen médico) por el puente (`accion: 'restricciones'`; ver `PROMPT_GSTOR_RESTRICCIONES.md`), con caché
@@ -112,7 +126,7 @@ cada intento fallido quedan en la pestaña **"Ingresos SIGBE"** y se ven en **Re
 |---|---|
 | **Gestor** (el usuario principal, `SIGBE_USUARIO`) | Todo, y es el único que crea, desactiva o elimina usuarios y cambia la configuración (archivos, tarea automática). |
 | **Holcim** | Ve y cambia todo: asistencia, cronograma (la **Fecha Holcim**; la Fecha Ambipar la pone Ambipar, y un gestor puede poner las dos), módulos, sesiones, brigadistas, Indicador, traer faltantes. No administra usuarios ni la configuración. |
-| **Ambipar (proveedor)** | Toma asistencia. En el cronograma pone la **Fecha Ambipar**, el estado, las observaciones y el # de brigadistas, **programa sesiones** (también habilita las que tienen "-") y **crea módulos**. No cambia la Fecha Holcim ni edita brigadistas o el Indicador. Su menú es lo mínimo: Dashboard (asistencia y próximas), Tomar asistencia, Avance por planta, Cronograma, Temarios, Ayuda y **Mi clave**; el servidor tampoco le entrega historial, otras hojas, estado del sistema, configuración ni usuarios. |
+| **Ambipar (proveedor)** | Toma asistencia. En el cronograma pone la **Fecha Ambipar**, el estado, las observaciones y el # de brigadistas, **programa sesiones** (también habilita las que tienen "-") y **crea módulos**. No cambia la Fecha Holcim ni edita brigadistas o el Indicador. Su menú es lo mínimo: Inicio (tareas, esta semana, lo pendiente e indicadores), Tomar asistencia, Cronograma, Listas de asistencia, Restricciones médicas, Avance por planta, Temarios, Ayuda y **Mi clave**; el servidor tampoco le entrega historial, otras hojas, estado del sistema, configuración ni usuarios. |
 
 El gestor crea los usuarios en **Configuración → Usuarios** (usuario, nombre, correo, tipo, sedes y una clave temporal
 generada), les pone una clave nueva, los desactiva o los elimina. **La clave temporal le llega al usuario por correo**
@@ -238,14 +252,14 @@ propiedad `ID_SIGBE`. Tiene el nombre en la columna A y el valor en la B, una fi
 
 | A | B |
 |---|---|
-| `cobertura` | % de la meta, sin «%» (el mismo de la pestaña Cobertura del Dashboard con todas las sedes; vacío si no hay Indicador) |
+| `cobertura` | % de la meta, sin «%» (el mismo de la pestaña Cobertura del Inicio con todas las sedes; vacío si no hay Indicador) |
 | `brigadistas` | brigadistas activos en las listas de la app (Holcim + contratistas) |
 | `meta` | brigadistas que pide la meta (20 % del personal del Indicador, por planta y hacia arriba) |
 | `plantas cumplen` | plantas que llegan a la meta |
 | `plantas` | plantas del Indicador |
 | `actualizado` | `aaaa-mm-dd hh:mm` (como texto) |
 
-- Los números salen de **la misma cuenta** que muestran Cobertura y el Dashboard: `sigbeCoberturaPlantas_` en `SIGBE.gs`.
+- Los números salen de **la misma cuenta** que muestran Cobertura y el Inicio: `sigbeCoberturaPlantas_` en `SIGBE.gs`.
   La pantalla ya no hace su propia cuenta; solo filtra por sede.
 - Se escribe cada vez que se recalculan los datos y cambió algún número, y además cada hora con `actualizarPanel`.
 - Está en el **libro nuevo**, que es el que queda después del corte; si todavía no hay libro nuevo, está en el 2.0. Solo
@@ -309,7 +323,7 @@ aplica: si sí se dictó, se corrige el cronograma.
 
 **Fecha de ingreso a la brigada:** una sesión con fecha anterior al ingreso de la persona **no le aplica**. No sale en la
 lista de esa sesión (una nota dice cuántos quedaron fuera y por qué; "Ver desvinculados y a quienes no les aplica" los
-muestra), no cuenta como "no asistió" ni en su cumplimiento, en el avance por planta o en el Dashboard, y no se puede
+muestra), no cuenta como "no asistió" ni en su cumplimiento, en el avance por planta o en el Inicio, y no se puede
 marcar (si la fecha de ingreso está mal, se corrige primero). La fórmula de cumplimiento del libro nuevo hace lo mismo.
 Si la persona no tiene fecha de ingreso, para el cumplimiento le aplican todas; pero en **Tomar asistencia** no sale
 en la lista hasta que se registre su fecha de ingreso (salvo que ya tenga la asistencia marcada; la nota lo cuenta y
