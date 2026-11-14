@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.19.1)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.20.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -56,6 +56,12 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   contador de la revisión se ve en el grupo cerrado; se recuerda abierta o cerrada en cada equipo) · Configuración y
   Ayuda. Cada pantalla lleva junto al título el ícono de su grupo y una línea que dice para qué es; lo largo está en
   **¿Cómo funciona?**.
+- **Brigadistas en el celular** (menos de 768 px): la tabla pasa a **tarjetas** (el mismo HTML, otra forma): nombre y
+  estado arriba, la planta, y los datos con su etiqueta (C.C., Grupo, Ingreso, empresa, Clase I, Retiro); lo que falta
+  sale «falta» y un solo botón **Completar N datos** abre la ficha en el primero. El buscador queda a la vista y el resto
+  de filtros (grupos, plantas, estado, empresas, datos y **Orden**) tras **Filtros**, que dice cuántos hay puestos.
+  Arriba, **Registrar brigadista** y **Más** (Descargar, Traer faltantes, Editar en la tabla). Editar en la tabla
+  también funciona en las tarjetas. En el computador la tabla no cambia.
 - **Celular** (menos de 768 px): barra fija abajo con Inicio, Asistencia, Cronograma, Brigadistas (Ambipar: Listas) y
   **Más** (abre el menú completo); botones de 56 px. La barra de guardar asistencia y los avisos quedan encima de ella.
 - **Brigadistas**: chips **Holcim / Geocycle / Transcem / Fundación Holcim / Contratistas** (los propios se separan por

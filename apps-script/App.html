@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.19.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.20.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -180,6 +180,8 @@
       grupoChips('crono-cuando', 'cuando', v => { crono.cuando = v; pintarCronograma(); });
       grupoChips('rev-grav', 'g', v => { rev.g = v; pintarRevision(); });
       grupoChips('cam-origen', 'o', v => { cam.o = v; cam.limite = 200; pintarCambios(); });
+      $('brig-filtros-btn').onclick = () => { const a = !$('brig-filtros').classList.contains('abierto'); $('brig-filtros').classList.toggle('abierto', a); $('brig-filtros-btn').setAttribute('aria-expanded', String(a)); };
+      $('brig-orden-cel').onchange = ev => { brig.orden = ev.target.value; brig.dir = 1; pintarBrigadistas(); };
       document.querySelectorAll('#brig-cab th.ordenable').forEach(th => { th.tabIndex = 0; th.onclick = th.onkeydown = ev => { if (ev.type === 'keydown' && ev.key !== 'Enter') return; const k = th.dataset.orden; brig.dir = brig.orden === k ? -brig.dir : 1; brig.orden = k; pintarBrigadistas(); }; });
       window.addEventListener('beforeunload', ev => { if (hayCambios()) { ev.preventDefault(); ev.returnValue = ''; } });
       await arrancar();
@@ -1292,18 +1294,22 @@
       const editar = brig.editar && E.usuario;
       $('brig-modo').innerHTML = editar ? '<i class="fa-solid fa-xmark me-1"></i>Salir de edición' : '<i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla';
       $('brig-modo').className = 'btn btn-sm no-proveedor ' + (editar ? 'btn-warning' : 'btn-outline-primary');
+      $('brig-modo-cel').innerHTML = editar ? '<i class="fa-solid fa-xmark me-2"></i>Salir de edición' : '<i class="fa-solid fa-pen-to-square me-2"></i>Editar en la tabla';
+      const nf = (brig.tipo ? 1 : 0) + (brig.plantas.length ? 1 : 0) + ($('brig-estado').value !== 'act' ? 1 : 0) + (brig.empresas.length ? 1 : 0) + ($('brig-datos').value ? 1 : 0);
+      $('brig-filtros-n').textContent = nf || ''; $('brig-orden-cel').value = ['p', 'n', 'fechaIngreso', 'estado'].indexOf(brig.orden) !== -1 ? brig.orden : 'p';
       const max = 400;
       $('brig-tabla').innerHTML = lista.slice(0, max).map(p => {
         const x = datosDe(p), falta = faltantes(p), clave = p.tipo + ':' + p.j, cam = brig.cambios[clave] || {};
         const valor = k => k in cam ? cam[k] : x[k];
         const completar = k => !E.usuario || esProveedor() ? '<span class="badge bg-warning-subtle text-warning-emphasis fw-normal">Falta</span>' : `<button class="btn btn-sm btn-completar" data-accion="completar" data-tipo="${p.tipo}" data-j="${p.j}" data-campo="${k}"><i class="fa-solid fa-plus me-1"></i>Completar</button>`;
         const ver = (k, txt) => falta.indexOf(k) !== -1 ? completar(k) : esc(txt === undefined ? x[k] : txt);
-        const ctl = (k, html) => `<td class="${k in cam ? 'celda-cambiada' : ''}">${html}</td>`;
+        const ETQ = { cedula: 'C.C.', grupo: 'Grupo', fechaIngreso: 'Ingreso', empresa: 'Empresa', clase1: 'Clase I', estado: 'Estado', fechaRetiro: 'Retiro' };
+        const ctl = (k, html) => `<td class="b-dato ${k in cam ? 'celda-cambiada' : ''}" data-etiqueta="${ETQ[k]}">${html}</td>`;
         const op = (lista, v) => (v && lista.indexOf(v) === -1 ? [v].concat(lista) : lista).map(o => `<option value="${esc(o)}" ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('');
         const inactivo = /desvinculado/i.test(valor('estado'));
         if (editar) {
           const base = `data-tipo="${p.tipo}" data-j="${p.j}"`;
-          return `<tr class="${p.activo ? '' : 'text-muted'}"><td class="small">${esc(p.p)}</td><td class="fw-semibold"><a href="#" data-accion="ficha" ${base}>${esc(p.n)}</a></td>
+          return `<tr class="${p.activo ? '' : 'text-muted'}"><td class="small b-planta">${esc(p.p)}</td><td class="fw-semibold b-nombre"><a href="#" data-accion="ficha" ${base}>${esc(p.n)}</a></td>
             ${ctl('cedula', falta.indexOf('cedula') !== -1 ? `<input class="form-control form-control-sm ed" ${base} data-campo="cedula" inputmode="numeric" value="${esc(valor('cedula'))}" placeholder="Cédula" style="width:110px">` : esc(x.cedula))}
             ${ctl('grupo', `<select class="form-select form-select-sm ed" ${base} data-campo="grupo" style="width:80px"><option value="">—</option>${op(catalogos.grupos, valor('grupo'))}</select>`)}
             ${ctl('fechaIngreso', `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaIngreso" value="${esc(isoDe(valor('fechaIngreso')) || valor('fechaIngreso'))}" style="width:135px">`)}
@@ -1314,11 +1320,12 @@
             ${ctl('fechaRetiro', inactivo ? `<input type="date" class="form-control form-control-sm ed" ${base} data-campo="fechaRetiro" value="${esc(isoDe(valor('fechaRetiro')) || valor('fechaRetiro'))}" style="width:135px" aria-label="Fecha de retiro (obligatoria)" title="Obligatoria para desvincular"><input class="form-control form-control-sm ed mt-1" ${base} data-campo="obsRetiro" maxlength="300" value="${esc(valor('obsRetiro'))}" placeholder="Observaciones (opcional)" style="width:135px" aria-label="Observaciones del retiro">` : '<span class="text-muted small">—</span>')}</tr>`;
         }
         return `<tr class="fila-click ${p.activo ? '' : 'text-muted'}" data-accion="ficha" data-tipo="${p.tipo}" data-j="${p.j}" tabindex="0">
-          <td class="small">${esc(p.p)}${p.otras && p.otras.length ? `<div class="text-muted" title="También en estas plantas (cuenta para la meta solo en la primera)">+ ${esc(p.otras.join(', '))}</div>` : ''}</td><td class="fw-semibold">${esc(p.n)}</td><td>${ver('cedula')}</td><td>${ver('grupo')}</td><td class="text-nowrap">${ver('fechaIngreso')}</td>
-          <td>${falta.indexOf('empresa') !== -1 ? completar('empresa') : p.tipo === 'HOLCIM' ? badgeDivision(p, x.empresa) : `<span class="badge bg-info-subtle text-info-emphasis">${esc(x.empresa)}</span>`}</td>
-          <td>${ver('clase1')}</td>
-          <td>${falta.indexOf('estado') !== -1 ? completar('estado') : `<span class="badge ${p.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>`}</td>
-          <td class="text-nowrap">${p.activo ? '' : ver('fechaRetiro')}</td></tr>`;
+          <td class="small b-planta">${esc(p.p)}${p.otras && p.otras.length ? `<div class="text-muted" title="También en estas plantas (cuenta para la meta solo en la primera)">+ ${esc(p.otras.join(', '))}</div>` : ''}</td><td class="fw-semibold b-nombre">${esc(p.n)}</td><td class="b-dato" data-etiqueta="C.C.">${ver('cedula')}</td><td class="b-dato" data-etiqueta="Grupo">${ver('grupo')}</td><td class="text-nowrap b-dato" data-etiqueta="Ingreso">${ver('fechaIngreso')}</td>
+          <td class="b-dato" ${falta.indexOf('empresa') !== -1 ? 'data-etiqueta="Empresa"' : ''}>${falta.indexOf('empresa') !== -1 ? completar('empresa') : p.tipo === 'HOLCIM' ? badgeDivision(p, x.empresa) : `<span class="badge bg-info-subtle text-info-emphasis">${esc(x.empresa)}</span>`}</td>
+          <td class="b-dato" data-etiqueta="Clase I">${ver('clase1')}</td>
+          <td class="b-estado">${falta.indexOf('estado') !== -1 ? completar('estado') : `<span class="badge ${p.activo ? 'bg-success-subtle text-success-emphasis' : 'text-bg-secondary'}">${esc(x.estado || 'Activo')}</span>`}</td>
+          <td class="text-nowrap b-dato" data-etiqueta="Retiro">${p.activo ? '' : ver('fechaRetiro')}</td>
+          <td class="b-completar">${falta.length && E.usuario && !esProveedor() ? `<button class="btn btn-sm btn-completar-todo" data-accion="completar" data-tipo="${p.tipo}" data-j="${p.j}" data-campo="${falta[0]}"><i class="fa-solid fa-plus me-1" aria-hidden="true"></i>Completar ${falta.length} dato${falta.length === 1 ? '' : 's'}</button>` : ''}</td></tr>`;
       }).join('') + (lista.length > max ? `<tr><td colspan="9" class="text-muted small">Se muestran ${max} de ${lista.length}; usa los filtros.</td></tr>` : '') || '<tr><td colspan="9" class="text-muted text-center py-4">Sin resultados</td></tr>';
       barraBrigadistas();
       $('brig-tabla').onkeydown = ev => { if (ev.key === 'Enter' && ev.target.matches('tr[data-accion]')) ev.target.click(); };
@@ -2923,6 +2930,7 @@
           'Los chips <b>Holcim, Transcem, Geocycle, Fundación Holcim</b> y <b>Contratistas</b> separan a cada grupo según su empresa.',
           '<b>Traer faltantes</b>: busca brigadistas que están en otras pestañas del Excel pero no en las listas, y los trae.',
           '<b>Descargar</b> la lista tal como la estás viendo.',
+          'En el <b>celular</b>, cada persona es una tarjeta (tócala para abrir su ficha); lo que falta sale marcado «falta» y <b>Completar N datos</b> lo llena. Los filtros están en <b>Filtros</b>, y Descargar, Traer faltantes y Editar en la tabla en <b>Más</b>.',
         ],
         ojo: [
           'La <b>fecha de ingreso</b> importa: las sesiones anteriores a esa fecha no le aplican y no le cuentan en contra.',

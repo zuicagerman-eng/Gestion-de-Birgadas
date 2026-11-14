@@ -256,6 +256,44 @@
       .tarjeta-sesion { padding: 14px; }
     }
 
+    /* Brigadistas en el celular: cada fila de la tabla es una tarjeta (mismo HTML, otra forma) */
+    @media (max-width: 767.98px) {
+      #brig-filtros:not(.abierto) #brig-tipo, #brig-filtros:not(.abierto) .brig-mas { display: none !important; }
+      #brig-filtros .filtros .form-select, #brig-filtros .multi-sel { flex: 1 1 calc(50% - 8px); min-width: 0; max-width: none; }
+      #brig-filtros .dropdown.brig-mas > .multi-sel { width: 100%; }
+      #brig-filtros #brig-buscar { max-width: none !important; min-width: 0; }
+      #brig-conteo { flex-basis: 100%; margin-left: 0 !important; }
+      #v-brigadistas .tabla-fija { max-height: none; overflow: visible; background: transparent; border: 0; box-shadow: none; }
+      #v-brigadistas .tabla-fija table, #brig-tabla { display: block; }
+      #v-brigadistas .tabla-fija thead { display: none; }
+      #brig-tabla > tr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; background: #fff; border: 1px solid var(--s-borde); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--s-sombra); }
+      #brig-tabla > tr > td { display: block; border: 0; padding: 0; background: none; box-shadow: none; }
+      #brig-tabla > tr > td:empty { display: none; }
+      #brig-tabla > tr > td[colspan] { flex-basis: 100%; }
+      #brig-tabla .b-nombre { order: 1; flex: 1 1 0; min-width: 0; font-size: 1rem; line-height: 1.25; }
+      #brig-tabla .b-estado { order: 2; flex: none; }
+      #brig-tabla .b-planta { order: 3; flex-basis: 100%; color: #4b5864; font-size: .84rem; }
+      #brig-tabla .b-dato { order: 4; display: inline-flex; align-items: center; gap: 5px; background: var(--s-fondo); border-radius: 8px; padding: 3px 8px; font-size: .84rem; }
+      #brig-tabla .b-dato[data-etiqueta]::before { content: attr(data-etiqueta); color: #4b5864; font-size: .76rem; }
+      #brig-tabla .b-dato.celda-cambiada { background: #fff8e1 !important; }
+      #brig-tabla .fila-click:hover td { background: none; }
+      #brig-tabla .b-dato .btn-completar { display: none; }
+      #brig-tabla .b-dato:has(.btn-completar)::after { content: 'falta'; color: #7a4f00; font-weight: 700; font-size: .8rem; }
+      #brig-tabla .b-dato:has(.btn-completar) { background: #fff4d6; }
+      #brig-tabla .b-completar { display: block !important; order: 5; flex-basis: 100%; }
+      #brig-tabla .b-completar:empty { display: none !important; }
+      .btn-completar-todo { width: 100%; color: #6e4700; background: #fff4d6; border: 1px dashed #f0b429; font-weight: 600; }
+      .btn-completar-todo:hover, .btn-completar-todo:focus { background: #ffe8a8; color: #5c3c00; }
+      #brig-tabla .fila-click:active { border-color: #b9cdf3; }
+    }
+    @media (pointer: coarse) { .btn-ayuda-vista { min-height: 40px; padding: 6px 12px; } }
+    #brig-tabla .b-completar { display: none; }
+    @media (max-width: 767.98px) and (pointer: coarse) {
+      #brig-tabla .btn-completar-todo { min-height: 44px; }
+      .brig-acciones-cel .btn, #brig-filtros-btn, #brig-filtros .chip { min-height: 44px; }
+      #brig-filtros .form-select, #brig-filtros .multi-sel, #brig-buscar { min-height: 44px; }
+    }
+
     /* Celular: barra de accesos abajo */
     .barra-abajo { display: none; }
     @media (max-width: 767.98px) {
@@ -292,7 +330,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.19.1</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.20.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -516,17 +554,27 @@
           <section class="vista" id="v-brigadistas" aria-labelledby="t-brig">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
               <h1 class="titulo-vista mb-0" id="t-brig">Brigadistas</h1>
-              <div class="d-flex flex-wrap gap-2">
+              <div class="d-none d-md-flex flex-wrap gap-2">
                 <button class="btn btn-outline-secondary btn-sm" data-accion="csv-brig"><i class="fa-solid fa-file-csv me-1"></i>Descargar</button>
                 <button class="btn btn-outline-secondary btn-sm no-proveedor" data-accion="faltantes"><i class="fa-solid fa-user-clock me-1"></i>Traer faltantes</button>
                 <button class="btn btn-outline-primary btn-sm no-proveedor" id="brig-modo" data-accion="brig-modo"><i class="fa-solid fa-pen-to-square me-1"></i>Editar en la tabla</button>
                 <button class="btn btn-success btn-sm no-proveedor" data-accion="registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
               </div>
+              <div class="d-flex d-md-none gap-2 w-100 brig-acciones-cel">
+                <button class="btn btn-success flex-fill no-proveedor" data-accion="registrar"><i class="fa-solid fa-user-plus me-1"></i>Registrar brigadista</button>
+                <div class="dropdown"><button class="btn btn-outline-secondary dropdown-toggle h-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">Más</button>
+                  <ul class="dropdown-menu dropdown-menu-end shadow">
+                    <li><button class="dropdown-item py-2" data-accion="csv-brig"><i class="fa-solid fa-file-csv me-2"></i>Descargar</button></li>
+                    <li class="no-proveedor"><button class="dropdown-item py-2" data-accion="faltantes"><i class="fa-solid fa-user-clock me-2"></i>Traer faltantes</button></li>
+                    <li class="no-proveedor"><button class="dropdown-item py-2" id="brig-modo-cel" data-accion="brig-modo"><i class="fa-solid fa-pen-to-square me-2"></i>Editar en la tabla</button></li>
+                  </ul></div>
+              </div>
             </div>
             <p class="sub-vista">Los brigadistas de cada planta: busca a alguien, completa sus datos o registra uno nuevo.</p>
-            <div class="tarjeta p-3 mb-2">
+            <div class="tarjeta p-3 mb-2" id="brig-filtros">
               <div class="filtros mb-2">
                 <input type="search" id="brig-buscar" class="form-control form-control-sm flex-grow-1" placeholder="Buscar nombre, cédula, planta o empresa…" aria-label="Buscar brigadista" style="max-width: 360px;">
+                <button type="button" class="btn btn-outline-secondary d-md-none" id="brig-filtros-btn" aria-expanded="false" aria-controls="brig-filtros"><i class="fa-solid fa-filter me-1"></i>Filtros <span class="badge rounded-pill text-bg-primary" id="brig-filtros-n"></span></button>
                 <span role="group" aria-label="Empresa o tipo" id="brig-tipo" class="d-flex flex-wrap gap-1">
                   <button class="chip" data-tipo="" aria-pressed="true">Todos<span class="n" data-n=""></span></button>
                   <button class="chip" data-tipo="HOLCIM" aria-pressed="false" title="Personal propio de Holcim">Holcim<span class="n" data-n="HOLCIM"></span></button>
@@ -537,10 +585,11 @@
                 </span>
               </div>
               <div class="filtros">
-                <div class="dropdown"><button type="button" id="brig-planta" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Plantas (varias a la vez)">Todas las plantas</button><div class="dropdown-menu shadow py-2 multi-menu" id="brig-planta-menu"></div></div>
-                <select id="brig-estado" class="form-select form-select-sm" aria-label="Estado"><option value="act">Activos</option><option value="des">Desvinculados</option><option value="">Todos los estados</option></select>
-                <div class="dropdown"><button type="button" id="brig-empresa" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Empresas (varias a la vez)">Todas las empresas</button><div class="dropdown-menu shadow py-2 multi-menu" id="brig-empresa-menu"></div></div>
-                <select id="brig-datos" class="form-select form-select-sm" aria-label="Datos"><option value="">Datos: todos</option><option value="incompletos">Con datos por completar</option><option value="completos">Datos completos</option></select>
+                <div class="dropdown brig-mas"><button type="button" id="brig-planta" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Plantas (varias a la vez)">Todas las plantas</button><div class="dropdown-menu shadow py-2 multi-menu" id="brig-planta-menu"></div></div>
+                <select id="brig-estado" class="form-select form-select-sm brig-mas" aria-label="Estado"><option value="act">Activos</option><option value="des">Desvinculados</option><option value="">Todos los estados</option></select>
+                <div class="dropdown brig-mas"><button type="button" id="brig-empresa" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Empresas (varias a la vez)">Todas las empresas</button><div class="dropdown-menu shadow py-2 multi-menu" id="brig-empresa-menu"></div></div>
+                <select id="brig-orden-cel" class="form-select form-select-sm brig-mas d-md-none" aria-label="Ordenar"><option value="p">Orden: planta</option><option value="n">Orden: nombre</option><option value="fechaIngreso">Orden: ingreso</option><option value="estado">Orden: estado</option></select>
+                <select id="brig-datos" class="form-select form-select-sm brig-mas" aria-label="Datos"><option value="">Datos: todos</option><option value="incompletos">Con datos por completar</option><option value="completos">Datos completos</option></select>
                 <span class="contador ms-auto" id="brig-conteo"></span>
               </div>
             </div>
@@ -556,7 +605,7 @@
               </table>
             </div>
             <div class="barra-guardar rounded-bottom p-2 mt-2 flex-wrap align-items-center gap-2" id="brig-guardar" style="display:none" role="region" aria-label="Cambios sin guardar">
-              <span class="fw-semibold"><i class="fa-solid fa-pen text-warning me-1"></i><span id="brig-guardar-n">0</span> dato(s) sin guardar</span>
+              <span class="fw-semibold flex-grow-1"><i class="fa-solid fa-pen text-warning me-1"></i><span id="brig-guardar-n">0</span> dato(s) sin guardar</span>
               <button class="btn btn-outline-secondary btn-sm" data-accion="brig-descartar">Descartar</button>
               <button class="btn btn-success btn-sm" data-accion="brig-guardar"><i class="fa-solid fa-floppy-disk me-1"></i>Revisar y guardar</button>
             </div>
