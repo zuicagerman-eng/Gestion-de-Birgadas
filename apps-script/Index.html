@@ -294,6 +294,50 @@
       #brig-filtros .form-select, #brig-filtros .multi-sel, #brig-buscar { min-height: 44px; }
     }
 
+    /* Cronograma en calendario: el mes en semanas de lunes a domingo; en el celular, semana por semana en lista */
+    .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); padding: 0; overflow: hidden; }
+    .cal-dsem { background: #f8fafc; font-size: .74rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #4b5864; padding: 7px 8px; border-bottom: 1px solid var(--s-borde); }
+    .cal-dia { min-height: 118px; min-width: 0; padding: 6px; display: flex; flex-direction: column; gap: 3px; border-right: 1px solid var(--s-borde); border-bottom: 1px solid var(--s-borde); }
+    .cal-grid > .cal-dia:nth-child(7n) { border-right: 0; }
+    .cal-dia.finde { background: #fbfcfd; } .cal-dia.fuera { background: #f6f7f9; }
+    .cal-num { align-self: flex-start; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 999px; display: grid; place-items: center; font-size: .8rem; font-weight: 700; color: #33424f; }
+    .cal-dia.fuera .cal-num { color: #5f6b76; font-weight: 600; }
+    .cal-dia.hoy { background: #f3f8ff; } .cal-dia.hoy .cal-num { background: var(--s-azul); color: #fff; }
+    .cal-chip { display: block; width: 100%; text-align: left; border: 0; border-radius: 6px; padding: 2px 6px; font-size: .74rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cal-chip:hover, .cal-chip:focus-visible { box-shadow: inset 0 0 0 1px currentColor; }
+    .cal-dia:not(.abierta) .cal-chip.extra { display: none; }
+    .cal-mas { border: 0; background: none; padding: 0 6px; text-align: left; font-size: .74rem; font-weight: 700; color: var(--s-azul); }
+    .t-g { background: #e3f4e8; color: #146c3a; } .t-p { background: #fff1d6; color: #6e4700; } .t-r { background: #e7f0ff; color: #0b4fc2; }
+    .t-x { background: #eef1f5; color: #4b5864; text-decoration: line-through; } .t-o { background: #eef1f5; color: #33424f; }
+    .cal-sim { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 6px; font-size: .72rem; font-weight: 800; margin-right: 4px; text-decoration: none; vertical-align: -1px; }
+    .cal-leyenda { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
+    .cal-agenda { display: none; }
+    .cal-sem { padding: 12px; }
+    .cal-sem-tit { font-weight: 700; font-size: .92rem; margin-bottom: 8px; }
+    .cal-tira { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-bottom: 4px; }
+    .cal-tira-dia { text-align: center; border-radius: 10px; padding: 4px 0 2px; font-size: .7rem; font-weight: 600; color: #4b5864; background: var(--s-fondo); line-height: 1.15; }
+    .cal-tira-dia b { display: block; font-size: .95rem; color: #14212b; }
+    .cal-tira-dia .n { display: block; min-height: .9em; font-size: .66rem; font-weight: 800; }
+    .cal-tira-dia.con { background: var(--g-dia-f); color: var(--g-dia); } .cal-tira-dia.con b { color: var(--g-dia); }
+    .cal-tira-dia.fuera { opacity: .6; } .cal-tira-dia.hoy { box-shadow: inset 0 0 0 2px var(--s-azul); }
+    .cal-ag-dia { font-size: .74rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #4b5864; margin: 10px 0 4px; }
+    .cal-ag-item { display: flex; align-items: stretch; gap: 6px; margin-bottom: 6px; }
+    .cal-ag-btn { flex: 1 1 0; min-width: 0; text-align: left; border: 1px solid var(--s-borde); background: #fff; border-radius: 10px; padding: 8px 10px; min-height: 48px; color: inherit; }
+    .cal-ag-btn:hover, .cal-ag-btn:focus-visible { border-color: #b9cdf3; }
+    .cal-ag-asis { flex: none; width: 48px; display: grid; place-items: center; border-radius: 10px; }
+    @media (max-width: 767.98px) {
+      .cal-grid { display: none; } .cal-agenda { display: block; } .cal-titulo { font-size: 1.05rem; }
+      #crono-filtros:not(.abierto) .crono-mas { display: none !important; }
+      #crono-filtros .filtros .form-select, #crono-filtros .multi-sel { flex: 1 1 calc(50% - 8px); min-width: 0; max-width: none; }
+      #crono-filtros .dropdown.crono-mas > .multi-sel { width: 100%; }
+      #crono-buscar { flex: 1 1 0; min-width: 0; }
+      #crono-conteo { flex-basis: 100%; margin-left: 0 !important; }
+    }
+    @media (pointer: coarse) {
+      .cal-nav, #crono-vista .chip, #crono-cuando .chip, .crono-acciones-cel .btn, #crono-filtros-btn { min-height: 44px; }
+      #v-cronograma .btn-sm, #crono-filtros .form-select, #crono-filtros .form-control, #crono-filtros .multi-sel { min-height: 44px; }
+    }
+
     /* Celular: barra de accesos abajo */
     .barra-abajo { display: none; }
     @media (max-width: 767.98px) {
@@ -330,7 +374,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.20.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.21.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -616,15 +660,28 @@
           <section class="vista" id="v-cronograma" aria-labelledby="t-crono">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
               <h1 class="titulo-vista mb-0" id="t-crono">Cronograma de capacitaciones</h1>
-              <div class="d-flex flex-wrap gap-2">
+              <div class="d-none d-md-flex flex-wrap gap-2">
                 <button class="btn btn-outline-secondary btn-sm" id="crono-alertas-btn" data-accion="alertas" style="display:none;" title="Solo los gestores: avisa por correo lo que falta en cada sesión"><i class="fa-solid fa-bell me-1 text-warning"></i>Alertas de pendientes</button>
                 <button class="btn btn-outline-success btn-sm" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-1"></i>Nuevo módulo</button>
                 <button class="btn btn-success btn-sm" data-accion="nueva-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Programar / Agregar sesión</button>
               </div>
+              <div class="d-flex d-md-none gap-2 w-100 crono-acciones-cel">
+                <button class="btn btn-success flex-fill" data-accion="nueva-sesion"><i class="fa-solid fa-calendar-plus me-1"></i>Programar / Agregar sesión</button>
+                <div class="dropdown"><button class="btn btn-outline-secondary dropdown-toggle h-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">Más</button>
+                  <ul class="dropdown-menu dropdown-menu-end shadow">
+                    <li><button class="dropdown-item py-2" data-accion="nuevo-modulo"><i class="fa-solid fa-plus me-2"></i>Nuevo módulo</button></li>
+                    <li id="crono-alertas-cel" style="display:none;"><button class="dropdown-item py-2" data-accion="alertas"><i class="fa-solid fa-bell me-2 text-warning"></i>Alertas de pendientes</button></li>
+                  </ul></div>
+              </div>
             </div>
             <p class="sub-vista">Las fechas de cada sesión por planta. Con <b>Editar</b> o <b>Programar</b> se pone o se cambia una fecha.</p>
-            <div class="tarjeta p-3 mb-2">
-              <div class="filtros mb-2" role="group" aria-label="Cuándo" id="crono-cuando">
+            <div class="tarjeta p-3 mb-2" id="crono-filtros">
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <div class="segmento d-flex" role="group" aria-label="Ver como" id="crono-vista">
+                <button type="button" class="chip" data-accion="crono-vista" data-v="lista" aria-pressed="true"><i class="fa-solid fa-list me-1" aria-hidden="true"></i>Lista</button>
+                <button type="button" class="chip" data-accion="crono-vista" data-v="cal" aria-pressed="false"><i class="fa-solid fa-calendar-week me-1" aria-hidden="true"></i>Calendario</button>
+              </div>
+              <div class="filtros" role="group" aria-label="Cuándo" id="crono-cuando">
                 <button class="chip" data-cuando="proximas" aria-pressed="true">Próximas</button>
                 <button class="chip" data-cuando="pasadas" aria-pressed="false">Pasadas</button>
                 <button class="chip" data-cuando="sinfecha" aria-pressed="false">Por definir</button>
@@ -632,16 +689,19 @@
                 <button class="chip" data-cuando="" aria-pressed="false">Todas</button>
                 <button class="chip" data-cuando="noaplica" aria-pressed="false">No aplican</button>
               </div>
+              </div>
               <div class="filtros">
                 <input type="search" id="crono-buscar" class="form-control form-control-sm" placeholder="Buscar tema, planta u observación…" aria-label="Buscar en el cronograma">
-                <div class="dropdown"><button type="button" id="crono-planta" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Plantas (varias a la vez)">Todas las plantas</button><div class="dropdown-menu shadow py-2 multi-menu" id="crono-planta-menu"></div></div>
-                <select id="crono-mes" class="form-select form-select-sm" aria-label="Mes"></select>
-                <select id="crono-modulo" class="form-select form-select-sm" aria-label="Tema"></select>
-                <select id="crono-estado" class="form-select form-select-sm" aria-label="Estado"></select>
+                <button type="button" class="btn btn-outline-secondary d-md-none" id="crono-filtros-btn" aria-expanded="false" aria-controls="crono-filtros"><i class="fa-solid fa-filter me-1"></i>Filtros <span class="badge rounded-pill text-bg-primary" id="crono-filtros-n"></span></button>
+                <div class="dropdown crono-mas"><button type="button" id="crono-planta" class="form-select form-select-sm text-start text-truncate multi-sel" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-label="Plantas (varias a la vez)">Todas las plantas</button><div class="dropdown-menu shadow py-2 multi-menu" id="crono-planta-menu"></div></div>
+                <select id="crono-mes" class="form-select form-select-sm crono-mas" aria-label="Mes"></select>
+                <select id="crono-modulo" class="form-select form-select-sm crono-mas" aria-label="Tema"></select>
+                <select id="crono-estado" class="form-select form-select-sm crono-mas" aria-label="Estado"></select>
                 <span class="contador ms-auto" id="crono-conteo"></span>
               </div>
             </div>
             <div id="crono-lista"></div>
+            <div id="crono-cal" hidden></div>
           </section>
 
           <!-- COBERTURA -->

@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.20.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.21.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -27,7 +27,7 @@
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
     const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', plantas: [], inactivos: false, filtro: '' };
     const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {}, plantas: [], empresas: [] };
-    const crono = { cuando: 'proximas', plantas: [] };
+    const crono = { cuando: 'proximas', plantas: [], vista: leer('localStorage', 'sigbe_crono_vista') === 'cal' ? 'cal' : 'lista', mesCal: '' }; // vista: lista o calendario (se recuerda)
     const mat = { plantas: [] };
     const evid = { k: '', lista: null };
     const rev = { g: '', tipo: '' };
@@ -180,6 +180,7 @@
       grupoChips('crono-cuando', 'cuando', v => { crono.cuando = v; pintarCronograma(); });
       grupoChips('rev-grav', 'g', v => { rev.g = v; pintarRevision(); });
       grupoChips('cam-origen', 'o', v => { cam.o = v; cam.limite = 200; pintarCambios(); });
+      $('crono-filtros-btn').onclick = () => { const a = !$('crono-filtros').classList.contains('abierto'); $('crono-filtros').classList.toggle('abierto', a); $('crono-filtros-btn').setAttribute('aria-expanded', String(a)); };
       $('brig-filtros-btn').onclick = () => { const a = !$('brig-filtros').classList.contains('abierto'); $('brig-filtros').classList.toggle('abierto', a); $('brig-filtros-btn').setAttribute('aria-expanded', String(a)); };
       $('brig-orden-cel').onchange = ev => { brig.orden = ev.target.value; brig.dir = 1; pintarBrigadistas(); };
       document.querySelectorAll('#brig-cab th.ordenable').forEach(th => { th.tabIndex = 0; th.onclick = th.onkeydown = ev => { if (ev.type === 'keydown' && ev.key !== 'Enter') return; const k = th.dataset.orden; brig.dir = brig.orden === k ? -brig.dir : 1; brig.orden = k; pintarBrigadistas(); }; });
@@ -442,6 +443,10 @@
         'ir-incompletos': () => { ir('brigadistas'); $('brig-datos').value = 'incompletos'; pintarBrigadistas(); },
         'ir-atrasadas': () => { if (d.sede) { E.sedes = [d.sede]; guardar('localStorage', 'sigbe_sede', JSON.stringify(E.sedes)); pintarSelectorSede(); } asis.key = null; asis.paso = 'sesiones'; asis.filtro = 'atrasada'; asis.plantas = []; ir('asistencia'); },
         'ir-crono': () => irCronograma(d.cuando),
+        'crono-vista': () => { crono.vista = d.v === 'cal' ? 'cal' : 'lista'; guardar('localStorage', 'sigbe_crono_vista', crono.vista === 'cal' ? 'cal' : ''); pintarCronograma(); },
+        'cal-mes': () => { const [y, m] = (crono.mesCal || D.hoy.slice(0, 7)).split('-').map(Number); crono.mesCal = +d.d ? new Date(Date.UTC(y, m - 1 + (+d.d), 1)).toISOString().slice(0, 7) : ''; pintarCronograma(); },
+        'cal-mas': () => { const c = el.closest('.cal-dia'); if (!c) return; const a = c.classList.toggle('abierta'); el.textContent = a ? 'Ver menos' : '+' + d.n + ' más'; },
+        'cal-sinfecha': () => irCronograma('sinfecha'),
         'asis-sede': () => cambiarSede([d.sede]),
         'elegir-sede': () => cambiarSede([d.sede]),
         'sede-solo': () => { cambiarSede([d.sede]); bootstrap.Dropdown.getOrCreateInstance($('sel-sede')).hide(); },
@@ -698,7 +703,7 @@
     }
     /** Lleva al cronograma con un filtro de «cuándo» ya puesto. */
     function irCronograma(cuando) {
-      crono.cuando = cuando || '';
+      crono.cuando = cuando || ''; crono.vista = 'lista';
       document.querySelectorAll('#crono-cuando .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cuando === crono.cuando)));
       ir('cronograma');
     }
@@ -1704,7 +1709,7 @@
 
     // ══════════ CRONOGRAMA ══════════
     function prepararCronograma() {
-      $('crono-alertas-btn').style.display = E.perfil && E.perfil.admin ? '' : 'none'; // solo los gestores
+      $('crono-alertas-btn').style.display = $('crono-alertas-cel').style.display = E.perfil && E.perfil.admin ? '' : 'none'; // solo los gestores
       const base = D.cronoTodo.filter(c => enSede(c) && !c.na);
       const meses = unicos(base.map(c => c.i ? c.i.slice(0, 7) : '')).sort();
       const mesAct = $('crono-mes').value, modAct = $('crono-modulo').value, estAct = $('crono-estado').value;
@@ -1715,6 +1720,16 @@
       pintarCronograma();
     }
     function pintarCronograma() {
+      const cal = crono.vista === 'cal';
+      const nf = (crono.plantas.length ? 1 : 0) + (!cal && $('crono-mes').value ? 1 : 0) + ($('crono-modulo').value ? 1 : 0) + ($('crono-estado').value ? 1 : 0);
+      $('crono-filtros-n').textContent = nf || '';
+      $('crono-cal').hidden = !cal; $('crono-lista').hidden = cal; $('crono-cuando').hidden = cal; $('crono-mes').hidden = cal;
+      document.querySelectorAll('#crono-vista .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === crono.vista)));
+      if (cal) {
+        const q = norm($('crono-buscar').value), mod = $('crono-modulo').value, est = $('crono-estado').value;
+        return pintarCalendario(D.cronoTodo.filter(c => enSede(c) && !c.na && (!crono.plantas.length || crono.plantas.indexOf(c.pl) !== -1) && (!mod || c.ent === mod) && (!est || c.e === est) &&
+          (!q || norm([c.ent, c.pl, c.obs, c.e, c.pre, c.cl].join(' ')).includes(q))));
+      }
       const q = norm($('crono-buscar').value), mes = $('crono-mes').value, mod = $('crono-modulo').value, est = $('crono-estado').value;
       const na = crono.cuando === 'noaplica';
       const lista = D.cronoTodo.filter(c => enSede(c) && (na ? c.na : !c.na) && (!crono.plantas.length || crono.plantas.indexOf(c.pl) !== -1) && (!mes || (c.i || '').startsWith(mes)) && (!mod || c.ent === mod) && (!est || c.e === est) &&
@@ -1737,6 +1752,57 @@
             ${badgeEstadoCrono(c.e)}${hay ? `<button class="btn btn-sm btn-outline-primary" data-accion="ir-asistencia" data-sede="${esc(c.sede)}" data-key="${esc(key)}"><i class="fa-solid fa-clipboard-check me-1"></i>Asistencia</button>` : ''}
             <button class="btn btn-sm btn-outline-secondary" data-accion="crono-editar" data-k="${c.k}" title="Cambiar fecha, estado u observaciones"><i class="fa-solid fa-pen"></i><span class="ms-1">${c.na ? 'Habilitar' : c.i ? 'Editar' : 'Programar'}</span></button></div>`;
         }).join('') + '</div>').join('') || '<p class="text-muted mt-3">No hay sesiones con ese filtro.</p>';
+    }
+
+    // ══════════ CRONOGRAMA EN CALENDARIO (semana por semana) ══════════
+    // Usa los mismos filtros que la lista (sedes, plantas, tema, estado y búsqueda) menos «cuándo» y el mes: muestra un
+    // mes en semanas de lunes a domingo. En el computador, una cuadrícula; en el celular, cada semana con sus sesiones.
+    const DIAS_SEM = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    function diaUTC(iso) { return new Date(iso + 'T12:00:00Z'); }
+    function isoUTC(d) { return d.toISOString().slice(0, 10); }
+    function tonoEstado(e) { const n = norm(e); return /REALIZ|EJECUT/.test(n) ? 'r' : /CANCEL/.test(n) ? 'x' : /PENDIENTE/.test(n) ? 'p' : /PROGRAMAD/.test(n) ? 'g' : 'o'; }
+    const SIMBOLO_TONO = { r: '✓', g: '•', p: '!', x: '✕', o: '·' };
+    function pintarCalendario(base) {
+      const mes = crono.mesCal || D.hoy.slice(0, 7), ini = diaUTC(mes + '-01'), y = ini.getUTCFullYear(), m = ini.getUTCMonth();
+      const desde = new Date(ini); desde.setUTCDate(1 - (ini.getUTCDay() + 6) % 7); // el lunes de la primera semana
+      const ultimo = new Date(Date.UTC(y, m + 1, 0, 12)), hasta = new Date(ultimo); hasta.setUTCDate(ultimo.getUTCDate() + 6 - (ultimo.getUTCDay() + 6) % 7);
+      const d0 = isoUTC(desde), d1 = isoUTC(hasta), porDia = {};
+      base.filter(c => c.i && c.i >= d0 && c.i <= d1).forEach(c => { (porDia[c.i] = porDia[c.i] || []).push(c); });
+      Object.keys(porDia).forEach(k => porDia[k].sort((a, b) => a.pl.localeCompare(b.pl) || a.fila - b.fila));
+      const delMes = base.filter(c => c.i && c.i.startsWith(mes)).length, sinFecha = base.filter(c => !c.i).length;
+      const semanas = [];
+      for (const d = new Date(desde); isoUTC(d) <= d1;) { const s = []; for (let k = 0; k < 7; k++) { s.push(isoUTC(d)); d.setUTCDate(d.getUTCDate() + 1); } semanas.push(s); }
+      const titulo = MESES_L[m] + ' ' + y, conLista = new Set(D.sesiones.map(s => s.key));
+      const ayuda = c => esc((c.cl ? c.cl + ' · ' : '') + c.ent + ' · ' + c.pl + ' · ' + c.ses + (c.e ? ' · ' + c.e : '') + (c.amb ? ' · Ambipar: ' + c.amb : ''));
+      const chip = (c, k) => `<button type="button" class="cal-chip t-${tonoEstado(c.e)} ${k >= 3 ? 'extra' : ''}" data-accion="crono-editar" data-k="${c.k}" title="${ayuda(c)}"><span aria-hidden="true">${SIMBOLO_TONO[tonoEstado(c.e)]}</span> ${c.cl ? '<b>' + esc(c.cl) + '</b> ' : ''}${esc(c.pl)}</button>`;
+      const cuadricula = `<div class="cal-grid tarjeta" role="table" aria-label="Calendario de ${titulo}">` + DIAS_SEM.map(x => `<div class="cal-dsem" role="columnheader">${x.slice(0, 3)}</div>`).join('') +
+        semanas.map(s => s.map((iso, k) => {
+          const l = porDia[iso] || [], dd = +iso.slice(8);
+          return `<div class="cal-dia ${iso.slice(0, 7) !== mes ? 'fuera' : ''} ${iso === D.hoy ? 'hoy' : ''} ${k > 4 ? 'finde' : ''}" data-dia="${iso}" role="cell" aria-label="${DIAS_SEM[k]} ${dd}: ${l.length} sesión(es)">
+            <span class="cal-num">${dd}</span>${l.map(chip).join('')}${l.length > 3 ? `<button type="button" class="cal-mas" data-accion="cal-mas" data-dia="${iso}" data-n="${l.length - 3}">+${l.length - 3} más</button>` : ''}</div>`;
+        }).join('')).join('') + '</div>';
+      const fechaLarga = iso => { const k = (diaUTC(iso).getUTCDay() + 6) % 7; return DIAS_SEM[k] + ' ' + (+iso.slice(8)) + ' de ' + MESES_L[+iso.slice(5, 7) - 1].toLowerCase(); };
+      const agenda = '<div class="cal-agenda">' + semanas.map(s => {
+        const n = s.reduce((k, iso) => k + (porDia[iso] || []).length, 0);
+        return `<div class="tarjeta cal-sem mb-2"><div class="cal-sem-tit">Semana del ${+s[0].slice(8)} ${MESES[+s[0].slice(5, 7) - 1]} al ${+s[6].slice(8)} ${MESES[+s[6].slice(5, 7) - 1]} <span class="text-muted fw-normal">· ${n ? n + (n === 1 ? ' sesión' : ' sesiones') : 'sin sesiones'}</span></div>
+          <div class="cal-tira" aria-hidden="true">${s.map((iso, k) => { const l = (porDia[iso] || []).length; return `<div class="cal-tira-dia ${l ? 'con' : ''} ${iso === D.hoy ? 'hoy' : ''} ${iso.slice(0, 7) !== mes ? 'fuera' : ''}">${DIAS_SEM[k].charAt(0)}<b>${+iso.slice(8)}</b><span class="n">${l || ''}</span></div>`; }).join('')}</div>` +
+          s.filter(iso => (porDia[iso] || []).length).map(iso => `<div class="cal-ag-dia">${fechaLarga(iso)}${iso === D.hoy ? ' · hoy' : ''}</div>` + porDia[iso].map(c => {
+            const key = c.cl ? c.cl + '|' + c.n : '', t = tonoEstado(c.e);
+            return `<div class="cal-ag-item"><button type="button" class="cal-ag-btn" data-accion="crono-editar" data-k="${c.k}" title="${ayuda(c)}">
+                <span class="d-block text-truncate small fw-semibold"><span class="cal-sim t-${t}" aria-hidden="true">${SIMBOLO_TONO[t]}</span>${c.cl ? '<span class="badge text-bg-dark me-1">' + esc(c.cl) + '</span>' : ''}${esc(c.ent)}</span>
+                <span class="d-block small text-muted text-truncate">${esc(c.pl)} · ${esc(c.ses)}${c.e ? ' · ' + esc(c.e) : ''}</span></button>
+              ${key && conLista.has(key) ? `<button type="button" class="btn btn-outline-primary cal-ag-asis" data-accion="ir-asistencia" data-sede="${esc(c.sede)}" data-key="${esc(key)}" data-planta="${esc(c.pl)}" aria-label="Tomar asistencia"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></button>` : ''}</div>`;
+          }).join('')).join('') + '</div>';
+      }).join('') + '</div>';
+      $('crono-conteo').textContent = delMes + (delMes === 1 ? ' sesión' : ' sesiones') + ' en ' + MESES_L[m].toLowerCase();
+      $('crono-cal').innerHTML = `<div class="d-flex flex-wrap align-items-center gap-2 my-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary cal-nav" data-accion="cal-mes" data-d="-1" aria-label="Mes anterior"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+          <h2 class="h5 fw-bold mb-0 cal-titulo">${titulo}</h2>
+          <button type="button" class="btn btn-sm btn-outline-secondary cal-nav" data-accion="cal-mes" data-d="1" aria-label="Mes siguiente"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
+          ${mes !== D.hoy.slice(0, 7) ? '<button type="button" class="btn btn-sm btn-outline-primary cal-nav" data-accion="cal-mes" data-d="0">Este mes</button>' : ''}
+          <span class="small text-muted ms-md-auto cal-leyenda"><span class="cal-sim t-g">•</span>Programada <span class="cal-sim t-p">!</span>Pendiente <span class="cal-sim t-r">✓</span>Realizada <span class="cal-sim t-x">✕</span>Cancelada</span>
+        </div>` + cuadricula + agenda +
+        (sinFecha ? `<p class="small text-muted mt-2"><i class="fa-regular fa-calendar me-1" aria-hidden="true"></i>${sinFecha} sesión(es) sin fecha no salen en el calendario. <a href="#" data-accion="cal-sinfecha">Verlas en la lista</a></p>` : '');
     }
 
     // Editar una sesión del cronograma (y, si se quiere, las de otras plantas en la misma fila)
@@ -2939,8 +3005,9 @@
         ],
       },
       cronograma: {
-        para: 'Las fechas de cada sesión de capacitación en cada planta.',
+        para: 'Las fechas de cada sesión de capacitación en cada planta. Se ve como <b>Lista</b> o como <b>Calendario</b> (el mes semana por semana).',
         puede: [
+          '<b>Calendario</b> (arriba, junto a Lista): el mes en semanas de lunes a domingo. Cada sesión sale con el color de su estado (• programada, ! pendiente, ✓ realizada, ✕ cancelada); tócala para editarla. Con las flechas cambias de mes. En el celular se ve semana por semana, con los 7 días arriba.',
           'Ver las sesiones <b>Próximas, Pasadas, Por definir</b>, <b>Todas</b> o las que <b>No aplican</b>; filtrar por mes, tema o estado, y buscar.',
           '<b>Asistencia</b>, en una sesión, te lleva directo a su lista.',
           ['g', '<b>Programar</b> o <b>Editar</b> una sesión: Fecha Holcim, Fecha Ambipar, estado y observaciones.'],

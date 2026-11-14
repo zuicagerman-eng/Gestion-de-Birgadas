@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.20.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.21.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -104,6 +104,15 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   a las capacitaciones* (personal Holcim: asistencias registradas frente a las esperadas en los módulos ya dictados,
   brigadistas al día, contratistas con 0256, asistencia por sede), *Cobertura de brigadistas* (Indicador frente a la
   meta del 20 %), próximas capacitaciones y revisión de datos.
+- **Cronograma en calendario**: arriba, **Lista | Calendario** (se recuerda en cada equipo). El calendario muestra un mes
+  en semanas de **lunes a domingo**, con los mismos filtros de sedes, plantas, tema, estado y búsqueda (no los de
+  «cuándo» ni el mes: se cambia de mes con las flechas, y «Este mes» vuelve). Cada sesión es una etiqueta con el color y
+  el símbolo de su estado (• programada, ! pendiente, ✓ realizada, ✕ cancelada); al tocarla se abre **Editar**. Si un
+  día tiene más de 3, «+N más» las muestra todas. Hoy va resaltado. En el **celular**, cada semana es una tarjeta con la
+  tira de los 7 días (cuántas sesiones tiene cada uno) y debajo sus sesiones, con el botón de asistencia. Las sesiones
+  sin fecha no salen en el calendario: un enlace las muestra en la lista («Por definir»). Desde el Inicio, «Necesita
+  atención» siempre abre la lista con su filtro. En el celular, el encabezado trae **Programar / Agregar sesión** y
+  **Más** (Nuevo módulo y, para los gestores, Alertas de pendientes), y plantas, mes, tema y estado van tras **Filtros**.
 - **Cronograma**: filtro nuevo **Sin Fecha Ambipar** (con Fecha Holcim desde este mes, sin Fecha Ambipar, ni realizada ni
   cancelada); es el mismo que usa «Necesita atención».
 - **Cobertura**: una tarjeta por planta del *Indicador.* con % de la meta, brigadistas, requeridos y personal, y el
