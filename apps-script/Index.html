@@ -235,6 +235,27 @@
     .vacio { text-align: center; color: #4b5864; padding: 18px 8px; }
     .vacio i { font-size: 1.6rem; display: block; margin-bottom: 6px; color: #8c959f; }
 
+    /* Tomar asistencia: botones grandes en pantallas táctiles; en el celular, el nombre se parte y el botón queda a la derecha */
+    .sede-asis .acc-titulo { font-size: 1rem; }
+    .asis-avance { max-width: 320px; }
+    @media (max-width: 575.98px) {
+      .fila-persona { flex-wrap: nowrap !important; }
+      .fila-persona > .flex-grow-1 { min-width: 0; overflow-wrap: anywhere; }
+      .btn-asistio { min-width: 0; width: 124px; flex: none; padding-left: 6px; padding-right: 6px; }
+      .asis-avance { max-width: none; }
+      .barra-guardar > .flex-grow-1 { flex-basis: 100%; }
+      .barra-guardar > .btn { flex: 1 1 0; }
+    }
+    @media (pointer: coarse) {
+      .btn-asistio { min-height: 50px; font-size: 1rem; font-weight: 600; border-radius: 12px; }
+      .fila-persona { padding: 12px; }
+      #asis-contenido .btn, #asis-contenido .chip { min-height: 44px; }
+      #asis-contenido .form-check-input { width: 1.4em; height: 1.4em; }
+      #asis-contenido .form-check-label { padding-top: .15em; padding-left: .2em; }
+      .barra-guardar .btn { min-height: 48px; }
+      .tarjeta-sesion { padding: 14px; }
+    }
+
     /* Celular: barra de accesos abajo */
     .barra-abajo { display: none; }
     @media (max-width: 767.98px) {
@@ -271,7 +292,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.19.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.19.1</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>

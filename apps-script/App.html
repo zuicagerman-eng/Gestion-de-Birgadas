@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.19.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.19.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -747,8 +747,18 @@
       const c = $('asis-contenido');
       if (!E.sede) {
         asis.paso = 'sesiones'; migas();
-        c.innerHTML = `<div class="tarjeta p-4"><h2 class="h5 mb-3">1. ¿En qué sede vas a tomar asistencia?</h2><div class="row g-2">` +
-          unicos(P.map(p => p.sede)).filter(sedeOk).map(s => `<div class="col-6 col-md-4 col-lg-3"><button class="btn btn-outline-primary w-100 py-3 fw-semibold" data-accion="asis-sede" data-sede="${esc(s)}"><i class="fa-solid fa-location-dot me-1"></i>${esc(s)}<div class="small fw-normal">${personasSede(s).filter(p => p.activo).length} brigadistas</div></button></div>`).join('') + '</div></div>';
+        const fin = masDias(D.hoy, 6), m = (t, tono) => `<span class="meta ${tono || ''}">${t}</span>`;
+        const sedes = unicos(P.map(p => p.sede)).filter(sedeOk).sort((x, y) => x.localeCompare(y, 'es')).map(sd => {
+          const l = sesionesSede(sd).filter(x => x.aplica);
+          return { sd: sd, n: personasSede(sd).filter(p => p.activo).length, hay: l.length,
+            atras: l.filter(x => !x.marcadas && x.iso && x.iso < D.hoy).length, semana: l.filter(x => x.iso && x.iso >= D.hoy && x.iso <= fin).length };
+        });
+        c.innerHTML = `<div class="tarjeta p-3 p-md-4"><h2 class="h5 mb-1">1. ¿En qué sede vas a tomar asistencia?</h2>
+          <p class="small text-muted mb-3">Cada sede dice cuántas sesiones ya pasaron sin asistencia (en rojo) y cuántas hay esta semana.</p><div class="row g-2">` +
+          sedes.map(x => `<div class="col-6 col-md-4 col-xl-3"><button type="button" class="accion sede-asis" data-accion="asis-sede" data-sede="${esc(x.sd)}">
+            <span class="acc-titulo"><i class="fa-solid fa-location-dot me-1 text-primary" aria-hidden="true"></i>${esc(x.sd)}</span>
+            <span class="acc-txt">${x.n} brigadista${x.n === 1 ? '' : 's'}</span>
+            <span class="acc-meta">${!x.hay ? m('Sin sesiones') : x.atras ? m(x.atras + ' sin registrar', 'mal') : m('✓ Al día', 'ok')}${x.semana ? m(x.semana + ' esta semana', 'info') : ''}</span></button></div>`).join('') + '</div></div>';
         return;
       }
       if (asis.paso === 'lista' && asis.key) return pintarLista();
@@ -801,12 +811,22 @@
       $('asis-contenido').innerHTML = `<div class="tarjeta p-3 mb-3">
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
             <div><div class="small text-muted">${esc(E.sede)} · ${esc(nombreSesion(s))}</div><h2 class="h5 mb-1">${esc(s.titulo)}</h2>
-              <div class="small"><i class="fa-regular fa-calendar me-1"></i>${esc(fechas.join(' / ') || 'Sin fecha programada')} · <b>${guardadas}</b> de ${aplican} con asistencia guardada</div></div>
-            <div class="d-flex flex-wrap gap-1">
+              <div class="small"><i class="fa-regular fa-calendar me-1"></i>${esc(fechas.join(' / ') || 'Sin fecha programada')} · <b>${guardadas}</b> de ${aplican} con asistencia guardada</div>
+              ${aplican ? `<div class="asis-avance">${pctBarra(Math.round(guardadas / aplican * 100), 'var(--s-ok)')}</div>` : ''}</div>
+            <div class="d-none d-sm-flex flex-wrap gap-1">
               <button class="btn btn-sm btn-outline-primary" data-accion="asis-holcim" title="La lista de esta sesión en la plantilla oficial de Holcim"><i class="fa-solid fa-file-pdf me-1"></i>Lista Holcim (PDF)</button>
               <button class="btn btn-sm btn-outline-secondary" data-accion="asis-imprimir"><i class="fa-solid fa-print me-1"></i>Imprimir para firmar</button>
               <button class="btn btn-sm btn-outline-secondary" data-accion="asis-csv"><i class="fa-solid fa-file-csv me-1"></i>CSV</button>
               <button class="btn btn-sm btn-outline-secondary" data-accion="asis-volver"><i class="fa-solid fa-arrow-left me-1"></i>Otra sesión</button>
+            </div>
+            <div class="d-flex d-sm-none gap-2 w-100">
+              <button class="btn btn-outline-secondary flex-fill" data-accion="asis-volver"><i class="fa-solid fa-arrow-left me-1"></i>Otra sesión</button>
+              <div class="dropdown flex-fill"><button class="btn btn-outline-secondary w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa-solid fa-download me-1"></i>Descargar</button>
+                <ul class="dropdown-menu dropdown-menu-end shadow">
+                  <li><button class="dropdown-item py-2" data-accion="asis-holcim"><i class="fa-solid fa-file-pdf me-2"></i>Lista Holcim (PDF)</button></li>
+                  <li><button class="dropdown-item py-2" data-accion="asis-imprimir"><i class="fa-solid fa-print me-2"></i>Imprimir para firmar</button></li>
+                  <li><button class="dropdown-item py-2" data-accion="asis-csv"><i class="fa-solid fa-file-csv me-2"></i>CSV</button></li>
+                </ul></div>
             </div>
           </div>
           <div class="filtros mt-2">
@@ -815,12 +835,6 @@
             <button class="btn btn-sm btn-outline-success" data-accion="asis-todos" data-v="1" ${puede ? '' : 'disabled'}>Marcar todos</button>
             <button class="btn btn-sm btn-outline-secondary" data-accion="asis-todos" data-v="0" ${puede ? '' : 'disabled'}>Quitar todos</button>
             <div class="form-check ms-2"><input class="form-check-input" type="checkbox" id="asis-inact" ${asis.inactivos ? 'checked' : ''}><label class="form-check-label small" for="asis-inact">Ver desvinculados y a quienes no les aplica</label></div>
-          </div>
-          <div class="mt-3 pt-2 border-top">
-            <div class="d-flex flex-wrap align-items-center gap-2"><span class="small fw-semibold me-1"><i class="fa-solid fa-paperclip me-1"></i>Evidencias de la sesión</span>
-              ${E.usuario ? `<button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="lista"><i class="fa-solid fa-file-signature me-1"></i>Subir lista firmada</button>
-              <button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="foto"><i class="fa-solid fa-camera me-1"></i>Subir fotos</button>` : ''}</div>
-            <div id="evid-galeria" class="d-flex flex-wrap gap-2 mt-2">${galeriaEvid()}</div>
           </div>
           ${esPrincipal() && conInfo.some(o => o.x.aplica && !isoDe(o.p.fi)) ? `<div class="small text-muted mt-2"><i class="fa-solid fa-user-shield me-1"></i>Como programador ves también a ${conInfo.filter(o => o.x.aplica && !isoDe(o.p.fi)).length} activo(s) sin fecha de ingreso a la brigada (salen con «sin fecha de ingreso»). Los demás usuarios no los ven hasta que se registre la fecha.</div>` : ''}
           ${noAplican.length ? `<div class="small text-muted mt-2"><i class="fa-solid fa-circle-info me-1"></i>${noAplican.length} persona(s) no aparecen: ${[porIngreso ? porIngreso + ' ingresaron a la brigada después de la fecha de la sesión' : '', sinIngreso ? sinIngreso + ' no tienen registrada la fecha de ingreso a la brigada (complétala en Brigadistas)' : '', noAplican.length - porIngreso - sinIngreso ? (noAplican.length - porIngreso - sinIngreso) + ' porque la sesión no les aplica' : ''].filter(Boolean).join('; ')}. Para verlos, marca «Ver desvinculados y a quienes no les aplica».</div>` : ''}
@@ -833,7 +847,13 @@
           return `<div class="fila-persona d-flex flex-wrap align-items-center gap-2 ${cambiada ? 'cambiada' : ''} ${p.activo && x.aplica ? '' : 'inactiva'}" data-busca="${esc(norm(p.n + ' ' + p.c))}">
             <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.sede !== E.sede ? ' <span class="badge bg-info-subtle text-info-emphasis" title="Su planta principal es ' + esc(p.p) + '; también va a las sesiones de esta sede">de otra planta</span>' : ''}${avisoRestr(p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? (isoDe(p.fi) ? '' : ' · <span class="pildora e-na">sin fecha de ingreso</span>') : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
             <button class="btn ${v ? 'btn-success' : 'btn-outline-secondary'} btn-asistio" data-accion="asis-alternar" data-j="${p.j}" aria-pressed="${v}" ${habil ? '' : 'disabled'}>${v ? '<i class="fa-solid fa-check me-1"></i>Asistió' : '<i class="fa-regular fa-square me-1"></i>No asistió'}</button></div>`;
-        }).join('') + `<p class="text-muted" id="asis-vacio" style="${conInfo.length ? 'display:none' : ''}">No hay brigadistas para mostrar.</p></div>` +
+        }).join('') + `<p class="text-muted" id="asis-vacio" style="${conInfo.length ? 'display:none' : ''}">No hay brigadistas para mostrar.</p></div>
+        <div class="tarjeta p-3 mb-3">
+            <div class="d-flex flex-wrap align-items-center gap-2"><span class="small fw-semibold me-1"><i class="fa-solid fa-paperclip me-1"></i>Evidencias de la sesión</span>
+              ${E.usuario ? `<button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="lista"><i class="fa-solid fa-file-signature me-1"></i>Subir lista firmada</button>
+              <button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="foto"><i class="fa-solid fa-camera me-1"></i>Subir fotos</button>` : ''}</div>
+            <div id="evid-galeria" class="d-flex flex-wrap gap-2 mt-2">${galeriaEvid()}</div>
+        </div>` +
         (n ? `<div class="barra-guardar p-3 d-flex flex-wrap align-items-center gap-2 rounded-top" role="region" aria-label="Cambios sin guardar">
             <div class="flex-grow-1"><i class="fa-solid fa-triangle-exclamation text-warning me-1"></i><b>${n}</b> cambio(s) sin guardar</div>
             <button class="btn btn-outline-secondary" data-accion="asis-descartar">Descartar</button>
@@ -2863,19 +2883,20 @@
       asistencia: {
         para: 'Marcar quién asistió a cada sesión de capacitación.',
         pasos: [
-          'Elige la <b>sede</b>.',
+          'Elige la <b>sede</b>. Cada una dice cuántas sesiones ya pasaron sin asistencia (en rojo) y cuántas hay esta semana.',
           'Elige la <b>sesión</b>. Cada tarjeta dice su fecha y cuántos tienen asistencia: <span class="pildora e-si">✓ con asistencia</span> <span class="pildora e-no">✗ sin registrar</span> <span class="pildora e-pend">· próxima</span>',
           'Marca a quienes asistieron (o <b>Marcar todos</b>) y pulsa <b>Revisar y guardar</b>. Revisa el resumen y confirma.',
           'Si te equivocaste, el aviso que sale abajo tiene <b>Deshacer</b>.',
         ],
         puede: [
           '<b>Imprimir para firmar</b>: la lista de la sesión para que la firmen en papel.',
-          '<b>Subir lista firmada</b> (PDF o foto) y <b>Subir fotos</b> de la sesión: quedan guardadas y se ven aquí mismo. Las fotos se reducen solas para que suban rápido.',
+          '<b>Subir lista firmada</b> (PDF o foto) y <b>Subir fotos</b> de la sesión, debajo de la lista: quedan guardadas y se ven aquí mismo. Las fotos se reducen solas para que suban rápido.',
+          'En el celular, las descargas (Lista Holcim, Imprimir para firmar, CSV) están juntas en <b>Descargar</b>.',
           'Buscar a una persona por nombre o cédula dentro de la lista.',
           ['gh', 'También desde la ficha de cada brigadista (Brigadistas → clic en su nombre) marcas varias sesiones de una vez.'],
         ],
         ojo: [
-          'Solo aparecen los brigadistas a quienes les aplica la sesión: si alguien entró a la brigada después de esa fecha, no aparece y no le cuenta en contra. <b>Ver desvinculados y a quienes no les aplica</b> los muestra.',
+          'Solo aparecen los brigadistas a quienes les aplica la sesión y que tienen registrada la fecha de ingreso a la brigada: si alguien entró después de esa fecha, no aparece y no le cuenta en contra. <b>Ver desvinculados y a quienes no les aplica</b> los muestra.',
           ['gh', 'Una sesión que el cronograma dice que <b>no aplica</b> no se puede marcar. Si sí se dictó, ponle la fecha en el Cronograma.'],
           ['a', 'Una sesión que el cronograma dice que <b>no aplica</b> no se puede marcar. Si sí se dictó, habilítala en el Cronograma con <b>Programar / Agregar sesión</b> o avísale a Holcim.'],
           'Si te vas a otra pantalla sin guardar, la app te pregunta antes de descartar lo marcado.',

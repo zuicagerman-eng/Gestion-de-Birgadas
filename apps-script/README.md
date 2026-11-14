@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.19.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.19.1)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -37,10 +37,16 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
 - **Inicio**: brigadistas activos, cumplimiento, contratistas con certificado, cobertura frente a la meta, sesiones
   pasadas sin asistencia, próximas capacitaciones y resumen de la revisión.
 - **Tomar asistencia**: sede → sesión (filtros: pasadas sin registrar, próximas, con asistencia, sin fecha, no aplican)
-  → lista con buscador, plantas (una o varias), marcar todos, imprimir para firmar, CSV y deshacer. Quien tiene una
+  → lista con buscador, plantas (una o varias), marcar todos, imprimir para firmar, CSV y deshacer. Al **elegir la
+  sede**, cada una dice cuántas sesiones ya pasaron sin asistencia (en rojo), cuántas hay esta semana o «Al día» (en
+  orden alfabético). En la lista, una barra muestra cuántos tienen la asistencia guardada. Quien tiene una
   restricción médica vigente la muestra en rojo debajo del nombre; quien viene de otra planta («otras plantas») sale
-  marcado. **Evidencias de la sesión**: subir la lista firmada (PDF o foto) y fotos; se ven en una galería y se pueden
-  descargar o quitar (ver «Evidencias» abajo). Las tarjetas de sesión dicen si ya tiene lista firmada y cuántas fotos.
+  marcado. **Evidencias de la sesión** (debajo de la lista: primero se marca, después se sube): la lista firmada (PDF
+  o foto) y fotos; se ven en una galería y se pueden descargar o quitar (ver «Evidencias» abajo). Las tarjetas de
+  sesión dicen si ya tiene lista firmada y cuántas fotos. **En pantallas táctiles** los botones Asistió / No asistió
+  son de 50 px y los demás de al menos 44 px; en el celular el botón queda a la derecha del nombre, las descargas
+  (Lista Holcim, Imprimir para firmar, CSV) van juntas en **Descargar**, y la barra de guardar trae Descartar y Revisar
+  y guardar del mismo ancho.
 - **Avance por planta**: planta × módulo (filtro de una o varias plantas) con el % de brigadistas propios activos que asistieron entre los que ya debían
   tomarlo (la sesión aplica y su fecha pasó); "·" con la próxima fecha si aún no le toca y "—" si no aplica. Clic en un %
   abre esa lista de asistencia. Sin detalle por persona (eso está en la ficha de cada brigadista). CSV.
