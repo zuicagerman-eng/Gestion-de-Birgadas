@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.21.0';
+const SIGBE_VERSION = '4.22.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -1905,7 +1905,7 @@ function getAlertasPendientes(token, mes, tipos) {
     mes: mes, items: plan.items, huerfanos: plan.huerfanos.length,
     envios: plan.envios.map(e => Object.assign(persona(e.d), { lado: e.lado, n: sigbeContarAlertas_(e.items) })),
     copia: plan.copia.map(persona), candidatos: plan.todos.filter(d => d.rol !== 'proveedor').map(persona),
-    cupo: cupo, ultimo: prop_('SIGBE_ALERTAS_ULTIMO') || '',
+    cupo: cupo, ultimo: prop_('SIGBE_ALERTAS_ULTIMO') || '', recordatorio: sigbeEstadoRecordatorio_(),
   };
 }
 
@@ -1976,6 +1976,148 @@ function sigbeCorreoAlerta_(c, yo, url, nombresCopia, mes) {
   const texto = saludo + '\n\n' + grupos.map(g => SIGBE_TIPOS_ALERTA[g.t][0] + ' (' + g.l.length + '): ' + SIGBE_TIPOS_ALERTA[g.t][1] + '\n' +
     g.l.slice(0, 150).map(x => '- ' + fila(x).join(' | ')).join('\n')).join('\n\n') + (url ? '\n\nAbrir SIGBE: ' + url : '');
   return { asunto: asunto, html: html, texto: texto };
+}
+
+// ═════════════════════ RECORDATORIO AUTOMÁTICO: REGISTRAR LA ASISTENCIA (los 3 días siguientes a cada sesión) ═════════════════════
+// Cada día a las 7 a. m. (activador diario, solo si un gestor lo encendió en Cronograma → Alertas de pendientes) se buscan
+// las sesiones que fueron hace 1, 2 o 3 días, aplican a la planta y no tienen ninguna asistencia registrada. A cada usuario
+// de Holcim de esa sede y de Ambipar (con correo y avisos activos) le llega un correo con lo suyo; a los de «Siempre con
+// copia a» les llega un solo resumen con todo y a quién se le avisó. Apenas alguien registra la asistencia, esa sesión sale.
+const SIGBE_RECORD_DIAS = 3, SIGBE_RECORD_HORA = 7;
+
+function sigbeIsoMas_(iso, dias) { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + dias); return d.toISOString().slice(0, 10); }
+
+/** Sesiones de hace 1 a 3 días que aplican y no tienen ninguna asistencia: [{ id, sede, pl, cl, ses, ent, f, i, dias }]. */
+function sigbeSesionesSinRegistro_(m) {
+  const hoy = m.hoy || sigbeHoy_(), desde = sigbeIsoMas_(hoy, -SIGBE_RECORD_DIAS), out = [];
+  Object.keys(m.plantas || {}).forEach(pl => {
+    const info = m.plantas[pl];
+    // Quienes van a las sesiones de esa planta: los activos de ahí y los que la tienen en «otras plantas»
+    const gente = (m.holcim || []).filter(p => !/desvinculado/i.test(p.e || '') &&
+      (p.p === pl || String(p.op || '').split(',').map(x => x.trim()).indexOf(pl) !== -1));
+    if (!gente.length) return;
+    (m.sesiones || []).forEach((s, i) => {
+      const x = (info.s || [])[i];
+      if (!x || !x.a || !x.i || x.i >= hoy || x.i < desde || /cancel/i.test(x.e || '')) return;
+      if (gente.some(p => String(p.m || '').charAt(i) === '1')) return; // ya tiene asistencia
+      out.push({ id: pl + '|' + s.key, sede: info.sede || sigbeSede_(pl), pl: pl, cl: s.clave, ses: 'Sesión ' + s.n, ent: s.titulo, f: x.f, i: x.i,
+        dias: Math.round((Date.parse(hoy + 'T12:00:00Z') - Date.parse(x.i + 'T12:00:00Z')) / 86400000) });
+    });
+  });
+  return out.sort((a, b) => (a.i < b.i ? -1 : a.i > b.i ? 1 : a.sede.localeCompare(b.sede) || a.pl.localeCompare(b.pl)));
+}
+
+/** A quién le llega qué: { envios: [{ d, items }], copia: [perfil], huerfanos: [item] }. */
+function sigbePlanRecordatorio_(items) {
+  const principal = prop_('SIGBE_USUARIO');
+  const todos = [sigbePerfil_(principal)].concat(Object.keys(sigbeUsuarios_()).filter(u => u !== principal).map(sigbePerfil_)).filter(d => d && d.correo);
+  const copia = sigbeJson_(prop_('SIGBE_ALERTAS_COPIA'), []).map(u => todos.find(d => d.usuario === u)).filter(Boolean);
+  const correosCopia = copia.map(d => String(d.correo).toLowerCase());
+  // Los de copia reciben el resumen (con todo), no además su propio correo
+  const reciben = todos.filter(d => d.avisos && correosCopia.indexOf(String(d.correo).toLowerCase()) === -1);
+  const deSede = (d, x) => !d.sedes.length || d.sedes.indexOf(x.sede) !== -1;
+  const envios = reciben.map(d => ({ d: d, items: items.filter(x => deSede(d, x)) })).filter(e => e.items.length);
+  const lado = (d, x) => deSede(d, x) && d.avisos;
+  // Sin nadie de Holcim o sin nadie de Ambipar en esa sede: se dice en el resumen
+  const huerfanos = items.filter(x => !todos.some(d => d.rol !== 'proveedor' && lado(d, x)) || !todos.some(d => d.rol === 'proveedor' && lado(d, x)));
+  envios.forEach(e => e.items.forEach(x => { (x.para = x.para || []).push(e.d.nombre || e.d.usuario); }));
+  return { envios: envios, copia: copia, huerfanos: huerfanos };
+}
+
+/** El activador diario: solo lo corre la tarea programada (o el dueño desde el editor), no la pantalla. */
+function sigbeRecordatoriosAsistencia(e) {
+  lnTareaODueno_(e);
+  return sigbeRecordatorios_('');
+}
+
+/** Envía los recordatorios. Una sola vez por día, salvo que un gestor lo pida a mano (aMano = su usuario). */
+function sigbeRecordatorios_(aMano) {
+  const pr = propsFrescas_(); // lo último guardado (otra ejecución pudo enviar hoy)
+  if (!aMano && pr.getProperty('SIGBE_RECORDATORIOS') !== '1') return { exito: false, mensaje: 'El recordatorio automático está apagado.' };
+  const hoy = sigbeHoy_();
+  if (!aMano && pr.getProperty('SIGBE_RECORD_HOY') === hoy) return { exito: true, mensaje: 'Hoy ya se envió.' };
+  try {
+    const m = sigbeCacheLeer_(sigbeClaveModelo_()) || sigbeConstruirModelo_();
+    const items = sigbeSesionesSinRegistro_(m);
+    const fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+    if (!items.length) { props_().setProperty('SIGBE_RECORD_HOY', hoy); props_().setProperty('SIGBE_RECORD_ULTIMO', fecha + ' · nada pendiente, no se envió nada'); return { exito: true, enviados: 0, mensaje: 'No hay sesiones de los últimos 3 días sin asistencia: no se envió nada.' }; }
+    const plan = sigbePlanRecordatorio_(items);
+    const correos = plan.envios.map(e => ({ to: e.d.correo, nombre: e.d.nombre || e.d.usuario, items: e.items }));
+    if (plan.copia.length) correos.push({ to: plan.copia.map(d => d.correo).join(','), resumen: true, items: items, huerfanos: plan.huerfanos, avisados: plan.envios.map(x => x.d.nombre || x.d.usuario) });
+    const usa = plan.envios.length + plan.copia.length;
+    let cupo = 0; try { cupo = MailApp.getRemainingDailyQuota(); } catch (x) { cupo = 0; }
+    if (usa > cupo) {
+      props_().setProperty('SIGBE_RECORD_ULTIMO', fecha + ' · no se envió: hoy quedaban ' + cupo + ' envíos de correo y hacían falta ' + usa);
+      return { exito: false, mensaje: 'Hoy quedan ' + cupo + ' envíos de correo en la cuenta de la app y harían falta ' + usa + '.' };
+    }
+    let url = ''; try { url = ScriptApp.getService().getUrl() || ''; } catch (x) { /* sin URL */ }
+    props_().setProperty('SIGBE_RECORD_HOY', hoy); // antes de enviar: si algo falla a mitad, no se repite lo ya enviado
+    correos.forEach(c => { const t = sigbeCorreoRecordatorio_(c, url); MailApp.sendEmail({ to: c.to, name: 'SIGBE', subject: t.asunto, body: t.texto, htmlBody: t.html }); });
+    const resumen = items.length + ' sesión(es) sin asistencia de los últimos ' + SIGBE_RECORD_DIAS + ' días';
+    props_().setProperty('SIGBE_RECORD_ULTIMO', fecha + ' · ' + correos.length + ' correo(s) · ' + resumen);
+    sigbeBitacora_(aMano ? aMano : 'SIGBE (automático)', [['Recordatorio de asistencia', SIGBE_HOJA_CRONOGRAMA, '', '', '', resumen, '', correos.length + ' correo(s)']]);
+    return { exito: true, enviados: correos.length, mensaje: correos.length + ' correo(s) enviado(s): ' + resumen + '.' };
+  } catch (x) {
+    return { exito: false, mensaje: x.message };
+  }
+}
+
+/** Asunto, texto y HTML del recordatorio (c: { nombre, items } o { resumen, items, huerfanos, avisados }). */
+function sigbeCorreoRecordatorio_(c, url) {
+  const esc = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const n = c.items.length, ses = n === 1 ? 'sesión' : 'sesiones';
+  const asunto = c.resumen ? 'SIGBE · Resumen: ' + n + ' ' + ses + ' sin asistencia registrada' : 'SIGBE · Registra la asistencia: ' + n + ' ' + ses + ' sin registrar';
+  const intro = c.resumen
+    ? 'Resumen de hoy: estas sesiones de capacitación de la brigada ya se hicieron y todavía no tienen la asistencia registrada en SIGBE. Se les recordó a: ' + (c.avisados.length ? c.avisados.join(', ') : 'nadie (no hay usuarios con correo y avisos activos en esas sedes)') + '.'
+    : 'Hola, ' + c.nombre + '. Estas sesiones de capacitación de la brigada ya se hicieron y todavía no tienen la asistencia registrada en SIGBE. Por favor regístrala en «Tomar asistencia».';
+  const cuando = x => x.dias === 1 ? 'ayer' : 'hace ' + x.dias + ' días';
+  const aviso = x => x.dias >= SIGBE_RECORD_DIAS ? 'último recordatorio' : 'recordatorio ' + x.dias + ' de ' + SIGBE_RECORD_DIAS;
+  const fila = x => [x.f + ' (' + cuando(x) + ')', x.sede, x.pl + ' · ' + x.ses, (x.cl ? x.cl + ' · ' : '') + x.ent, aviso(x)].concat(c.resumen ? [(x.para || []).join(', ') || '—'] : []);
+  const cab = ['Fecha', 'Sede', 'Planta y sesión', 'Tema', 'Aviso'].concat(c.resumen ? ['Le llegó a'] : []);
+  const td = 'style="border:1px solid #dee2e6;padding:4px 6px;font-size:13px;vertical-align:top"';
+  const huerf = c.resumen && c.huerfanos && c.huerfanos.length
+    ? '<p style="color:#8a4b00">Ojo: ' + c.huerfanos.length + ' de estas sesiones no tienen usuario de Holcim o de Ambipar con correo en su sede, así que ese lado no recibió el recordatorio.</p>' : '';
+  const html = '<p>' + esc(intro) + '</p>' + huerf + '<table style="border-collapse:collapse"><tr>' + cab.map(h => '<th ' + td + ' align="left">' + h + '</th>').join('') + '</tr>' +
+    c.items.slice(0, 150).map(x => '<tr>' + fila(x).map(v => '<td ' + td + '>' + esc(v) + '</td>').join('') + '</tr>').join('') + '</table>' +
+    (url ? '<p style="margin-top:16px"><a href="' + esc(url) + '">Abrir SIGBE y tomar la asistencia</a></p>' : '') +
+    '<p style="color:#777;font-size:12px">Recordatorio automático de SIGBE: llega cada día durante los ' + SIGBE_RECORD_DIAS + ' días siguientes a una sesión mientras no tenga asistencia registrada. ' +
+    (c.resumen ? 'Te llega este resumen porque estás en «Siempre con copia a».' : 'Te llega por tus sedes en SIGBE; si no quieres recibir avisos, pídele al gestor que los apague en tu usuario.') + '</p>';
+  const texto = intro + '\n\n' + c.items.slice(0, 150).map(x => '- ' + fila(x).join(' | ')).join('\n') + (url ? '\n\nAbrir SIGBE: ' + url : '');
+  return { asunto: asunto, html: html, texto: texto };
+}
+
+/** Encender o apagar el recordatorio automático (crea o quita el activador diario). Solo los gestores. */
+function configurarRecordatorios(token, activar) {
+  const yo = sigbePerfil_(sigbeExigirSesion_(token));
+  if (!yo || !yo.admin) return { exito: false, mensaje: 'Solo un gestor enciende o apaga el recordatorio automático.' };
+  try {
+    ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'sigbeRecordatoriosAsistencia').forEach(t => ScriptApp.deleteTrigger(t));
+    if (activar) {
+      ScriptApp.newTrigger('sigbeRecordatoriosAsistencia').timeBased().everyDays(1).atHour(SIGBE_RECORD_HORA).inTimezone(Session.getScriptTimeZone()).create();
+      props_().setProperty('SIGBE_RECORDATORIOS', '1');
+    } else props_().deleteProperty('SIGBE_RECORDATORIOS');
+    sigbeBitacora_(yo.usuario, [['Configuración', 'Recordatorio de asistencia', '', '', '', activar ? 'Encendido: cada día a las 7 a. m.' : 'Apagado', '', '']]);
+    return { exito: true, mensaje: activar ? 'Recordatorio automático encendido: cada día a las 7 a. m. (entre las 7 y las 8).' : 'Recordatorio automático apagado.' };
+  } catch (x) {
+    return { exito: false, mensaje: x.message + ' (si dice que no hay permiso, vuelve a autorizar el proyecto desde el editor).' };
+  }
+}
+
+/** «Enviar ahora» (para probar o ponerse al día): lo mismo que el automático. Solo los gestores. */
+function enviarRecordatoriosAhora(token) {
+  const yo = sigbePerfil_(sigbeExigirSesion_(token));
+  if (!yo || !yo.admin) return { exito: false, mensaje: 'Solo un gestor envía los recordatorios.' };
+  return sigbeRecordatorios_(yo.usuario);
+}
+
+/** Lo que muestra la ventana de alertas: si está encendido, la última vez y cuántas sesiones irían hoy. */
+function sigbeEstadoRecordatorio_() {
+  let pendientes = 0, items = [];
+  try { items = sigbeSesionesSinRegistro_(sigbeCacheLeer_(sigbeClaveModelo_()) || sigbeConstruirModelo_()); pendientes = items.length; } catch (x) { pendientes = -1; }
+  let activador = false;
+  try { activador = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'sigbeRecordatoriosAsistencia'); } catch (x) { /* sin permiso */ }
+  return { activo: prop_('SIGBE_RECORDATORIOS') === '1', activador: activador, ultimo: prop_('SIGBE_RECORD_ULTIMO') || '', pendientes: pendientes,
+    lista: items.slice(0, 20).map(x => ({ f: x.f, sede: x.sede, pl: x.pl, ses: x.ses, cl: x.cl, dias: x.dias })) };
 }
 
 /** Respaldo del día de los archivos en uso (lo llama la tarea de cada hora, fuera del bloqueo de los guardados). */

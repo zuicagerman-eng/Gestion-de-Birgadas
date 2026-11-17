@@ -338,6 +338,11 @@
       #v-cronograma .btn-sm, #crono-filtros .form-select, #crono-filtros .form-control, #crono-filtros .multi-sel { min-height: 44px; }
     }
 
+    /* Recordatorio automático (ventana de alertas): interruptor más grande */
+    .al-record .form-switch { padding-left: 3.2em; }
+    .al-record .form-switch .form-check-input { width: 2.6em; height: 1.4em; margin-left: -3.2em; margin-top: .05em; cursor: pointer; }
+    .al-record .form-check-label { cursor: pointer; }
+
     /* Celular: barra de accesos abajo */
     .barra-abajo { display: none; }
     @media (max-width: 767.98px) {
@@ -374,7 +379,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.21.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.22.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>

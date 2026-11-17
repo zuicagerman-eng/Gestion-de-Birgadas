@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.21.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.22.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -463,6 +463,7 @@
         'al-copia-editar': () => { alertas.editarCopia = true; pintarAlertas(); },
         'al-copia-cancelar': () => { alertas.editarCopia = false; pintarAlertas(); },
         'al-copia-guardar': guardarCopiaAlertasApp,
+        'record-ahora': enviarRecordatoriosApp,
         'evid-subir': () => { if (!E.usuario) return pedirSesion(); $('evid-in-' + d.tipo).value = ''; $('evid-in-' + d.tipo).click(); },
         'evid-ver': () => verEvidencia(d.id),
         'evid-quitar': () => quitarEvidenciaApp(d.id),
@@ -2693,7 +2694,17 @@
       const correos = van.length + (huerf && a.copia.length ? 1 : 0);
       const usa = van.reduce((k, d) => k + 1 + a.copia.filter(c => c.correo.toLowerCase() !== d.correo.toLowerCase()).length, 0) + (huerf ? a.copia.length : 0);
       const caja = $('al-cuerpo').closest('.modal-body'), arriba = caja ? caja.scrollTop : 0; // que no salte al marcar o desmarcar
-      $('al-cuerpo').innerHTML = `<div class="row g-2 mb-3">${kpis}</div>
+      const rc = a.recordatorio || { activo: false, pendientes: 0, ultimo: '', lista: [] };
+      const recordatorio = `<div class="tarjeta p-3 mb-3 al-record">
+          <div class="form-check form-switch mb-1"><input class="form-check-input" type="checkbox" role="switch" id="al-record" ${rc.activo ? 'checked' : ''}>
+            <label class="form-check-label fw-semibold" for="al-record">Recordatorio automático: registrar la asistencia</label></div>
+          <div class="small text-muted">Cada día a las 7 a. m., durante los 3 días siguientes a cada sesión, si todavía no tiene ninguna asistencia registrada: le llega a Holcim de esa sede y a Ambipar; a «Siempre con copia a» les llega un resumen. Para apenas registran la asistencia.</div>
+          <div class="small mt-2">${rc.pendientes < 0 ? 'No se pudo revisar ahora.' : rc.pendientes ? `<b>Hoy irían ${rc.pendientes} ${rc.pendientes === 1 ? 'sesión' : 'sesiones'}</b>: ` + rc.lista.map(x => esc(x.f + ' ' + (x.cl || '') + ' · ' + x.pl)).join('; ') + (rc.pendientes > rc.lista.length ? '…' : '') : 'Hoy no hay sesiones de los últimos 3 días sin asistencia.'}</div>
+          ${rc.activo && rc.activador === false ? '<div class="small text-danger mt-1">Está encendido, pero falta el activador diario: apágalo y vuelve a encenderlo.</div>' : ''}
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-2">${rc.pendientes > 0 ? '<button type="button" class="btn btn-sm btn-outline-primary" data-accion="record-ahora"><i class="fa-solid fa-paper-plane me-1" aria-hidden="true"></i>Enviar ahora</button>' : ''}
+            ${rc.ultimo ? '<span class="small text-muted">Última vez: ' + esc(rc.ultimo) + '</span>' : ''}</div>
+        </div>`;
+      $('al-cuerpo').innerHTML = recordatorio + `<div class="row g-2 mb-3">${kpis}</div>
         <h3 class="h6 fw-bold">Le llega a (${van.length} de ${a.envios.length} persona${a.envios.length === 1 ? '' : 's'}, un correo cada una)</h3>${envios}
         ${huerf ? `<div class="alert alert-warning small py-2">${huerf} pendiente(s) no tienen a quién llegar de su lado (sede sin usuario de Holcim con correo, o sin Ambipar): ${a.copia.length ? 'les llegan a los de copia en un correo aparte.' : 'elige quién va con copia para que les lleguen.'}</div>` : ''}
         <h3 class="h6 fw-bold mt-3">Siempre con copia a</h3>${copia}
@@ -2702,6 +2713,7 @@
       $('al-enviar').disabled = !correos || alertas.editarCopia;
       $('al-enviar').innerHTML = `<i class="fa-solid fa-paper-plane me-1"></i>Enviar ${correos} correo${correos === 1 ? '' : 's'}`;
       if (caja) caja.scrollTop = arriba;
+      if ($('al-record')) $('al-record').onchange = cambiarRecordatorio;
       document.querySelectorAll('#al-cuerpo .al-persona').forEach(c => { c.onchange = () => {
         alertas.excluir = alertas.excluir.filter(u => u !== c.value).concat(c.checked ? [] : [c.value]); pintarAlertas();
       }; });
@@ -2709,6 +2721,27 @@
       document.querySelectorAll('#al-cuerpo .al-item').forEach(c => { c.onchange = () => marcar([c.value], c.checked); });
       document.querySelectorAll('#al-cuerpo .al-todos').forEach(c => { const de = a.items.filter(x => x.tipo === c.dataset.tipo); c.indeterminate = de.some(sale) && !de.every(sale); });
       document.querySelectorAll('#al-cuerpo .al-todos').forEach(c => { c.onchange = () => marcar(a.items.filter(x => x.tipo === c.dataset.tipo).map(x => x.id), c.checked); });
+    }
+    /** Recordatorio automático de asistencia: encender o apagar (el activador diario lo crea el servidor) y «Enviar ahora». */
+    async function cambiarRecordatorio(ev) {
+      const si = ev.target.checked; ev.target.disabled = true;
+      try {
+        const r = await api('configurarRecordatorios', E.token, si);
+        if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 8000);
+        await revisarAlertas();
+      } catch (e) { error(e); ev.target.checked = !si; ev.target.disabled = false; }
+    }
+    async function enviarRecordatoriosApp() {
+      const rc = (alertas.datos || {}).recordatorio || {};
+      if (!confirm('¿Enviar ahora el recordatorio de las ' + (rc.pendientes || 0) + ' sesión(es) sin asistencia de los últimos 3 días? Mañana a las 7 a. m. se envía otra vez si siguen sin registrar.')) return;
+      ocupado(true);
+      try {
+        const r = await api('enviarRecordatoriosAhora', E.token);
+        ocupado(false); if (revisarSesion(r)) return;
+        avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 10000);
+        await revisarAlertas();
+      } catch (e) { error(e); }
     }
     async function guardarCopiaAlertasApp() {
       const us = [...document.querySelectorAll('#al-copia-lista input:checked')].map(x => x.value);
@@ -3017,6 +3050,7 @@
           'Al editar puedes aplicar el mismo cambio a las otras plantas de esa fila.',
           '<b>Programar / Agregar sesión</b>: una sesión nueva en una planta.',
           '<b>Nuevo módulo</b>: un tema de capacitación que todavía no está.',
+          ['g', '<b>Recordatorio automático</b> (en Alertas de pendientes, solo los gestores): cada día a las 7 a. m., durante los 3 días siguientes a cada sesión sin asistencia registrada, le llega un correo a Holcim de esa sede y a Ambipar; a «Siempre con copia a», un resumen. Se enciende y apaga con el interruptor.'],
           ['g', '<b>Alertas de pendientes</b> (solo los gestores): revisa qué falta en cada sesión del mes en curso y avisa por correo a quien le toca — sin Fecha Holcim, a Holcim de esa sede; sin Fecha Ambipar, solo a Ambipar; fechas distintas, a los dos —, siempre con copia a quienes elijas. Antes de enviar muestra qué le llega a cada uno.'],
         ],
         otro: [['a', 'La <b>Fecha Holcim</b> y marcar que una sesión no aplica los hace Holcim.']],

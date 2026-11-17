@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.21.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.22.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -255,6 +255,27 @@ aplica y tienen fecha de ingreso, como en Tomar asistencia) y las que ya tienen 
   También desde **Tomar asistencia → Lista Holcim (PDF)**.
 - La plantilla se configura una vez en **Configuración → Archivos → Plantilla de la lista de asistencia** (propiedad
   `SIGBE_PLANTILLA_ASISTENCIA`, o `PLANTILLA_ASISTENCIA` como en Capacitaciones); tiene que estar compartida con la cuenta que ejecuta la app.
+
+## Recordatorio automático: registrar la asistencia
+
+En **Cronograma → Alertas de pendientes** (solo los gestores) hay un interruptor **«Recordatorio automático: registrar
+la asistencia»**. Encendido, crea un activador diario (`sigbeRecordatoriosAsistencia`, a las **7 a. m.**, entre las 7 y
+las 8) que:
+
+- Busca las sesiones que fueron **hace 1, 2 o 3 días**, le aplican a la planta y **no tienen ninguna asistencia
+  registrada** (cuentan también los de «otras plantas»; las canceladas y las de hoy no). Apenas alguien registra la
+  asistencia, la sesión sale; a los 3 días deja de avisarse (y sigue en «Necesita atención» del Inicio).
+- Envía **un correo por persona** con sus sesiones a los usuarios de **Holcim de esa sede** y de **Ambipar**, con
+  correo y avisos activos (la casilla «avisos» de cada usuario decide), con el enlace a SIGBE y si es el recordatorio
+  1, 2 o el último.
+- A los de **«Siempre con copia a»** les llega **un solo resumen** con todas las sesiones y a quién se le avisó (no
+  una copia de cada correo), y si alguna sede no tiene usuario de Holcim o de Ambipar con correo.
+- Una sola vez por día; si el cupo de correos no alcanza, no envía nada y lo dice. Queda en el historial
+  («Recordatorio de asistencia») y en la ventana se ve la última vez y cuántas sesiones irían hoy. **Enviar ahora**
+  lo manda en el momento (para probar o ponerse al día).
+- Propiedades: `SIGBE_RECORDATORIOS` (encendido), `SIGBE_RECORD_HOY` (día del último envío), `SIGBE_RECORD_ULTIMO`.
+  El activador solo lo corre la tarea programada o la cuenta dueña; desde la app solo los gestores lo encienden,
+  apagan o envían a mano.
 
 ## Evidencias (lista firmada y fotos de cada sesión)
 
