@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.22.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.22.1'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -464,6 +464,7 @@
         'al-copia-cancelar': () => { alertas.editarCopia = false; pintarAlertas(); },
         'al-copia-guardar': guardarCopiaAlertasApp,
         'record-ahora': enviarRecordatoriosApp,
+        'probar-mi-correo': probarMiCorreoApp,
         'evid-subir': () => { if (!E.usuario) return pedirSesion(); $('evid-in-' + d.tipo).value = ''; $('evid-in-' + d.tipo).click(); },
         'evid-ver': () => verEvidencia(d.id),
         'evid-quitar': () => quitarEvidenciaApp(d.id),
@@ -2378,12 +2379,31 @@
     }
 
     // ══════════ CONFIGURACIÓN ══════════
+    /** «Mis correos de SIGBE»: a qué dirección le escribe SIGBE a este usuario (la de su usuario) y una prueba. */
+    function pintarMiCorreo() {
+      const p = E.perfil || {};
+      $('mi-correo').innerHTML = p.correo
+        ? `SIGBE te escribe a <b>${esc(p.correo)}</b>${p.avisos === false ? ' · <span class="text-danger">tienes los avisos de cambios apagados</span>' : ''}. Ahí te llegan los avisos de cambios, las alertas y los recordatorios de asistencia.
+           <div class="text-muted mt-1">¿No es tu correo? ${p.principal ? 'Corrígelo en <b>Usuarios</b> (en esta misma pantalla), en tu fila → <b>Editar</b>.' : 'Pídele al gestor que lo corrija en Usuarios.'}</div>`
+        : `<span class="text-danger">Tu usuario no tiene correo en SIGBE: no te llega ningún aviso.</span> ${p.principal ? 'Ponlo en <b>Usuarios</b> (en esta misma pantalla), en tu fila → <b>Editar</b>.' : 'Pídele al gestor que lo ponga en Usuarios.'}`;
+      $('mi-correo-probar').style.display = p.correo ? '' : 'none';
+    }
+    async function probarMiCorreoApp() {
+      $('mi-correo-probar').disabled = true;
+      try {
+        const r = await api('probarMiCorreo', E.token);
+        if (revisarSesion(r)) return;
+        avisar(r.mensaje, r.exito ? 'success' : 'warning', 15000);
+      } catch (e) { error(e); } finally { $('mi-correo-probar').disabled = false; }
+    }
+
     async function cargarConfiguracion() {
       if (!E.usuario) { $('conf-sin-sesion').style.display = 'block'; $('conf-contenido').style.display = 'none'; return; }
       const temporal = !!(E.perfil && E.perfil.claveTemporal);
       const pintarClave = () => {
         $('conf-sin-sesion').style.display = 'none'; $('conf-contenido').style.display = 'block';
         $('clave-temporal').style.display = temporal ? '' : 'none';
+        pintarMiCorreo();
         if (temporal) setTimeout(() => { $('form-clave').scrollIntoView({ block: 'center' }); $('clave-actual').focus(); }, 300);
       };
       if (esProveedor()) { pintarClave(); $('clave-usuario').value = E.usuario; $('clave-usuario').disabled = true; return; }

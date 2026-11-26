@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.22.0';
+const SIGBE_VERSION = '4.22.1';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -2138,6 +2138,31 @@ function sigbeRespaldoHoy_(ss, soloSiFalta) {
     respaldoDelDia_(ss);
     props_().setProperty(clave, hoy);
   } catch (e) { /* sin espacio en Drive: se sigue, queda el historial de versiones */ }
+}
+
+/**
+ * «Enviarme un correo de prueba» (Configuración, cualquier usuario con sesión): manda un correo al correo de SU usuario en
+ * SIGBE y dice a qué dirección fue y desde qué cuenta sale, para saber si los avisos le llegan a la cuenta correcta.
+ */
+function probarMiCorreo(token) {
+  try {
+    const u = sigbeExigirSesion_(token), yo = sigbePerfil_(u);
+    if (!yo || !yo.correo) return { exito: false, mensaje: 'Tu usuario no tiene correo en SIGBE, así que no te llega ningún aviso. ' + (yo && yo.principal ? 'Ponlo en Usuarios, en tu fila (Editar).' : 'Pídele al gestor que lo ponga en Usuarios.') };
+    const cache = CacheService.getScriptCache(), k = 'sigbe_prueba_correo_' + u;
+    if (cache.get(k)) return { exito: false, mensaje: 'Ya te enviamos uno hace un momento a ' + yo.correo + '. Espera unos minutos antes de pedir otro.' };
+    const desde = cuentaScript_();
+    let url = ''; try { url = ScriptApp.getService().getUrl() || ''; } catch (e) { /* sin URL */ }
+    const texto = 'Hola' + (yo.nombre ? ', ' + yo.nombre : '') + '. Este es un correo de prueba de SIGBE. Si lo estás leyendo, aquí te llegan los correos de SIGBE: avisos de cambios' +
+      (yo.avisos ? '' : ' (los tienes apagados)') + ', alertas de pendientes y recordatorios de asistencia. Tu usuario: ' + u + '. Correo en SIGBE: ' + yo.correo + '. Sale desde la cuenta: ' + desde + '.';
+    MailApp.sendEmail({ to: yo.correo, name: 'SIGBE', subject: 'SIGBE · correo de prueba', body: texto + (url ? '\n\nAbrir SIGBE: ' + url : ''),
+      htmlBody: '<p>' + texto.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</p>' + (url ? '<p><a href="' + url + '">Abrir SIGBE</a></p>' : '') });
+    cache.put(k, '1', 300);
+    return { exito: true, correo: yo.correo, desde: desde,
+      mensaje: 'Te enviamos un correo de prueba a <b>' + yo.correo + '</b> (sale desde la cuenta ' + desde + '). Si no te llega en unos minutos, revisa Spam o Correo no deseado; si esa no es tu dirección, ' +
+        (yo.principal ? 'corrígela en Usuarios, en tu fila (Editar).' : 'pídele al gestor que la corrija en Usuarios.') };
+  } catch (e) {
+    return { exito: false, mensaje: e.message };
+  }
 }
 
 function probarCorreo() {

@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.22.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.22.1)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -255,6 +255,14 @@ aplica y tienen fecha de ingreso, como en Tomar asistencia) y las que ya tienen 
   También desde **Tomar asistencia → Lista Holcim (PDF)**.
 - La plantilla se configura una vez en **Configuración → Archivos → Plantilla de la lista de asistencia** (propiedad
   `SIGBE_PLANTILLA_ASISTENCIA`, o `PLANTILLA_ASISTENCIA` como en Capacitaciones); tiene que estar compartida con la cuenta que ejecuta la app.
+
+## ¿A qué correo le escribe SIGBE?
+
+SIGBE le escribe a cada usuario al **correo de su usuario** (Configuración → Usuarios). El del usuario principal está en
+la propiedad `SIGBE_CORREO` y se cambia en Usuarios, en su fila → Editar. Los correos salen **desde la cuenta dueña de
+la app** (la que publicó). En **Configuración → Mi usuario y clave → Mis correos de SIGBE** cada usuario ve a qué
+dirección le llegan y tiene **Enviarme un correo de prueba** (dice a qué dirección fue y desde qué cuenta salió; uno
+cada 5 minutos).
 
 ## Recordatorio automático: registrar la asistencia
 
