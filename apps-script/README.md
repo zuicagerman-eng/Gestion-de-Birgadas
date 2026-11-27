@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.24.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.25.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -291,6 +291,20 @@ las 8) que:
   El activador solo lo corre la tarea programada o la cuenta dueña; desde la app solo los gestores lo encienden,
   apagan o envían a mano.
 
+## Carpeta de Drive «Brigadas» (4.25)
+
+- En **Configuración → Archivos → «Carpeta de Drive donde se guarda todo»** un gestor pega el enlace de una carpeta de
+  Drive (puede estar en una unidad compartida). Hay que compartirla como **editor** con la cuenta de la app.
+- Adentro SIGBE usa la carpeta **Brigadas** (o la enlazada, si ya se llama así) y crea lo que falte:
+  **Brigadas / sede / módulo** (p. ej. `Brigadas / NOBSA / M6 - PRIMEROS AUXILIOS`). Un módulo se reconoce por su clave:
+  si ya hay una carpeta que empieza por «M6 », se usa esa.
+- Ahí quedan: las **listas de asistencia de Holcim** que se generan (desde Listas de asistencia o Tomar asistencia →
+  Lista Holcim; si se vuelve a generar la misma, la anterior va a la papelera de Drive), las **listas firmadas**, las
+  **fotos** y los **certificados**. El aviso al generar o subir dice dónde quedó.
+- Sin carpeta configurada todo sigue como antes (evidencias en la carpeta de la app; las listas generadas solo se
+  descargan). Si la carpeta no abre, la evidencia queda en la carpeta de la app y la pantalla lo dice. Lo que ya se
+  había subido antes no se mueve.
+
 ## Evidencias (lista firmada y fotos de cada sesión)
 
 - Desde **Tomar asistencia**, en cada sesión: **Subir lista firmada** (PDF de hasta 5 MB, o foto) y **Subir fotos** (varias
@@ -298,7 +312,7 @@ las 8) que:
 - Los archivos van a la carpeta de Drive **«SIGBE Evidencias (listas firmadas y fotos)»** de la cuenta dueña (privada: se
   ven desde la app) y quedan anotados en la pestaña `Evidencias SIGBE` del libro de registro (sede, sesión, quién, cuándo,
   miniatura). La app solo abre archivos que están en esa pestaña.
-- **Subir certificado** (4.24, solo Ambipar; el botón no les sale a los demás y el servidor lo rechaza): un PDF de hasta
+- **Subir certificado** (4.24, solo Ambipar: los demás ven el botón apagado con «solo Ambipar», y el servidor lo rechaza): un PDF de hasta
   5 MB o una foto por sesión y sede. Queda en la galería con la etiqueta «Certificado» y la tarjeta de la sesión lo dice.
   Al subirlo, SIGBE envía **un correo con el archivo adjunto** a los usuarios de Holcim (y gestores) de esa sede con
   correo y avisos activos, más los de «Siempre con copia a» de las alertas (cada uno en copia oculta). Si no hay a quién

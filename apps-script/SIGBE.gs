@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.24.0';
+const SIGBE_VERSION = '4.25.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -463,9 +463,25 @@ function pdfListaAsistencia(token, d) {
       curso: txt(d.curso), ini: dia(d.ini), fin: dia(d.fin) || dia(d.ini), instructor: txt(d.instructor), tipo: txt(d.tipo, 30), modalidad: txt(d.modalidad, 30),
       lugar: txt(d.lugar), horas: txt(d.horas, 10), sesion: txt(d.sesion, 40), firmar: gente.every(g => !g[6]), gente: gente,
     });
-    const nombre = (Utilities.formatDate(dia(d.ini), Session.getScriptTimeZone(), 'yyyy.MM.dd') + ' LISTA DE ASISTENCIA ' + sigbeNorm_(d.curso) + (d.lugar ? ' ' + txt(d.lugar) : ''))
+    const key = /^M\d+(-\d+)?\|\d+$/.test(String(d.key || '')) ? String(d.key) : '', nSes = key ? ' S' + key.split('|')[1] : '';
+    const nombre = (Utilities.formatDate(dia(d.ini), Session.getScriptTimeZone(), 'yyyy.MM.dd') + ' LISTA DE ASISTENCIA ' + sigbeNorm_(d.curso) + nSes + (d.lugar ? ' ' + txt(d.lugar) : ''))
       .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9 .,()&-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) + '.pdf';
-    return { exito: true, nombre: nombre, pdf: Utilities.base64Encode(blob.getBytes()) };
+    blob.setName(nombre);
+    // Se guarda en Brigadas / sede / módulo. Si ya estaba (misma sesión, planta y fecha), la anterior va a la papelera.
+    let guardada = null;
+    const sede = txt(d.sede, 60);
+    if (key && sede) {
+      try {
+        const f = sigbeCarpetaModulo_(sede, key, txt(d.curso));
+        if (f) {
+          const viejas = f.getFilesByName(nombre);
+          while (viejas.hasNext()) { try { viejas.next().setTrashed(true); } catch (e) { /* sin permiso para quitarla: queda también */ } }
+          f.createFile(blob);
+          guardada = { ruta: sigbeRutaCarpeta_(f, sede), url: f.getUrl() };
+        }
+      } catch (e) { guardada = { error: e.message }; }
+    }
+    return { exito: true, nombre: nombre, pdf: Utilities.base64Encode(blob.getBytes()), guardada: guardada };
   } catch (e) {
     return { exito: false, mensaje: 'No se pudo generar el PDF: ' + e.message };
   }
@@ -572,6 +588,60 @@ function sigbeCarpetaEvidencias_() {
   return it.hasNext() ? it.next() : DriveApp.createFolder(SIGBE_CARPETA_EVIDENCIAS);
 }
 
+// ══ Carpeta de Drive «Brigadas» (4.25) ══
+// Un gestor pega en Configuración el enlace de una carpeta de Drive (puede estar en una unidad compartida). Adentro SIGBE
+// usa la carpeta «Brigadas» (o la enlazada, si ya se llama así) y crea lo que falte: Brigadas / sede / módulo. Ahí
+// quedan las listas de asistencia de Holcim que se generan, las listas firmadas, las fotos y los certificados.
+const SIGBE_CARPETA_BRIGADAS = 'Brigadas';
+
+/** El ID de una carpeta a partir de su enlace (…/folders/ID, ?id=ID) o el ID solo. */
+function sigbeIdCarpeta_(t) {
+  const v = String(t || '').trim(), m = v.match(/\/folders\/([\w-]{10,})/) || v.match(/[?&]id=([\w-]{10,})/);
+  return m ? m[1] : /^[\w-]{10,}$/.test(v) ? v : '';
+}
+
+/** Subcarpeta por nombre (la crea si no está). Con «empieza», también sirve una que empiece así (p. ej. «M6 - …»). */
+function sigbeSubcarpeta_(padre, nombre, empieza) {
+  const limpio = String(nombre).replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Sin nombre';
+  const exacta = padre.getFoldersByName(limpio);
+  if (exacta.hasNext()) return exacta.next();
+  if (empieza) {
+    const it = padre.getFolders(), pre = sigbeNorm_(empieza);
+    while (it.hasNext()) { const f = it.next(), n = sigbeNorm_(f.getName()); if (n === pre || n.indexOf(pre + ' ') === 0) return f; }
+  }
+  return padre.createFolder(limpio);
+}
+
+/**
+ * La carpeta del módulo de una sesión: Brigadas / sede / «M6 - Título». null si no hay carpeta configurada.
+ * Si la carpeta configurada no se puede abrir, lanza el error (quien llama decide qué hacer).
+ */
+function sigbeCarpetaModulo_(sede, key, titulo) {
+  const id = sigbeIdCarpeta_(prop_('SIGBE_CARPETA_DRIVE'));
+  if (!id) return null;
+  const lock = LockService.getScriptLock(), tenia = lock.hasLock();
+  if (!tenia && !lock.tryLock(15000)) throw new Error('el sistema está ocupado');
+  try {
+    const raiz = DriveApp.getFolderById(id);
+    const brig = sigbeNorm_(raiz.getName()) === sigbeNorm_(SIGBE_CARPETA_BRIGADAS) ? raiz : sigbeSubcarpeta_(raiz, SIGBE_CARPETA_BRIGADAS);
+    const clave = String(key).split('|')[0];
+    if (!titulo) { try { const m = sigbeCacheLeer_(sigbeClaveModelo_()); const x = m && m.sesiones && m.sesiones.find(y => y.key === key); titulo = x ? x.titulo : ''; } catch (e) { titulo = ''; } }
+    return sigbeSubcarpeta_(sigbeSubcarpeta_(brig, sede || 'Sin sede'), clave + (titulo ? ' - ' + titulo : ''), clave);
+  } finally { if (!tenia) lock.releaseLock(); }
+}
+
+/** Dónde guardar una evidencia: la carpeta del módulo en «Brigadas» o, si no hay o falla, la carpeta de la app. */
+function sigbeCarpetaParaEvidencia_(sede, key, titulo) {
+  try { const f = sigbeCarpetaModulo_(sede, key, titulo); if (f) return { carpeta: f, aviso: '' }; }
+  catch (e) { return { carpeta: sigbeCarpetaEvidencias_(), aviso: ' No se pudo guardar en la carpeta Brigadas de Drive (' + e.message + '): quedó en la carpeta de la app.' }; }
+  return { carpeta: sigbeCarpetaEvidencias_(), aviso: '' };
+}
+
+/** «Brigadas / NOBSA / M6 - Primeros auxilios» para mostrarlo. */
+function sigbeRutaCarpeta_(f, sede) {
+  return SIGBE_CARPETA_BRIGADAS + ' / ' + sede + ' / ' + f.getName();
+}
+
 /** Cuántas hay de cada sesión: { 'Sede|M1|1': [listas firmadas, fotos] } (con caché; cambia la clave al subir o quitar). */
 function sigbeEvidenciasResumen_() {
   const clave = 'sigbe_evid2_' + (prop_('SIGBE_EVID_GEN') || '0'); // evid2: ahora con certificados
@@ -671,15 +741,16 @@ function subirEvidencia(token, d) {
     const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HHmm');
     const nombre = (hoy + ' ' + sede + ' ' + etiqueta + ' - ' + SIGBE_EVID_NOMBRE[tipo] + ext).replace(/[\\/:*?"<>|]/g, '-');
     const blob = Utilities.newBlob(bytes, mime, nombre);
-    const archivo = sigbeCarpetaEvidencias_().createFile(blob);
+    const destino = sigbeCarpetaParaEvidencia_(sede, key, String(d.titulo || '').replace(/\s+/g, ' ').trim().slice(0, 120));
+    const archivo = destino.carpeta.createFile(blob);
     const mini = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(String(d.mini || '')) && String(d.mini).length < 45000 ? String(d.mini) : '';
     const sh = sigbeHojaEvidencias_(true);
     sh.appendRow([new Date(), sigbeTxt_(sigbeEtiquetaUsuario_(usuario)), sigbeTxt_(sede), key, etiqueta, SIGBE_EVID_NOMBRE[tipo],
       sigbeTxt_(String(d.nombre || nombre).slice(0, 120)), archivo.getId(), Math.round(bytes.length / 1024), mini, '']);
     props_().setProperty('SIGBE_EVID_GEN', String(Date.now()));
     const fila = sh.getLastRow();
-    let aviso = '';
-    if (tipo === 'cert') aviso = ' ' + sigbeAvisarCertificado_(usuario, sede, etiqueta, String(d.titulo || '').replace(/\s+/g, ' ').trim().slice(0, 120), blob).mensaje;
+    let aviso = destino.aviso;
+    if (tipo === 'cert') aviso += ' ' + sigbeAvisarCertificado_(usuario, sede, etiqueta, String(d.titulo || '').replace(/\s+/g, ' ').trim().slice(0, 120), blob).mensaje;
     sigbeBitacora_(usuario, [['Evidencia de sesión', SIGBE_HOJA_EVIDENCIAS, fila, '', '', etiqueta + ' · ' + sede, '', SIGBE_EVID_NOMBRE[tipo] + (tipo === 'cert' ? ' subido' : ' subida') + aviso]]);
     return { exito: true, mensaje: SIGBE_EVID_NOMBRE[tipo] + (tipo === 'cert' ? ' guardado.' : ' guardada.') + aviso, lista: sigbeListaEvidencias_(sede, key), resumen: sigbeEvidenciasResumen_() };
   } catch (e) {
@@ -3216,6 +3287,7 @@ function getConfiguracion(token) {
     carpetaRespaldos: CARPETA_RESPALDOS,
     respaldos: respaldos,
     ejecutaComo: cuentaScript_(),
+    carpetaDrive: (() => { const id = sigbeIdCarpeta_(prop_('SIGBE_CARPETA_DRIVE')); if (!id) return { id: '', nombre: '', url: '' }; try { const f = DriveApp.getFolderById(id); return { id: id, nombre: f.getName(), url: f.getUrl() }; } catch (e) { return { id: id, nombre: '', url: '', error: 'No se puede abrir con la cuenta ' + cuentaScript_() }; } })(),
     plantillaAsistencia: (() => { const id = sigbePlantillaAsistencia_(); if (!id) return { id: '', nombre: '', url: '' }; try { const f = DriveApp.getFileById(id); return { id: id, nombre: f.getName(), url: f.getUrl() }; } catch (e) { return { id: id, nombre: '', url: '', error: 'No se puede abrir con la cuenta ' + cuentaScript_() }; } })(),
   };
 }
@@ -3251,6 +3323,15 @@ function guardarConfiguracion(token, cfg) {
       if (valor !== sigbePlantillaAsistencia_()) {
         props.setProperty('SIGBE_PLANTILLA_ASISTENCIA', valor); props.deleteProperty('PLANTILLA_ASISTENCIA'); // queda una sola
         cambios.push('plantilla de la lista de asistencia → ' + (valor || 'sin plantilla'));
+      }
+    }
+    if (cfg.carpetaDrive !== undefined) { // carpeta de Drive donde se guarda todo (Brigadas / sede / módulo); vacía = solo en la app
+      const t = String(cfg.carpetaDrive || '').trim(), valor = sigbeIdCarpeta_(t);
+      if (t && !valor) return { exito: false, mensaje: 'Eso no parece el enlace de una carpeta de Drive (debe tener /folders/ en la dirección).' };
+      if (valor) { try { DriveApp.getFolderById(valor).getName(); } catch (e) { return { exito: false, mensaje: 'No se pudo abrir la carpeta de Drive con ese enlace (¿está compartida con ' + cuentaScript_() + ' como editor?): ' + e.message }; } }
+      if (valor !== sigbeIdCarpeta_(props.getProperty('SIGBE_CARPETA_DRIVE'))) {
+        if (valor) props.setProperty('SIGBE_CARPETA_DRIVE', valor); else props.deleteProperty('SIGBE_CARPETA_DRIVE');
+        cambios.push('carpeta de Drive (Brigadas) → ' + (valor || 'ninguna'));
       }
     }
     if (reiniciarEspejo) {

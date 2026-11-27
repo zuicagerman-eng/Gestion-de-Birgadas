@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.24.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.25.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -911,7 +911,8 @@
             <div class="d-flex flex-wrap align-items-center gap-2"><span class="small fw-semibold me-1"><i class="fa-solid fa-paperclip me-1"></i>Evidencias de la sesión</span>
               ${E.usuario ? `<button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="lista"><i class="fa-solid fa-file-signature me-1"></i>Subir lista firmada</button>
               <button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="foto"><i class="fa-solid fa-camera me-1"></i>Subir fotos</button>
-              ${esProveedor() ? `<button class="btn btn-sm btn-outline-success" data-accion="evid-subir" data-tipo="cert" title="PDF o foto del certificado de esta sesión; le llega por correo a Holcim de la sede"><i class="fa-solid fa-award me-1"></i>Subir certificado</button>` : ''}` : ''}</div>
+              ${esProveedor() ? `<button class="btn btn-sm btn-outline-success" data-accion="evid-subir" data-tipo="cert" title="PDF o foto del certificado de esta sesión; le llega por correo a Holcim de la sede"><i class="fa-solid fa-award me-1"></i>Subir certificado</button>`
+                : `<span class="d-inline-block" tabindex="0" title="Solo Ambipar sube el certificado. Cuando lo sube, le llega por correo a Holcim de la sede."><button class="btn btn-sm btn-outline-success" disabled aria-describedby="evid-cert-nota" style="pointer-events: none;"><i class="fa-solid fa-award me-1"></i>Subir certificado</button></span><span class="small text-muted" id="evid-cert-nota">(solo Ambipar)</span>`}` : ''}</div>
             <div id="evid-galeria" class="d-flex flex-wrap gap-2 mt-2">${galeriaEvid()}</div>
         </div>` +
         (n ? `<div class="barra-guardar p-3 d-flex flex-wrap align-items-center gap-2 rounded-top" role="region" aria-label="Cambios sin guardar">
@@ -1118,7 +1119,7 @@
     }
     /** Lo que el servidor necesita para llenar la plantilla de Holcim. */
     function datosPdf(g) {
-      return { curso: g.s.titulo, sesion: nombreSesion(g.s), ini: g.iso, fin: g.iso, instructor: 'Ambipar', tipo: 'Externo', modalidad: g.modalidad, lugar: g.pl, horas: '',
+      return { curso: g.s.titulo, sesion: nombreSesion(g.s), sede: g.sede, key: g.s.key, ini: g.iso, fin: g.iso, instructor: 'Ambipar', tipo: 'Externo', modalidad: g.modalidad, lugar: g.pl, horas: '',
         p: g.gente.map(o => [o.p.c, o.p.n, o.p.p, '', NOMBRE_GRUPO[grupoDe(o.p)], '', estadoPersona(g, o)]) };
     }
     function bajarBlob(blob, nombre) {
@@ -1152,8 +1153,14 @@
           const hoy = D.hoy.replace(/-/g, '.');
           bajarBlob(await zip.generateAsync({ type: 'blob' }), hoy + ' Listas de asistencia (' + hechos.length + ').zip');
         }
-        if (fallas.length) avisar('<b>' + (hechos.length ? hechos.length + ' lista(s) en PDF. ' : '') + 'No salieron ' + fallas.length + ':</b><br>' + fallas.slice(0, 5).map(esc).join('<br>'), 'warning', 15000);
-        else avisar('✓ ' + (hechos.length === 1 ? esc(hechos[0].nombre) : hechos.length + ' listas en un .zip') + '.', 'success', 6000);
+        // ¿Quedaron guardadas en la carpeta Brigadas de Drive?
+        const ok = hechos.filter(r => r.guardada && r.ruta !== undefined || (r.guardada && r.guardada.ruta)), malas = hechos.filter(r => r.guardada && r.guardada.error);
+        const rutas = unicos(ok.map(r => r.guardada.ruta));
+        const guardado = !hechos.length ? '' : malas.length ? '<br><span class="text-danger">No se pudo guardar en Drive: ' + esc(malas[0].guardada.error) + '</span>'
+          : !ok.length ? '<br><span class="small">No quedaron guardadas en Drive: falta la carpeta (Configuración → Archivos → «Carpeta de Drive»).</span>'
+          : '<br>Guardada' + (ok.length > 1 ? 's' : '') + ' en Drive: ' + (rutas.length === 1 ? `<a href="${esc(ok[0].guardada.url)}" target="_blank" rel="noopener">${esc(rutas[0])}</a>` : rutas.length + ' carpetas de Brigadas') + '.';
+        if (fallas.length) avisar('<b>' + (hechos.length ? hechos.length + ' lista(s) en PDF. ' : '') + 'No salieron ' + fallas.length + ':</b><br>' + fallas.slice(0, 5).map(esc).join('<br>') + guardado, 'warning', 15000);
+        else avisar('✓ ' + (hechos.length === 1 ? esc(hechos[0].nombre) : hechos.length + ' listas en un .zip') + '.' + guardado, malas.length ? 'warning' : 'success', 10000);
       } finally { ocupado(false); if (avance) avance.textContent = ''; }
     }
     /** Desde Tomar asistencia: la lista de la sesión abierta (una por planta y fecha). */
@@ -2476,6 +2483,10 @@
         const nombre = a => a.url ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.nombre)}</a>` : `<span class="text-danger">${esc(a.error || 'Sin configurar')}</span>`;
         $('conf-origen').value = conf.origen.modo === 'ninguno' ? 'NINGUNO' : url(conf.origen.id); $('conf-origen-nombre').innerHTML = conf.origen.modo === 'ninguno' ? 'Sin 1.0' : nombre(conf.origen);
         $('conf-destino').value = url(conf.destino.id); $('conf-destino-nombre').innerHTML = nombre(conf.destino);
+        const urlCarpeta = id => id ? 'https://drive.google.com/drive/folders/' + id : '';
+        $('conf-carpeta').value = conf.carpetaDrive && conf.carpetaDrive.id ? urlCarpeta(conf.carpetaDrive.id) : '';
+        $('conf-carpeta-nombre').innerHTML = conf.carpetaDrive && conf.carpetaDrive.id ? nombre(conf.carpetaDrive) + ' · adentro: Brigadas / sede / módulo'
+          : 'Sin carpeta: las listas firmadas, fotos y certificados quedan solo en la carpeta de la app, y las listas Holcim generadas no se guardan. Compártela con ' + esc(conf.ejecutaComo || 'la cuenta de la app') + ' como editor.';
         $('conf-plantilla').value = conf.plantillaAsistencia && conf.plantillaAsistencia.id ? url(conf.plantillaAsistencia.id) : '';
         $('conf-plantilla-nombre').innerHTML = conf.plantillaAsistencia && conf.plantillaAsistencia.id ? nombre(conf.plantillaAsistencia) : 'Sin plantilla: los PDF de «Listas de asistencia» no se pueden generar. Compártela con ' + esc(conf.ejecutaComo || 'la cuenta de la app') + '.';
         $('conf-libro').value = url(conf.libro.id); $('conf-libro-nombre').innerHTML = conf.libro.id ? nombre(conf.libro) : 'Se crea desde el editor con libroNuevoCrear.';
@@ -2498,7 +2509,7 @@
       try { const r = await api('guardarConfiguracion', E.token, datos); ocupado(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000); if (r.exito && luego) await luego(); }
       catch (e) { error(e); }
     }
-    function guardarArchivos() { guardarConf({ idOrigen: $('conf-origen').value, idDestino: $('conf-destino').value, idLibro: $('conf-libro').value, plantillaAsistencia: $('conf-plantilla').value }, async () => { temarios = null; hojas = null; CAMBIOS = null; catalogos = null; await cargarDatos(true); cargarConfiguracion(); }); }
+    function guardarArchivos() { guardarConf({ idOrigen: $('conf-origen').value, idDestino: $('conf-destino').value, idLibro: $('conf-libro').value, plantillaAsistencia: $('conf-plantilla').value, carpetaDrive: $('conf-carpeta').value }, async () => { temarios = null; hojas = null; CAMBIOS = null; catalogos = null; await cargarDatos(true); cargarConfiguracion(); }); }
     async function cambiarAutomatico(activar) {
       ocupado(true);
       try { const r = await api('configurarAutomatico', E.token, activar, Number($('conf-horas').value)); ocupado(false); if (revisarSesion(r)) return; avisar(esc(r.mensaje), r.exito ? 'success' : 'danger', 9000); cargarConfiguracion(); }
@@ -3083,6 +3094,7 @@
           '<b>Imprimir para firmar</b>: la lista de la sesión para que la firmen en papel.',
           '<b>Subir lista firmada</b> (PDF o foto) y <b>Subir fotos</b> de la sesión, debajo de la lista: quedan guardadas y se ven aquí mismo. Las fotos se reducen solas para que suban rápido.',
           ['a', '<b>Subir certificado</b> (PDF o foto, hasta 5 MB): el certificado de la sesión. Queda en la galería y les llega por correo, con el archivo adjunto, a los usuarios de Holcim de la sede y a los que el gestor puso «con copia».'],
+          'Si el gestor configuró la <b>carpeta de Drive</b> (Configuración → Archivos), la lista firmada, las fotos, el certificado y las listas Holcim que generes quedan también en Drive, en <b>Brigadas / sede / módulo</b>.',
           ['gh', 'El <b>certificado</b> de la sesión lo sube Ambipar; cuando lo sube, te llega por correo si tienes esa sede y los avisos activos. También lo ves en la galería de la sesión.'],
           'En el celular, las descargas (Lista Holcim, Imprimir para firmar, CSV) están juntas en <b>Descargar</b>.',
           'Buscar a una persona por nombre o cédula dentro de la lista.',
