@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.23.0';
+const SIGBE_VERSION = '4.24.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -236,7 +236,7 @@ function sigbeConstruirModelo_() {
     indicadorSinFila: indicadorSinFila,
     seguimiento: seguimiento,
     restr: (() => { try { return sigbeRestriccionesEfectivas_(h.personas.map(p => p.cedula).concat(inhouse.map(p => p.c))); } catch (e) { avisos.push('Restricciones médicas: ' + e.message); return {}; } })(),
-    evid: (() => { try { return sigbeEvidenciasResumen_(); } catch (e) { return {}; } })(), // 'Sede|M1|1' → [listas firmadas, fotos]
+    evid: (() => { try { return sigbeEvidenciasResumen_(); } catch (e) { return {}; } })(), // 'Sede|M1|1' → [listas firmadas, fotos, certificados]
     sedes: SIGBE_SEDES.map(s => s[0]).filter(s => sedes.indexOf(s) !== -1).concat(sedes.filter(s => !SIGBE_SEDES.some(x => x[0] === s))),
   };
   // Cada vez que se recalcula la cobertura, la hoja PANEL (solo si cambió algún número)
@@ -574,7 +574,7 @@ function sigbeCarpetaEvidencias_() {
 
 /** Cuántas hay de cada sesión: { 'Sede|M1|1': [listas firmadas, fotos] } (con caché; cambia la clave al subir o quitar). */
 function sigbeEvidenciasResumen_() {
-  const clave = 'sigbe_evid_' + (prop_('SIGBE_EVID_GEN') || '0');
+  const clave = 'sigbe_evid2_' + (prop_('SIGBE_EVID_GEN') || '0'); // evid2: ahora con certificados
   const enCache = sigbeCacheLeer_(clave);
   if (enCache) return enCache;
   const o = {}, sh = sigbeHojaEvidencias_(false);
@@ -584,13 +584,18 @@ function sigbeEvidenciasResumen_() {
     datos.forEach((f, k) => {
       if (!f[0] || !f[1] || String(quitadas[k][0]).trim()) return; // sede, clave de la sesión; las quitadas no cuentan
       const k2 = String(f[0]) + '|' + String(f[1]);
-      o[k2] = o[k2] || [0, 0];
-      o[k2][/lista/i.test(f[3]) ? 0 : 1]++;
+      o[k2] = o[k2] || [0, 0, 0];
+      const t = sigbeTipoEvid_(f[3]);
+      o[k2][t === 'lista' ? 0 : t === 'cert' ? 2 : 1]++;
     });
   }
   sigbeCacheGuardar_(clave, o, 360);
   return o;
 }
+
+/** Tipo de una evidencia por lo que dice la pestaña: 'lista', 'cert' o 'foto'. */
+function sigbeTipoEvid_(t) { return /lista/i.test(t) ? 'lista' : /certificado/i.test(t) ? 'cert' : 'foto'; }
+const SIGBE_EVID_NOMBRE = { lista: 'Lista firmada', cert: 'Certificado', foto: 'Foto' };
 
 /** Las de una sesión, sin las quitadas: [{ id, tipo, archivo, f, u, kb, mini }]. */
 function sigbeListaEvidencias_(sede, key) {
@@ -602,7 +607,7 @@ function sigbeListaEvidencias_(sede, key) {
   claves.forEach((f, k) => { if (String(f[0]) === sede && String(f[1]) === key && !String(quitadas[k][0]).trim()) filas.push(2 + k); });
   return filas.slice(-40).map(r => {
     const v = sh.getRange(r, 1, 1, SIGBE_EV.mini).getValues()[0];
-    return { id: String(v[SIGBE_EV.id - 1]), tipo: /lista/i.test(v[SIGBE_EV.tipo - 1]) ? 'lista' : 'foto', archivo: String(v[SIGBE_EV.archivo - 1]),
+    return { id: String(v[SIGBE_EV.id - 1]), tipo: sigbeTipoEvid_(v[SIGBE_EV.tipo - 1]), archivo: String(v[SIGBE_EV.archivo - 1]),
       f: v[0] instanceof Date ? Utilities.formatDate(v[0], zona, 'dd/MM/yyyy HH:mm') : '', u: String(v[SIGBE_EV.subio - 1]), kb: Number(v[SIGBE_EV.kb - 1]) || 0,
       mini: /^data:image\/(jpeg|png|webp);base64,/.test(String(v[SIGBE_EV.mini - 1])) ? String(v[SIGBE_EV.mini - 1]) : '' };
   });
@@ -644,32 +649,77 @@ function getEvidencias(token, sede, key) {
   return sigbeListaEvidencias_(String(sede || ''), String(key || ''));
 }
 
-/** Sube la lista firmada (PDF o foto) o una foto de la sesión. d: { sede, key, tipo: 'lista'|'foto', nombre, mime, datos (base64), mini } */
+/**
+ * Sube la lista firmada (PDF o foto), una foto o el certificado de la sesión.
+ * d: { sede, key, tipo: 'lista'|'foto'|'cert', nombre, mime, datos (base64), mini, titulo }
+ * El certificado solo lo sube Ambipar, y avisa por correo (con el archivo) a Holcim de la sede y a los de «con copia».
+ */
 function subirEvidencia(token, d) {
   try {
     const usuario = sigbeExigirRol_(token, ['gestor', 'holcim', 'proveedor']);
     d = d || {};
-    const sede = String(d.sede || '').trim(), key = String(d.key || '').trim(), tipo = d.tipo === 'lista' ? 'lista' : d.tipo === 'foto' ? 'foto' : '';
+    const sede = String(d.sede || '').trim(), key = String(d.key || '').trim(), tipo = ['lista', 'foto', 'cert'].indexOf(d.tipo) !== -1 ? d.tipo : '';
     const mime = String(d.mime || '');
     if (!sede || !/^M\d+(-\d+)?\|\d+$/.test(key) || !tipo) return { exito: false, mensaje: 'Falta la sesión o el tipo de archivo.' };
-    if (!/^(image\/(jpeg|png|webp)|application\/pdf)$/.test(mime) || (tipo === 'foto' && mime === 'application/pdf')) return { exito: false, mensaje: 'Solo fotos (JPG o PNG) o, para la lista firmada, también PDF.' };
+    if (tipo === 'cert' && sigbeRol_(usuario) !== 'proveedor') return { exito: false, mensaje: 'El certificado lo sube Ambipar.' };
+    if (!/^(image\/(jpeg|png|webp)|application\/pdf)$/.test(mime) || (tipo === 'foto' && mime === 'application/pdf')) return { exito: false, mensaje: 'Solo fotos (JPG o PNG) o, para la lista firmada y el certificado, también PDF.' };
     const datos = String(d.datos || '');
     if (!datos || datos.length > Math.ceil(SIGBE_EVID_MAX_MB * 1024 * 1024 * 4 / 3) + 8) return { exito: false, mensaje: 'El archivo pesa más de ' + SIGBE_EVID_MAX_MB + ' MB.' };
     const bytes = Utilities.base64Decode(datos);
     const etiqueta = key.replace(/\|/, ' · Sesión ');
     const ext = mime === 'application/pdf' ? '.pdf' : mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.jpg';
     const hoy = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HHmm');
-    const nombre = (hoy + ' ' + sede + ' ' + etiqueta + ' - ' + (tipo === 'lista' ? 'Lista firmada' : 'Foto') + ext).replace(/[\\/:*?"<>|]/g, '-');
-    const archivo = sigbeCarpetaEvidencias_().createFile(Utilities.newBlob(bytes, mime, nombre));
+    const nombre = (hoy + ' ' + sede + ' ' + etiqueta + ' - ' + SIGBE_EVID_NOMBRE[tipo] + ext).replace(/[\\/:*?"<>|]/g, '-');
+    const blob = Utilities.newBlob(bytes, mime, nombre);
+    const archivo = sigbeCarpetaEvidencias_().createFile(blob);
     const mini = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(String(d.mini || '')) && String(d.mini).length < 45000 ? String(d.mini) : '';
     const sh = sigbeHojaEvidencias_(true);
-    sh.appendRow([new Date(), sigbeTxt_(sigbeEtiquetaUsuario_(usuario)), sigbeTxt_(sede), key, etiqueta, tipo === 'lista' ? 'Lista firmada' : 'Foto',
+    sh.appendRow([new Date(), sigbeTxt_(sigbeEtiquetaUsuario_(usuario)), sigbeTxt_(sede), key, etiqueta, SIGBE_EVID_NOMBRE[tipo],
       sigbeTxt_(String(d.nombre || nombre).slice(0, 120)), archivo.getId(), Math.round(bytes.length / 1024), mini, '']);
     props_().setProperty('SIGBE_EVID_GEN', String(Date.now()));
-    sigbeBitacora_(usuario, [['Evidencia de sesión', SIGBE_HOJA_EVIDENCIAS, sh.getLastRow(), '', '', etiqueta + ' · ' + sede, '', (tipo === 'lista' ? 'Lista firmada' : 'Foto') + ' subida']]);
-    return { exito: true, mensaje: (tipo === 'lista' ? 'Lista firmada' : 'Foto') + ' guardada.', lista: sigbeListaEvidencias_(sede, key), resumen: sigbeEvidenciasResumen_() };
+    const fila = sh.getLastRow();
+    let aviso = '';
+    if (tipo === 'cert') aviso = ' ' + sigbeAvisarCertificado_(usuario, sede, etiqueta, String(d.titulo || '').replace(/\s+/g, ' ').trim().slice(0, 120), blob).mensaje;
+    sigbeBitacora_(usuario, [['Evidencia de sesión', SIGBE_HOJA_EVIDENCIAS, fila, '', '', etiqueta + ' · ' + sede, '', SIGBE_EVID_NOMBRE[tipo] + (tipo === 'cert' ? ' subido' : ' subida') + aviso]]);
+    return { exito: true, mensaje: SIGBE_EVID_NOMBRE[tipo] + (tipo === 'cert' ? ' guardado.' : ' guardada.') + aviso, lista: sigbeListaEvidencias_(sede, key), resumen: sigbeEvidenciasResumen_() };
   } catch (e) {
     return { exito: false, mensaje: e.message };
+  }
+}
+
+/**
+ * Correo del certificado: a los usuarios de Holcim (y gestores) de esa sede con correo y avisos activos, más los de
+ * «Siempre con copia a» de las alertas. Va con el archivo adjunto. Devuelve { enviados, mensaje } (nunca lanza error:
+ * el certificado ya quedó guardado aunque el correo falle).
+ */
+function sigbeAvisarCertificado_(quien, sede, etiqueta, titulo, blob) {
+  try {
+    const principal = prop_('SIGBE_USUARIO');
+    const todos = [sigbePerfil_(principal)].concat(Object.keys(sigbeUsuarios_()).filter(u => u !== principal).map(sigbePerfil_)).filter(x => x && x.correo);
+    const holcim = todos.filter(x => x.rol !== 'proveedor' && x.avisos && (!x.sedes.length || x.sedes.indexOf(sede) !== -1));
+    const copia = sigbeJson_(prop_('SIGBE_ALERTAS_COPIA'), []).map(u => todos.find(x => x.usuario === u)).filter(Boolean);
+    const correos = [], nombres = [];
+    holcim.concat(copia).forEach(x => { const c = String(x.correo).trim().toLowerCase(); if (c && correos.indexOf(c) === -1) { correos.push(c); nombres.push(x.nombre || x.usuario); } });
+    if (!correos.length) return { enviados: 0, mensaje: 'No se avisó a nadie: no hay usuarios de Holcim con correo y avisos activos en ' + sede + ' ni personas «con copia».' };
+    let cupo = 0; try { cupo = MailApp.getRemainingDailyQuota(); } catch (x) { cupo = 0; }
+    if (cupo < 1) return { enviados: 0, mensaje: 'No se pudo avisar por correo: hoy ya no quedan envíos en la cuenta de la app.' };
+    const esc = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const yo = sigbePerfil_(quien), de = (yo && yo.nombre) || quien;
+    const adjunto = blob.getBytes().length <= SIGBE_EVID_MAX_MB * 1024 * 1024;
+    let url = ''; try { url = ScriptApp.getService().getUrl() || ''; } catch (x) { /* sin URL */ }
+    const asunto = 'SIGBE · Certificado de ' + etiqueta + ' en ' + sede;
+    const intro = de + ' (Ambipar) subió el certificado de la sesión ' + etiqueta + (titulo ? ' «' + titulo + '»' : '') + ' en ' + sede + '.';
+    const nota = adjunto ? 'Va adjunto a este correo y también queda en SIGBE: Tomar asistencia → ' + sede + ' → ' + etiqueta + ' → Evidencias de la sesión.'
+      : 'Pesa mucho para adjuntarlo: está en SIGBE, en Tomar asistencia → ' + sede + ' → ' + etiqueta + ' → Evidencias de la sesión.';
+    const html = '<p>' + esc(intro) + '</p><p>' + esc(nota) + '</p>' + (url ? '<p><a href="' + esc(url) + '">Abrir SIGBE</a></p>' : '') +
+      '<p style="color:#777;font-size:12px">Te llega por tu sede en SIGBE o porque estás en «Siempre con copia a». Si no quieres recibir avisos, pídele al gestor que los apague en tu usuario.</p>';
+    const correo = { to: correos.slice(0, 1).join(','), bcc: correos.slice(1).join(','), name: 'SIGBE', subject: asunto, body: intro + '\n\n' + nota + (url ? '\n\nAbrir SIGBE: ' + url : ''), htmlBody: html };
+    if (adjunto) correo.attachments = [blob];
+    if (!correo.bcc) delete correo.bcc;
+    MailApp.sendEmail(correo);
+    return { enviados: correos.length, mensaje: 'Se avisó por correo a ' + nombres.join(', ') + '.' };
+  } catch (e) {
+    return { enviados: 0, mensaje: 'El certificado quedó guardado, pero el correo no salió (' + e.message + ').' };
   }
 }
 

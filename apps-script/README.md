@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.23.0)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.24.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -298,6 +298,11 @@ las 8) que:
 - Los archivos van a la carpeta de Drive **«SIGBE Evidencias (listas firmadas y fotos)»** de la cuenta dueña (privada: se
   ven desde la app) y quedan anotados en la pestaña `Evidencias SIGBE` del libro de registro (sede, sesión, quién, cuándo,
   miniatura). La app solo abre archivos que están en esa pestaña.
+- **Subir certificado** (4.24, solo Ambipar; el botón no les sale a los demás y el servidor lo rechaza): un PDF de hasta
+  5 MB o una foto por sesión y sede. Queda en la galería con la etiqueta «Certificado» y la tarjeta de la sesión lo dice.
+  Al subirlo, SIGBE envía **un correo con el archivo adjunto** a los usuarios de Holcim (y gestores) de esa sede con
+  correo y avisos activos, más los de «Siempre con copia a» de las alertas (cada uno en copia oculta). Si no hay a quién
+  avisar o no queda cupo de correo, el certificado igual se guarda y la pantalla lo dice. Queda en el historial.
 - Las suben los tres tipos de usuario; **quitar** solo quien la subió o un gestor (el archivo va a la papelera de Drive,
   30 días, y la fila queda marcada como quitada).
 

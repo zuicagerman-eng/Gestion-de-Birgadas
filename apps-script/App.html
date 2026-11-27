@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.23.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.24.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -158,6 +158,7 @@
       $('evid-in-lista').onchange = ev => subirEvidencias([...ev.target.files], 'lista');
       $('al-mes').onchange = revisarAlertas; $('al-tipos').onchange = revisarAlertas;
       $('evid-in-foto').onchange = ev => subirEvidencias([...ev.target.files], 'foto');
+      $('evid-in-cert').onchange = ev => subirEvidencias([...ev.target.files], 'cert');
       $('brig-buscar').oninput = conEspera(pintarBrigadistas);
       ['brig-estado', 'brig-datos'].forEach(id => $(id).oninput = pintarBrigadistas);
       escucharMultiSel('brig-planta', brig.plantas, 'Todas las plantas', 'plantas', pintarBrigadistas);
@@ -909,7 +910,8 @@
         <div class="tarjeta p-3 mb-3">
             <div class="d-flex flex-wrap align-items-center gap-2"><span class="small fw-semibold me-1"><i class="fa-solid fa-paperclip me-1"></i>Evidencias de la sesión</span>
               ${E.usuario ? `<button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="lista"><i class="fa-solid fa-file-signature me-1"></i>Subir lista firmada</button>
-              <button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="foto"><i class="fa-solid fa-camera me-1"></i>Subir fotos</button>` : ''}</div>
+              <button class="btn btn-sm btn-outline-primary" data-accion="evid-subir" data-tipo="foto"><i class="fa-solid fa-camera me-1"></i>Subir fotos</button>
+              ${esProveedor() ? `<button class="btn btn-sm btn-outline-success" data-accion="evid-subir" data-tipo="cert" title="PDF o foto del certificado de esta sesión; le llega por correo a Holcim de la sede"><i class="fa-solid fa-award me-1"></i>Subir certificado</button>` : ''}` : ''}</div>
             <div id="evid-galeria" class="d-flex flex-wrap gap-2 mt-2">${galeriaEvid()}</div>
         </div>` +
         (n ? `<div class="barra-guardar p-3 d-flex flex-wrap align-items-center gap-2 rounded-top" role="region" aria-label="Cambios sin guardar">
@@ -2847,20 +2849,22 @@
     // ══════════ EVIDENCIAS DE LA SESIÓN (lista firmada y fotos) ══════════
     // Se guardan en Drive (carpeta de la cuenta dueña) y se anotan en el libro con una miniatura. La lista de asistencia
     // se repinta a cada clic: la galería se lee una vez por sesión y se guarda aquí.
+    const NOMBRE_EVID = { lista: 'Lista firmada', cert: 'Certificado', foto: 'Foto' }, ICONO_EVID = { lista: 'fa-file-signature', cert: 'fa-award', foto: 'fa-image' };
+    const ELLA_EVID = { lista: 'la lista firmada', cert: 'el certificado', foto: 'esta foto' };
     function resumenEvid(x) {
       if (!x.aplica) return '';
-      const ev = (D.evid || {})[E.sede + '|' + x.s.key] || [0, 0];
-      if (!ev[0] && !ev[1]) return x.marcadas ? '<div class="small mt-1 text-warning-emphasis"><i class="fa-solid fa-paperclip me-1"></i>Falta subir la lista firmada</div>' : '';
-      return `<div class="small mt-1 text-muted"><i class="fa-solid fa-paperclip me-1"></i>${ev[0] ? 'Lista firmada' : '<span class="text-warning-emphasis">Sin lista firmada</span>'}${ev[1] ? ' · ' + ev[1] + ' foto(s)' : ''}</div>`;
+      const ev = (D.evid || {})[E.sede + '|' + x.s.key] || [0, 0, 0];
+      if (!ev[0] && !ev[1] && !ev[2]) return x.marcadas ? '<div class="small mt-1 text-warning-emphasis"><i class="fa-solid fa-paperclip me-1"></i>Falta subir la lista firmada</div>' : '';
+      return `<div class="small mt-1 text-muted"><i class="fa-solid fa-paperclip me-1"></i>${ev[0] ? 'Lista firmada' : '<span class="text-warning-emphasis">Sin lista firmada</span>'}${ev[1] ? ' · ' + ev[1] + ' foto(s)' : ''}${ev[2] ? ' · <span class="text-success">Certificado</span>' : ''}</div>`;
     }
     function galeriaEvid() {
       if (evid.k !== E.sede + '|' + asis.key || !evid.lista) return '<span class="small text-muted">Cargando…</span>';
-      if (!evid.lista.length) return '<span class="small text-muted">Todavía no hay lista firmada ni fotos de esta sesión.</span>';
+      if (!evid.lista.length) return '<span class="small text-muted">Todavía no hay lista firmada, fotos ni certificado de esta sesión.</span>';
       const mio = x => E.perfil && (E.perfil.rol === 'gestor' || x.u.split(' (')[0] === E.usuario);
       return evid.lista.map(x => `<div class="evid-item"><button type="button" class="evid-mini" data-accion="evid-ver" data-id="${esc(x.id)}" title="${esc(x.archivo + ' · ' + x.f + ' · ' + x.u)}">
-          ${x.mini ? `<img src="${esc(x.mini)}" alt="">` : `<i class="fa-solid ${x.tipo === 'lista' ? 'fa-file-signature' : 'fa-image'} fa-2x mt-2" aria-hidden="true"></i>`}
-          <span class="evid-tipo">${x.tipo === 'lista' ? 'Lista firmada' : 'Foto'} · ${esc(x.f.slice(0, 5))}</span></button>
-        ${mio(x) ? `<button type="button" class="evid-x" data-accion="evid-quitar" data-id="${esc(x.id)}" aria-label="Quitar ${x.tipo === 'lista' ? 'la lista firmada' : 'la foto'} del ${esc(x.f)}" title="Quitar">×</button>` : ''}</div>`).join('');
+          ${x.mini ? `<img src="${esc(x.mini)}" alt="">` : `<i class="fa-solid ${ICONO_EVID[x.tipo] || 'fa-image'} fa-2x mt-2" aria-hidden="true"></i>`}
+          <span class="evid-tipo">${NOMBRE_EVID[x.tipo] || 'Foto'} · ${esc(x.f.slice(0, 5))}</span></button>
+        ${mio(x) ? `<button type="button" class="evid-x" data-accion="evid-quitar" data-id="${esc(x.id)}" aria-label="Quitar ${x.tipo === 'foto' ? 'la foto' : ELLA_EVID[x.tipo]} del ${esc(x.f)}" title="Quitar">×</button>` : ''}</div>`).join('');
     }
     function pintarGaleria() { if ($('evid-galeria')) $('evid-galeria').innerHTML = galeriaEvid(); }
     async function cargarEvidencias(forzar) {
@@ -2899,19 +2903,21 @@
           avisar(`Subiendo ${archivos.length > 1 ? (n + 1) + ' de ' + archivos.length : 'el archivo'}…`, 'info', 3000);
           let d;
           if (f.type === 'application/pdf') {
-            if (tipo !== 'lista') { avisar(esc(f.name) + ': las fotos tienen que ser imágenes.', 'warning', 8000); continue; }
+            if (tipo === 'foto') { avisar(esc(f.name) + ': las fotos tienen que ser imágenes.', 'warning', 8000); continue; }
             if (f.size > 5 * 1024 * 1024) { avisar(esc(f.name) + ' pesa más de 5 MB: escanéalo con menos resolución o súbelo como foto.', 'warning', 10000); continue; }
             d = { mime: 'application/pdf', datos: await leerBase64(f), mini: '' };
           } else if (/^image\//.test(f.type) || /\.(jpe?g|png|heic|webp)$/i.test(f.name)) {
             d = await reducirFoto(f);
           } else { avisar(esc(f.name) + ': solo fotos o PDF.', 'warning', 8000); continue; }
-          const r = await api('subirEvidencia', E.token, Object.assign({ sede: sede, key: key, tipo: tipo, nombre: f.name }, d));
+          const s = D.sesiones.find(x => x.key === key);
+          const r = await api('subirEvidencia', E.token, Object.assign({ sede: sede, key: key, tipo: tipo, nombre: f.name, titulo: s ? s.titulo : '' }, d));
           if (revisarSesion(r)) return;
           if (!r.exito) { avisar(esc(f.name) + ': ' + esc(r.mensaje), 'danger', 10000); continue; }
           bien++; D.evid = r.resumen || D.evid;
+          if (tipo === 'cert') { avisar(esc(r.mensaje), /no se avisó|no se pudo|no salió/i.test(r.mensaje) ? 'warning' : 'success', 12000); bien = -1; }
           if (evid.k === k) { evid.lista = r.lista; pintarGaleria(); }
         }
-        if (bien) avisar(bien === 1 ? (tipo === 'lista' ? 'Lista firmada guardada.' : 'Foto guardada.') : bien + ' fotos guardadas.', 'success', 5000);
+        if (bien > 0) avisar(bien === 1 ? (tipo === 'lista' ? 'Lista firmada guardada.' : 'Foto guardada.') : bien + ' fotos guardadas.', 'success', 5000);
       } catch (e) { error(e); } finally { ocupado(false); }
     }
     async function verEvidencia(id) {
@@ -2921,8 +2927,8 @@
         const r = await api('getEvidencia', E.token, id);
         ocupado(false);
         const bytes = Uint8Array.from(atob(r.datos), c => c.charCodeAt(0)), url = URL.createObjectURL(new Blob([bytes], { type: r.mime }));
-        $('evid-titulo').textContent = (x.tipo === 'lista' ? 'Lista firmada' : 'Foto') + (x.f ? ' · ' + x.f : '');
-        $('evid-cuerpo').innerHTML = /^image\//.test(r.mime) ? `<img src="${url}" alt="${x.tipo === 'lista' ? 'Lista firmada' : 'Foto de la sesión'}">`
+        $('evid-titulo').textContent = (NOMBRE_EVID[x.tipo] || 'Foto') + (x.f ? ' · ' + x.f : '');
+        $('evid-cuerpo').innerHTML = /^image\//.test(r.mime) ? `<img src="${url}" alt="${x.tipo === 'foto' ? 'Foto de la sesión' : NOMBRE_EVID[x.tipo]}">`
           : `<i class="fa-solid fa-file-pdf fa-4x text-danger mb-2" aria-hidden="true"></i><div>${esc(r.nombre)}</div>`;
         $('evid-pie').innerHTML = `<span class="small text-muted me-auto">Subió ${esc(x.u || '—')}</span>${/pdf/.test(r.mime) ? `<a class="btn btn-outline-primary" href="${url}" target="_blank" rel="noopener">Abrir</a>` : ''}<a class="btn btn-primary" href="${url}" download="${esc(r.nombre)}"><i class="fa-solid fa-download me-1"></i>Descargar</a>`;
         modal('modal-evid').show();
@@ -2930,7 +2936,7 @@
     }
     async function quitarEvidenciaApp(id) {
       const x = (evid.lista || []).find(y => y.id === id);
-      if (!x || !confirm('¿Quitar ' + (x.tipo === 'lista' ? 'la lista firmada' : 'esta foto') + ' del ' + x.f + '? Queda 30 días en la papelera de Drive.')) return;
+      if (!x || !confirm('¿Quitar ' + (ELLA_EVID[x.tipo] || 'esta foto') + ' del ' + x.f + '? Queda 30 días en la papelera de Drive.')) return;
       ocupado(true);
       try {
         const r = await api('quitarEvidencia', E.token, id);
@@ -3076,6 +3082,8 @@
         puede: [
           '<b>Imprimir para firmar</b>: la lista de la sesión para que la firmen en papel.',
           '<b>Subir lista firmada</b> (PDF o foto) y <b>Subir fotos</b> de la sesión, debajo de la lista: quedan guardadas y se ven aquí mismo. Las fotos se reducen solas para que suban rápido.',
+          ['a', '<b>Subir certificado</b> (PDF o foto, hasta 5 MB): el certificado de la sesión. Queda en la galería y les llega por correo, con el archivo adjunto, a los usuarios de Holcim de la sede y a los que el gestor puso «con copia».'],
+          ['gh', 'El <b>certificado</b> de la sesión lo sube Ambipar; cuando lo sube, te llega por correo si tienes esa sede y los avisos activos. También lo ves en la galería de la sesión.'],
           'En el celular, las descargas (Lista Holcim, Imprimir para firmar, CSV) están juntas en <b>Descargar</b>.',
           'Buscar a una persona por nombre o cédula dentro de la lista.',
           '<b>Traer de otra planta</b>: si vino alguien de otra planta (por ejemplo, de Chía a la sesión de Nobsa porque no pudo ir en su fecha), búscalo y pulsa <b>Traer</b>. Queda en esta lista solo esta vez, marcado «Asistió», y no cambia de planta. Se le guarda en su propio registro (le cuenta el módulo) y el historial dice dónde asistió. Si en su planta ese módulo tiene otra sesión, se le marca esa (te lo dice).',
