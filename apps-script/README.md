@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.22.1)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.22.2)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -378,8 +378,9 @@ marcar (si la fecha de ingreso está mal, se corrige primero). La fórmula de cu
 Si la persona no tiene fecha de ingreso, para el cumplimiento le aplican todas; pero en **Tomar asistencia** no sale
 en la lista hasta que se registre su fecha de ingreso (salvo que ya tenga la asistencia marcada; la nota lo cuenta y
 "Ver desvinculados y a quienes no les aplica" la muestra). "Marcar todos" e "Imprimir para firmar" tampoco la incluyen. El **programador
-(usuario principal)** sí ve en Tomar asistencia a todos los activos a quienes les aplica la sesión, aunque no tengan
-fecha de ingreso (salen con «sin fecha de ingreso»).
+(usuario principal)** y los usuarios de **Ambipar** (que toman la asistencia) sí ven en Tomar asistencia a todos los
+activos a quienes les aplica la sesión, aunque no tengan fecha de ingreso (salen con «sin fecha de ingreso»); «Marcar
+todos» e «Imprimir para firmar» también los incluyen para ellos.
 
 **Por sesión o por persona:** en *Tomar asistencia* se marca a todos los de una sesión; al tocar el nombre de alguien se
 abre su ficha, donde se marcan sus sesiones (también desde *Brigadistas*).
