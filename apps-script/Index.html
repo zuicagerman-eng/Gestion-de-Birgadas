@@ -379,7 +379,7 @@
   </style>
 </head>
 <body>
-  <span id="version-index" hidden>4.22.2</span><!-- debe coincidir con VERSION_HTML de App.html -->
+  <span id="version-index" hidden>4.23.0</span><!-- debe coincidir con VERSION_HTML de App.html -->
   <a href="#contenido" class="saltar">Saltar al contenido</a>
   <div id="cubierta" role="status" aria-live="polite"><div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"><span class="visually-hidden">Guardando…</span></div></div>
   <div id="avisos" aria-live="polite"></div>
@@ -1085,6 +1085,20 @@
     </form></div>
   </div>
   <!-- MODAL: confirmar -->
+  <div class="modal fade" id="modal-invitar" tabindex="-1" aria-labelledby="inv-titulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
+      <div class="modal-header"><h2 class="modal-title h5" id="inv-titulo"><i class="fa-solid fa-user-plus me-2 text-primary" aria-hidden="true"></i>Traer de otra planta</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+      <div class="modal-body">
+        <p class="small text-muted" id="inv-sub"></p>
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          <input type="search" id="inv-buscar" class="form-control flex-grow-1" style="min-width: 0; flex-basis: 160px;" placeholder="Nombre o cédula…" aria-label="Buscar brigadista de otra planta">
+          <select id="inv-planta" class="form-select" style="flex: 1 1 160px; min-width: 0;" aria-label="Planta"></select>
+        </div>
+        <div id="inv-lista"></div>
+      </div>
+      <div class="modal-footer"><span class="small text-muted me-auto">Se marcan «Asistió»; guarda en la lista con «Revisar y guardar».</span><button type="button" class="btn btn-primary" data-bs-dismiss="modal">Listo</button></div>
+    </div></div>
+  </div>
   <div class="modal fade" id="modal-confirmar" tabindex="-1" aria-labelledby="conf-titulo" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
       <div class="modal-header"><h2 class="modal-title h5" id="conf-titulo"></h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>

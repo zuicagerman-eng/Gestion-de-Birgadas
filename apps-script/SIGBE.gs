@@ -30,7 +30,7 @@
  */
 
 // Versión de la app. Debe ser la misma en SIGBE.gs e Index.html; la app avisa si no coinciden.
-const SIGBE_VERSION = '4.22.2';
+const SIGBE_VERSION = '4.23.0';
 const SIGBE_MINUTOS_AVISOS = 5; // los avisos por correo se juntan y salen como resumen a los 5 minutos
 
 const SIGBE_HOJA_HOLCIM = '2026 Brigadistas HOLCIM';
@@ -897,7 +897,8 @@ function sigbeGuardarAsistencia_(token, cambios) {
       porSede[sd] = porSede[sd] || {}; porSede[sd][k] = porSede[sd][k] || { si: 0, no: 0, n: [] };
       porSede[sd][k][c.valor === true ? 'si' : 'no']++; porSede[sd][k].n.push(p.nombre);
       aplicados.push({ key: c.key, cedula: c.cedula, nombre: c.nombre, fila: p.fila, valor: c.valor === true, anterior: actual === true });
-      bitacora.push(['Asistencia', sh.getName(), p.fila, p.cedula, p.nombre, s.clave + ' Sesión ' + s.n,
+      const en = String(c.en || '').replace(/\s+/g, ' ').trim().slice(0, 80); // invitado de otra planta: dónde asistió
+      bitacora.push(['Asistencia', sh.getName(), p.fila, p.cedula, p.nombre, s.clave + ' Sesión ' + s.n + (en ? ' · asistió en ' + en : ''),
         actual === true ? 'Asistió' : 'No', c.valor === true ? 'Asistió' : 'No']);
     });
     sigbeEscribirCeldas_(sh, escribir);

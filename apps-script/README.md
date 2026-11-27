@@ -1,4 +1,4 @@
-# SIGBE — Sistema de Gestión de Brigadas (versión 4.22.2)
+# SIGBE — Sistema de Gestión de Brigadas (versión 4.23.0)
 
 Aplicación web de Google Apps Script para gestionar las brigadas de emergencia: asistencia a capacitaciones,
 avance por persona, brigadistas, cronograma, cobertura, revisión de datos e historial de cambios. Es el
@@ -41,7 +41,13 @@ de abrir, la app muestra la copia del libro nuevo **en solo lectura** y lo avisa
   sede**, cada una dice cuántas sesiones ya pasaron sin asistencia (en rojo), cuántas hay esta semana o «Al día» (en
   orden alfabético). En la lista, una barra muestra cuántos tienen la asistencia guardada. Quien tiene una
   restricción médica vigente la muestra en rojo debajo del nombre; quien viene de otra planta («otras plantas») sale
-  marcado. **Evidencias de la sesión** (debajo de la lista: primero se marca, después se sube): la lista firmada (PDF
+  marcado. **Traer de otra planta** (4.23): para quien es de otra planta y vino a esta sesión (p. ej. de Chía a Nobsa);
+  se busca por nombre, cédula o planta, se pulsa **Traer** y queda en la lista solo esta vez, marcado «Asistió» y sin
+  cambiar de planta. La marca va a **su propio registro** (le cuenta el módulo): a la sesión de esta lista si le aplica
+  en su planta; si no, a la otra sesión del mismo módulo que sí le aplica (la pantalla lo dice). Si el módulo no le
+  aplica en su planta, o ingresó a la brigada después, no se puede traer. El historial lo deja con «asistió en
+  NOBSA · M6 · Sesión 1». En Listas de asistencia sale en la lista de su planta. Lo pueden usar todos los que toman
+  asistencia. **Evidencias de la sesión** (debajo de la lista: primero se marca, después se sube): la lista firmada (PDF
   o foto) y fotos; se ven en una galería y se pueden descargar o quitar (ver «Evidencias» abajo). Las tarjetas de
   sesión dicen si ya tiene lista firmada y cuántas fotos. **En pantallas táctiles** los botones Asistió / No asistió
   son de 50 px y los demás de al menos 44 px; en el celular el botón queda a la derecha del nombre, las descargas

@@ -1,7 +1,7 @@
 // SIGBE · código de las pantallas. NO lleva etiquetas <script>: el servidor (doGet en SIGBE.gs) lo manda
 // codificado dentro de Index.html para que nada en el camino lo altere, y el navegador lo decodifica y lo ejecuta.
     // ══════════ ESTADO ══════════
-    const VERSION_HTML = '4.22.2'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
+    const VERSION_HTML = '4.23.0'; // debe coincidir con SIGBE_VERSION en SIGBE.gs
     const E = { vista: 'inicio', token: leer('sessionStorage', 'sigbe_token'), usuario: null, sedes: sedesGuardadas(), listo: false, setup: null };
     // Varias sedes a la vez: E.sedes vacío = todas. E.sede es la sede única (o '' si hay 0 o varias), para tomar asistencia.
     Object.defineProperty(E, 'sede', { get: () => E.sedes.length === 1 ? E.sedes[0] : '' });
@@ -25,7 +25,7 @@
     /** true (y avisa) si el usuario es Ambipar y la acción es solo de Holcim. */
     function soloHolcim() { if (!esProveedor()) return false; avisar('Esto lo hace un usuario de Holcim. Con tu usuario de Ambipar tomas asistencia y en el Cronograma pones la Fecha Ambipar, programas sesiones y creas módulos.', 'info', 8000); return true; }
     let D = null, P = [], I = [], REV = null, CAMBIOS = null, catalogos = null, temarios = null, hojas = null, conf = null;
-    const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', plantas: [], inactivos: false, filtro: '' };
+    const asis = { paso: 'sesiones', key: null, cambios: {}, buscar: '', plantas: [], inactivos: false, filtro: '', invitados: {} }; // invitados: { sesión: { j: índice de SU sesión } }
     const brig = { tipo: '', orden: 'p', dir: 1, visibles: [], editar: false, cambios: {}, plantas: [], empresas: [] };
     const crono = { cuando: 'proximas', plantas: [], vista: leer('localStorage', 'sigbe_crono_vista') === 'cal' ? 'cal' : 'lista', mesCal: '' }; // vista: lista o calendario (se recuerda)
     const mat = { plantas: [] };
@@ -151,6 +151,7 @@
       $('reg-planta').onchange = ajustarPlantaNueva;
       $('lis-buscar').oninput = conEspera(pintarListas); ['lis-mes', 'lis-modulo', 'lis-estado'].forEach(id => { $(id).oninput = pintarListas; });
       $('lis-cuerpo').addEventListener('toggle', ev => { const d = ev.target; if (d.tagName === 'DETAILS' && d.open && !d.dataset.listo) { d.dataset.listo = '1'; d.querySelector('.lis-tabla').innerHTML = tablaLista(listas.vistas[+d.dataset.k]); } }, true);
+      $('inv-buscar').oninput = conEspera(pintarInvitar); $('inv-planta').onchange = pintarInvitar;
       $('restr-buscar').oninput = conEspera(pintarRestricciones); $('restr-ver').oninput = pintarRestricciones; $('restr-origen').oninput = pintarRestricciones;
       $('form-restr').onsubmit = guardarRestriccionApp;
       $('restr-persona').oninput = mostrarPersonaRestr;
@@ -456,6 +457,9 @@
         'asis-volver': volverASesiones,
         'asis-filtro': () => { asis.filtro = d.f; pintarAsistencia(); },
         'asis-alternar': () => alternar(+d.j),
+        'asis-invitar': abrirInvitar,
+        'inv-traer': () => traerInvitado(+d.j),
+        'inv-quitar': () => quitarInvitado(+d.j),
         'asis-todos': () => marcarTodos(d.v === '1'),
         alertas: abrirAlertas,
         'al-revisar': revisarAlertas,
@@ -796,7 +800,49 @@
     }
     function elegirSesion(key) { asis.key = key; asis.cambios = {}; asis.buscar = ''; asis.paso = 'lista'; pintarAsistencia(); window.scrollTo(0, 0); }
     function volverASesiones() { if (hayCambios() && !confirm('Tienes cambios sin guardar. ¿Descartarlos?')) return; asis.cambios = {}; asis.paso = 'sesiones'; asis.key = null; pintarAsistencia(); }
-    function valorActual(p) { return p.j in asis.cambios ? asis.cambios[p.j] : p.m.charAt(sesionActual().i) === '1'; }
+    function valorActual(p) { return p.j in asis.cambios ? asis.cambios[p.j] : p.m.charAt(idxDe(p)) === '1'; }
+    // ══ Invitados de otras plantas (solo para esta sesión) ══
+    // Alguien de Chía que no pudo ir en su fecha va a la sesión de Nobsa: se le trae a esta lista y se le marca ahí, en su
+    // propio registro (le cuenta el módulo). No cambia de planta ni aparece en las demás sesiones de esta planta.
+    function invitadosDe() { return asis.invitados[asis.key] || (asis.invitados[asis.key] = {}); }
+    /** La sesión que se le marca a la persona: la de esta lista si le aplica en su planta; si no, otra del mismo módulo que le aplique. */
+    function idxDe(p) { const inv = asis.invitados[asis.key] || {}; return p.j in inv ? inv[p.j] : sesionActual().i; }
+    function sesionParaInvitado(p, s) {
+      const orden = [s].concat(D.sesiones.filter(x => x.clave === s.clave && x !== s));
+      const x = orden.find(o => ses(p, o.i).aplica);
+      return x ? x.i : -1;
+    }
+    function abrirInvitar() {
+      if (!E.usuario) return pedirSesion(abrirInvitar);
+      const s = sesionActual();
+      $('inv-sub').innerHTML = `Para quien es de otra planta y vino a <b>${esc(nombreSesion(s))}</b> en <b>${esc(E.sede)}</b>. Queda marcado solo esta vez, en su propio registro: no cambia de planta.`;
+      const pls = unicos(P.filter(p => p.activo && !deSede(p, E.sede)).map(p => p.p)).sort((a, b) => a.localeCompare(b, 'es'));
+      $('inv-planta').innerHTML = '<option value="">Todas las plantas</option>' + pls.map(pl => `<option>${esc(pl)}</option>`).join('');
+      $('inv-buscar').value = ''; pintarInvitar();
+      modal('modal-invitar').show();
+      setTimeout(() => $('inv-buscar').focus(), 300);
+    }
+    function pintarInvitar() {
+      const s = sesionActual(), inv = invitadosDe(), q = norm($('inv-buscar').value), pl = $('inv-planta').value;
+      const lista = P.filter(p => p.activo && !deSede(p, E.sede) && (!pl || p.p === pl) && (!q || norm(p.n + ' ' + p.c).includes(q))).sort((a, b) => a.n.localeCompare(b.n, 'es'));
+      $('inv-lista').innerHTML = (lista.length ? lista.slice(0, 40).map(p => {
+        const idx = sesionParaInvitado(p, s), ya = p.j in inv;
+        const nota = idx < 0 ? 'Este módulo no le aplica en su planta' + (D.sesiones.some(o => o.clave === s.clave && ses(p, o.i).antesIngreso) ? ' (ingresó a la brigada después)' : '') : idx !== s.i ? 'Se le marca la ' + nombreSesion(D.sesiones[idx]) + ' (la de su planta)' : '';
+        return `<div class="d-flex align-items-center gap-2 py-2 border-bottom"><div class="flex-grow-1 min-w-0"><div class="fw-semibold small">${esc(p.n)}</div>
+            <div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${nota ? ' · <span class="' + (idx < 0 ? 'text-danger' : '') + '">' + esc(nota) + '</span>' : ''}</div></div>
+          ${ya ? '<span class="badge bg-success-subtle text-success-emphasis">En la lista</span>' : `<button type="button" class="btn btn-sm btn-outline-primary flex-shrink-0" data-accion="inv-traer" data-j="${p.j}" ${idx < 0 ? 'disabled' : ''}><i class="fa-solid fa-user-plus me-1" aria-hidden="true"></i>Traer</button>`}</div>`;
+      }).join('') + (lista.length > 40 ? `<p class="small text-muted mt-2">Se muestran 40 de ${lista.length}: escribe el nombre o la cédula.</p>` : '')
+        : '<p class="text-muted small mb-0">Nadie con ese nombre o cédula en otras plantas.</p>');
+    }
+    /** Traer = queda en la lista y marcado «Asistió» (sin guardar todavía). */
+    function traerInvitado(j) {
+      const p = P[j], s = sesionActual(), idx = sesionParaInvitado(p, s);
+      if (idx < 0) return;
+      invitadosDe()[j] = idx;
+      if (p.m.charAt(idx) !== '1') asis.cambios[j] = true;
+      pintarInvitar(); pintarLista();
+    }
+    function quitarInvitado(j) { delete invitadosDe()[j]; delete asis.cambios[j]; pintarLista(); }
     function sesionActual() { return D.sesiones.find(s => s.key === asis.key); }
     function pintarLista() {
       migas();
@@ -809,13 +855,14 @@
       const enPlanta = todas.filter(p => dePlantas(p, asis.plantas)).map(p => ({ p: p, x: ses(p, s.i) }));
       // Sin fecha de ingreso registrada no se sabe si le aplica: no sale (salvo que ya tenga la marca o se pida verlos)
       const seVe = o => asis.inactivos || (o.p.activo && (llamadoAsis(o.p, o.x) || o.x.marcada || o.p.j in asis.cambios));
-      const conInfo = enPlanta.filter(seVe);
+      const inv = invitadosDe(), invitados = Object.keys(inv).map(Number).filter(j => P[j] && !enPlanta.some(o => o.p.j === j)).map(j => ({ p: P[j], x: ses(P[j], inv[j]), inv: true }));
+      const conInfo = enPlanta.filter(seVe).concat(invitados);
       const noAplican = enPlanta.filter(o => o.p.activo && !seVe(o)), porIngreso = noAplican.filter(o => o.x.antesIngreso).length;
       const sinIngreso = noAplican.filter(o => o.x.aplica && !isoDe(o.p.fi)).length;
-      const fechas = unicos(conInfo.filter(o => o.x.aplica).map(o => o.x.f).filter(Boolean));
+      const fechas = unicos(conInfo.filter(o => o.x.aplica && !o.inv).map(o => o.x.f).filter(Boolean));
       const n = Object.keys(asis.cambios).length;
-      const guardadas = todas.filter(p => p.activo && p.m.charAt(s.i) === '1').length;
-      const aplican = todas.filter(p => p.activo && dePlantas(p, asis.plantas) && (llamadoAsis(p, ses(p, s.i)) || p.m.charAt(s.i) === '1')).length;
+      const guardadas = invitados.filter(o => o.x.marcada).length + todas.filter(p => p.activo && p.m.charAt(s.i) === '1').length;
+      const aplican = todas.filter(p => p.activo && dePlantas(p, asis.plantas) && (llamadoAsis(p, ses(p, s.i)) || p.m.charAt(s.i) === '1')).length + invitados.length;
       const puede = !!E.usuario && !(D.fuentes.soloLectura || {}).asistencia;
       $('asis-contenido').innerHTML = `<div class="tarjeta p-3 mb-3">
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
@@ -843,6 +890,7 @@
             ${plantas.length > 1 ? `<span class="small text-muted">Plantas:</span><span class="d-flex flex-wrap gap-1" role="group" aria-label="Plantas (varias a la vez; ninguna = todas)">${plantas.map(pl => `<button class="chip" data-accion="asis-planta" data-pl="${esc(pl)}" aria-pressed="${asis.plantas.indexOf(pl) !== -1}">${esc(pl)}</button>`).join('')}</span>` : ''}
             <button class="btn btn-sm btn-outline-success" data-accion="asis-todos" data-v="1" ${puede ? '' : 'disabled'}>Marcar todos</button>
             <button class="btn btn-sm btn-outline-secondary" data-accion="asis-todos" data-v="0" ${puede ? '' : 'disabled'}>Quitar todos</button>
+            <button class="btn btn-sm btn-outline-primary" data-accion="asis-invitar" ${puede ? '' : 'disabled'} title="Para quien es de otra planta y vino a esta sesión"><i class="fa-solid fa-user-plus me-1" aria-hidden="true"></i>Traer de otra planta</button>
             <div class="form-check ms-2"><input class="form-check-input" type="checkbox" id="asis-inact" ${asis.inactivos ? 'checked' : ''}><label class="form-check-label small" for="asis-inact">Ver desvinculados y a quienes no les aplica</label></div>
           </div>
           ${veSinIngreso() && conInfo.some(o => o.x.aplica && !isoDe(o.p.fi)) ? `<div class="small text-muted mt-2"><i class="fa-solid fa-user-shield me-1"></i>${esProveedor() ? 'Como Ambipar' : 'Como programador'} ves también a ${conInfo.filter(o => o.x.aplica && !isoDe(o.p.fi)).length} activo(s) sin fecha de ingreso a la brigada (salen con «sin fecha de ingreso»). Los demás usuarios no los ven hasta que se registre la fecha.</div>` : ''}
@@ -850,11 +898,12 @@
           ${E.usuario ? '' : '<div class="alert alert-info small mt-3 mb-0"><i class="fa-solid fa-lock me-1"></i>Estás en <b>solo lectura</b>. <a href="#" data-accion="login">Inicia sesión</a> para marcar asistencia.</div>'}
         </div>
         <div class="d-grid gap-2 mb-3">` +
-        conInfo.map(({ p, x }) => {
+        conInfo.map(({ p, x, inv: esInv }) => {
           const v = valorActual(p), cambiada = p.j in asis.cambios;
+          const marcaInv = esInv ? ` · <span class="badge bg-warning-subtle text-warning-emphasis" title="Es de ${esc(p.p)}; vino a esta sesión. Se le marca en su propio registro.">De otra planta · solo esta sesión</span>${idxDe(p) !== s.i ? ' <span class="text-muted">(se le marca la ' + esc(nombreSesion(D.sesiones[idxDe(p)])) + ' de su planta)</span>' : ''} <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-accion="inv-quitar" data-j="${p.j}">Quitar de la lista</button>` : '';
           const habil = puede && p.activo && (x.aplica || v);
           return `<div class="fila-persona d-flex flex-wrap align-items-center gap-2 ${cambiada ? 'cambiada' : ''} ${p.activo && x.aplica ? '' : 'inactiva'}" data-busca="${esc(norm(p.n + ' ' + p.c))}">
-            <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${p.sede !== E.sede ? ' <span class="badge bg-info-subtle text-info-emphasis" title="Su planta principal es ' + esc(p.p) + '; también va a las sesiones de esta sede">de otra planta</span>' : ''}${avisoRestr(p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? (isoDe(p.fi) ? '' : ' · <span class="pildora e-na">sin fecha de ingreso</span>') : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
+            <div class="flex-grow-1"><a href="#" class="fw-semibold text-reset text-decoration-none" data-accion="ficha" data-tipo="HOLCIM" data-j="${p.j}" title="Ver su ficha y todas sus sesiones">${esc(p.n)}</a><div class="small text-muted">C.C. ${esc(p.c)} · ${esc(p.p)}${marcaInv}${p.sede !== E.sede && !esInv ? ' <span class="badge bg-info-subtle text-info-emphasis" title="Su planta principal es ' + esc(p.p) + '; también va a las sesiones de esta sede">de otra planta</span>' : ''}${avisoRestr(p)}${p.activo ? '' : ' · <span class="badge text-bg-secondary">Desvinculado</span>'}${x.aplica ? (isoDe(p.fi) ? '' : ' · <span class="pildora e-na">sin fecha de ingreso</span>') : ' · <span class="pildora e-na">no aplica: ' + esc(x.nota || x.mo) + '</span>'}${x.xFecha && x.xFecha !== x.f ? ' · <span class="text-warning">en la hoja: ' + esc(x.xFecha) + '</span>' : ''}${cambiada ? ' · <span class="text-warning fw-semibold">sin guardar</span>' : ''}</div></div>
             <button class="btn ${v ? 'btn-success' : 'btn-outline-secondary'} btn-asistio" data-accion="asis-alternar" data-j="${p.j}" aria-pressed="${v}" ${habil ? '' : 'disabled'}>${v ? '<i class="fa-solid fa-check me-1"></i>Asistió' : '<i class="fa-regular fa-square me-1"></i>No asistió'}</button></div>`;
         }).join('') + `<p class="text-muted" id="asis-vacio" style="${conInfo.length ? 'display:none' : ''}">No hay brigadistas para mostrar.</p></div>
         <div class="tarjeta p-3 mb-3">
@@ -881,9 +930,9 @@
       const v = $('asis-vacio'); if (v) v.style.display = n ? 'none' : '';
     }
     function alternar(j) {
-      const p = P[j], s = sesionActual();
+      const p = P[j];
       const nuevo = !valorActual(p);
-      if (nuevo === (p.m.charAt(s.i) === '1')) delete asis.cambios[j]; else asis.cambios[j] = nuevo;
+      if (nuevo === (p.m.charAt(idxDe(p)) === '1')) delete asis.cambios[j]; else asis.cambios[j] = nuevo;
       pintarLista();
     }
     /** En Tomar asistencia solo se llama a quien la sesión le aplica por su fecha de ingreso: sin fecha de ingreso registrada no sale. */
@@ -898,13 +947,15 @@
       personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && llamadoAsis(p, ses(p, s.i))).forEach(p => {
         if (v === (p.m.charAt(s.i) === '1')) delete asis.cambios[p.j]; else asis.cambios[p.j] = v;
       });
+      Object.keys(invitadosDe()).map(Number).forEach(j => { const p = P[j]; if (!p) return; if (v === (p.m.charAt(idxDe(p)) === '1')) delete asis.cambios[j]; else asis.cambios[j] = v; });
       pintarLista();
     }
     function confirmarAsistencia() {
       if (!E.usuario) return pedirSesion(confirmarAsistencia);
       const s = sesionActual();
       const js = Object.keys(asis.cambios).map(Number);
-      const si = js.filter(j => asis.cambios[j]).map(j => P[j].n), no = js.filter(j => !asis.cambios[j]).map(j => P[j].n);
+      const inv = invitadosDe(), nom = j => P[j].n + (j in inv ? ' (de ' + P[j].p + (inv[j] !== s.i ? ', se le marca la ' + nombreSesion(D.sesiones[inv[j]]) : '') + ')' : '');
+      const si = js.filter(j => asis.cambios[j]).map(nom), no = js.filter(j => !asis.cambios[j]).map(nom);
       $('conf-titulo').textContent = 'Confirmar asistencia';
       $('conf-cuerpo').innerHTML = `<p class="mb-2"><b>${esc(nombreSesion(s))}</b> · ${esc(s.titulo)}<br><span class="small text-muted">${esc(E.sede)}</span></p>` +
         (si.length ? `<p class="mb-1 text-success fw-semibold">Marcar asistencia (${si.length}):</p><ul class="small">${si.map(x => '<li>' + esc(x) + '</li>').join('')}</ul>` : '') +
@@ -916,10 +967,12 @@
     }
     async function guardarAsistencia() {
       const s = sesionActual();
-      const cambios = Object.keys(asis.cambios).map(Number).map(j => ({ cedula: P[j].c, nombre: P[j].n, fila: P[j].r, valor: asis.cambios[j], anterior: P[j].m.charAt(s.i) === '1' }));
+      const inv = invitadosDe(), en = E.sede + ' · ' + nombreSesion(s);
+      const cambios = Object.keys(asis.cambios).map(Number).map(j => ({ key: D.sesiones[idxDe(P[j])].key, cedula: P[j].c, nombre: P[j].n, fila: P[j].r, valor: asis.cambios[j],
+        anterior: P[j].m.charAt(idxDe(P[j])) === '1', en: j in inv ? en : '' }));
       ocupado(true);
       try {
-        const r = await api('guardarAsistenciaLote', E.token, s.key, cambios);
+        const r = await api('guardarAsistenciaVarias', E.token, cambios);
         ocupado(false);
         if (revisarSesion(r)) return;
         if (!r.exito) return avisar(esc(r.mensaje), 'danger', 10000);
@@ -935,7 +988,8 @@
       aplicados.forEach(a => {
         const p = P.find(x => x.r === a.fila && x.n === a.nombre) || P.find(x => x.c === a.cedula && x.n === a.nombre) || (a.cedula ? P.find(x => x.c === a.cedula) : null);
         if (!p) return;
-        p.m = p.m.slice(0, s.i) + (a.valor ? '1' : '0') + p.m.slice(s.i + 1);
+        const i = a.key ? D.sesiones.findIndex(x => x.key === a.key) : s.i; if (i < 0) return;
+        p.m = p.m.slice(0, i) + (a.valor ? '1' : '0') + p.m.slice(i + 1);
         D.holcim[p.j].m = p.m;
         p.cump = cumplimiento(p);
       });
@@ -943,7 +997,7 @@
     async function deshacer(s, aplicados) {
       ocupado(true);
       try {
-        const r = await api('guardarAsistenciaLote', E.token, s.key, aplicados.map(a => ({ cedula: a.cedula, nombre: a.nombre, fila: a.fila, valor: a.anterior, anterior: a.valor })));
+        const r = await api('guardarAsistenciaVarias', E.token, aplicados.map(a => ({ key: a.key || s.key, cedula: a.cedula, nombre: a.nombre, fila: a.fila, valor: a.anterior, anterior: a.valor })));
         ocupado(false);
         if (revisarSesion(r)) return;
         if (r.exito) { aplicarLocal(s, r.aplicados || []); contarRevision(); }
@@ -953,7 +1007,8 @@
     }
     function imprimirLista() {
       const s = sesionActual();
-      const pers = personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && (llamadoAsis(p, ses(p, s.i)) || ses(p, s.i).marcada));
+      const pers = personasSede(E.sede).filter(p => p.activo && dePlantas(p, asis.plantas) && (llamadoAsis(p, ses(p, s.i)) || ses(p, s.i).marcada))
+        .concat(Object.keys(invitadosDe()).map(Number).map(j => P[j]).filter(p => p && !deSede(p, E.sede)));
       const fechas = unicos(pers.map(p => ses(p, s.i).f).filter(Boolean));
       $('print-area').innerHTML = `<h2 style="margin:0 0 4px">Lista de asistencia · ${esc(E.sede)}</h2><div><b>${esc(nombreSesion(s))}</b> — ${esc(s.titulo)}</div>
         <div style="margin-bottom:10px">Fecha programada: ${esc(fechas.join(' / ') || '____/____/______')} &nbsp; Fecha real: ____/____/______ &nbsp; Instructor: ______________________</div>
@@ -965,7 +1020,9 @@
     function csvAsistencia() {
       const s = sesionActual();
       descargarCsv('asistencia_' + s.clave + '_S' + s.n + '_' + E.sede + '.csv', [['Nombre', 'Cédula', 'Planta', 'Estado', 'Sesión', 'Fecha', 'Aplica', 'Asistió']]
-        .concat(personasSede(E.sede).map(p => { const x = ses(p, s.i); return [p.n, p.c, p.p, p.e, nombreSesion(s) + ' ' + s.titulo, x.f, x.aplica ? 'SÍ' : 'NO', x.marcada ? 'SÍ' : 'NO']; })));
+        .concat(personasSede(E.sede).map(p => { const x = ses(p, s.i); return [p.n, p.c, p.p, p.e, nombreSesion(s) + ' ' + s.titulo, x.f, x.aplica ? 'SÍ' : 'NO', x.marcada ? 'SÍ' : 'NO']; }))
+        .concat(Object.keys(invitadosDe()).map(Number).filter(j => P[j] && !deSede(P[j], E.sede)).map(j => { const p = P[j], i = invitadosDe()[j], x = ses(p, i);
+          return [p.n + ' (de otra planta)', p.c, p.p, p.e, nombreSesion(D.sesiones[i]) + ' ' + D.sesiones[i].titulo, x.f, x.aplica ? 'SÍ' : 'NO', x.marcada ? 'SÍ' : 'NO']; })));
     }
 
     // ══════════ LISTAS DE ASISTENCIA (formato Holcim) ══════════
@@ -3021,6 +3078,7 @@
           '<b>Subir lista firmada</b> (PDF o foto) y <b>Subir fotos</b> de la sesión, debajo de la lista: quedan guardadas y se ven aquí mismo. Las fotos se reducen solas para que suban rápido.',
           'En el celular, las descargas (Lista Holcim, Imprimir para firmar, CSV) están juntas en <b>Descargar</b>.',
           'Buscar a una persona por nombre o cédula dentro de la lista.',
+          '<b>Traer de otra planta</b>: si vino alguien de otra planta (por ejemplo, de Chía a la sesión de Nobsa porque no pudo ir en su fecha), búscalo y pulsa <b>Traer</b>. Queda en esta lista solo esta vez, marcado «Asistió», y no cambia de planta. Se le guarda en su propio registro (le cuenta el módulo) y el historial dice dónde asistió. Si en su planta ese módulo tiene otra sesión, se le marca esa (te lo dice).',
           ['gh', 'También desde la ficha de cada brigadista (Brigadistas → clic en su nombre) marcas varias sesiones de una vez.'],
         ],
         ojo: [
